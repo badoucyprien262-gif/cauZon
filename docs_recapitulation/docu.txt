@@ -1,0 +1,248 @@
+# Dossier d'Architecture et de Spécifications Techniques Intégral
+
+Ce document constitue le cahier des charges technique de référence et l'état de l'art pour les applications cauZon (client) et administrateur-cauZon (admin). Il intègre les choix d'implémentation et les mécanismes de synchronisation avec le back-end Supabase.
+
+---
+
+## 1. Architecture Globale et Stack Technique
+
+Structure du Monorepo / Projets :
+- /cauZon__utulisateur/frontend : Code source de l'application mobile multiplateforme construite avec Expo. Elle cible iOS, Android, et les navigateurs de bureau (Web).
+- /administrateur_cauZon : Code source du tableau de bord d'administration web construit sous React JS (Vite/TypeScript).
+- /supabase_setup.sql : Schéma relationnel de base de données, fonctions stockées, vues matérialisées et règles de Row-Level Security (RLS) associées.
+
+Stack Front-End & Frameworks :
+- React Native (Expo SDK 51+) : Technologie centrale de l'application utilisateur, assurant un rendu performant et fluide des interfaces utilisateur (UI) mobiles.
+- React JS (18+) & TypeScript (5+) : Base logicielle du Dashboard administrateur pour une typification robuste des flux de données et des interactions de formulaire.
+- Styling :
+  - Application Utilisateur : StyleSheet de React Native (Vanilla CSS-in-JS).
+  - Application Administrateur : CSS standard combiné à des modules intégrés de micro-animations.
+- Composants Tiers :
+  - Lecteur PDF Client : Exploitation asynchrone de WebView sous Android/iOS avec un fallback <iframe> s'appuyant sur l'intégrateur PDF natif pour les navigateurs web.
+  - Lecteur PDF Admin : Composant <iframe> évitant de télécharger les fichiers binaires en mémoire JavaScript, exploitant l'URL CDN publique pour un chargement direct sans ralentissement.
+  - Expo Screen Orientation : Module de verrouillage/déverrouillage automatique ou manuel du mode paysage dans le lecteur PDF étudiant.
+
+---
+
+## 2. Application Utilisateur (cauZon) : Mapping Interface et Logique UX
+
+L'application utilisateur utilise un contexte centralisé (ContexteApp.tsx) pour propager de manière réactive l'état d'abonnement VIP, les documents acquis, et la configuration de l'appareil.
+
+
+Écrans Principaux & Routage :
+
+1. Écran d'Accueil (Fil d'actualité)
+* Fonctionnalité : Présente les nouveautés, les cours par catégories (matières) et les bannières publicitaires administratives.
+* Filtre d'affichage : Les documents sont filtrés à la volée selon la formule :
+  documents.filter(doc => doc.statut === 'actif' && !docsDebloquesIds.includes(doc.id))
+  Cela garantit qu'un document acheté disparaît instantanément de l'accueil pour éviter les clics superflus.
+
+2. Écran de Recherche & Catalogue
+* Fonctionnalité : Moteur de recherche plein texte sur les titres de cours et filtrage par matière à travers un slider horizontal dynamique.
+
+3. Écran Bibliothèque (Cours acquis)
+* Fonctionnalité : Affiche les cours déjà débloqués par l'utilisateur (soit via l'Achat Unitaire, l'Offre de Bienvenue ou le Pass VIP).
+* Comportement de suppression : Un bouton "Supprimer" permet de supprimer localement le document. L'application supprime l'acquisition correspondante dans Supabase et réévalue l'affichage. Si le cours est toujours marqué 'actif', il réapparaît automatiquement dans le flux de l'Accueil sous forme verrouillée.
+
+4. Écran de Lecture PDF
+* Fonctionnalité : Lecteur haute performance avec pinch-to-zoom jusqu'à 500%.
+* Contrôle Orientation : Bouton d'action manuelle pour pivoter l'écran à 90° et déblocage de la rotation par capteur physique (ScreenOrientation.unlockAsync()).
+* Masque d'Aperçu Paywall : Superpose une barrière d'achat dynamique sur le document non acheté. Si le mode d'aperçu est défini à pourcentage, un filtre de flou (backdrop-filter: blur(12px)) s'active à partir de la coordonnée verticale configurable (ex : 30% de la hauteur de la première page), incitant l'étudiant à payer 100 FCFA ou à s'abonner VIP.
+
+Jauge de Stockage Dynamique :
+L'application impose une limite d'acquisitions locales pour protéger la bande passante et inciter à la mise à niveau. La capacité est calculée dynamiquement via l'état aStockageEtendu :
+* Stockage de Base : Capacité fixée à 125 documents.
+* Stockage Étendu (Abonnement) : Capacité étendue à 250 documents dès l'achat de l'extension (1000 FCFA).
+
+---
+
+## 3. Application Administrateur (administrateur-cauZon) : Outils de Gestion
+
+Le tableau de bord permet une gestion complète des ressources, des publications différées et de la modération des messages.
+
+Écrans Clés :
+1. Studio de Création : Interface visuelle modulaire pour concevoir des cours structurés sous forme de blocs (texte, image, PDF).
+2. Gestion du Catalogue : Tableau récapitulatif listant l'intégralité des documents avec indicateurs de statut (actif ou inactif).
+3. Annonces & Bannières : Outil d'administration de bandeaux informatifs programmés dans le temps et ciblant des profils d'utilisateurs spécifiques (VIP, non-VIP, Tous).
+
+Gestion de l'Aperçu et de la Ligne de Coupure :
+* Simulateur Admin : L'administrateur peut visualiser la version étudiante du PDF en cliquant sur l'icône de l'œil (👁️). Une ligne pointillée rouge (dashed red line) matérialise l'emplacement exact où le paywall s'affichera pour l'étudiant.
+* Paramétrage Dynamique : Deux champs de formulaire permettent d'éditer en direct le mode de coupure :
+  - limite_apercu_type : 'page' (stop après page N) ou 'pourcentage' (stop à X% de la hauteur de la page 1).
+  - limite_apercu_valeur : Entier définissant le pourcentage ou le nombre de pages.
+
+---
+
+## 4. Système de Paiement et Intégration FedaPay
+
+Toutes les transactions financières de l'application s'appuient sur l'API FedaPay afin de supporter les paiements par Mobile Money (Wave, Orange Money, Free Money, MTN, Moov).
+
+Variables d'Environnement :
+EXPO_PUBLIC_FEDAPAY_PUBLIC_KEY=pk_live_3TMn2LiWKb3QQBcdxm9rTRtl
+
+Processus Transactionnels et Tarifs :
+- Achat Unitaire (100 FCFA) : Ajout d'une ligne dans acquisitions (is_welcome_offer = false). Déverrouillage définitif du document, retrait du fil d'accueil.
+- Pass VIP Mensuel (500 FCFA) : Mise à jour de profiles (has_vip_pass = true, calcul de la date d'expiration). Retrait global de tous les cadenas et verrous de l'application.
+- Extension Stockage (1000 FCFA) : Mise à jour de profiles (has_extended_storage = true). Passage de la limite de stockage local à 250 documents maximum.
+
+Gestion de la Mise à Jour Optimiste :
+Lorsqu'une transaction FedaPay renvoie le statut approved :
+1. Le composant appelle le service local Supabase pour persister l'acquisition ou le nouveau statut du profil.
+2. L'état local du ContexteApp est mis à jour immédiatement pour offrir une réponse visuelle fluide à l'utilisateur sans rechargement de page.
+
+---
+
+## 5. Spécifications du Back-End Supabase
+
+Schéma Relationnel PostgreSQL :
+
+Table : public.profiles
+```sql
+CREATE TABLE public.profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT,
+    avatar_url TEXT,
+    has_extended_storage BOOLEAN DEFAULT false,
+    has_vip_pass BOOLEAN DEFAULT false,
+    vip_expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+```
+
+Table : public.documents
+```sql
+CREATE TABLE public.documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    titre TEXT NOT NULL,
+    categorie TEXT NOT NULL,
+    description TEXT,
+    prix INTEGER DEFAULT 100,
+    est_certifie BOOLEAN DEFAULT false,
+    est_verrouille BOOLEAN DEFAULT true,
+    nombre_pages INTEGER DEFAULT 1,
+    limite_apercu_type TEXT DEFAULT 'pourcentage' CHECK (limite_apercu_type IN ('page', 'pourcentage')),
+    limite_apercu_valeur INTEGER DEFAULT 30,
+    limite_apercu_pages INTEGER DEFAULT 1,
+    taille_mo NUMERIC(5,2) DEFAULT 1.00,
+    file_path TEXT NOT NULL,
+    cover_url TEXT,
+    status TEXT DEFAULT 'published' CHECK (status IN ('published', 'draft', 'scheduled', 'archived', 'inactif')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+```
+
+Table : public.acquisitions
+```sql
+CREATE TABLE public.acquisitions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    document_id UUID REFERENCES public.documents(id) ON DELETE CASCADE,
+    is_welcome_offer BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT unique_user_document UNIQUE(user_id, document_id)
+);
+```
+
+Table : public.annonces_bannieres
+```sql
+CREATE TABLE public.annonces_bannieres (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    titre_bande TEXT NOT NULL,
+    contenu_detaille TEXT NOT NULL,
+    type_importance TEXT DEFAULT 'info' CHECK (type_importance IN ('info', 'promo', 'urgent')),
+    date_debut TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    date_fin TIMESTAMP WITH TIME ZONE NOT NULL,
+    ciblage_role TEXT DEFAULT 'tous' CHECK (ciblage_role IN ('tous', 'non_abonnes', 'abonnes')),
+    document_id_associe UUID REFERENCES public.documents(id) ON DELETE SET NULL,
+    statut TEXT DEFAULT 'actif' CHECK (statut IN ('actif', 'inactif')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+```
+
+---
+
+## 6. Routines et Requêtes SQL critiques
+
+1. Sélection du flux d'accueil étudiant (filtré) :
+```sql
+SELECT * FROM public.documents
+WHERE status = 'published'
+  AND id NOT IN (
+      SELECT document_id FROM public.acquisitions 
+      WHERE user_id = $1 OR device_id = $2
+  );
+```
+
+2. Suppression de document de la bibliothèque (Client) :
+```sql
+DELETE FROM public.acquisitions
+WHERE user_id = $1 AND document_id = $2;
+```
+
+3. Désactivation / Soft Delete de document (Admin) :
+```sql
+UPDATE public.documents
+SET status = 'inactif'
+WHERE id = $1;
+```
+
+4. Vue PostgreSQL : Classement de performance des cours
+```sql
+CREATE VIEW public.classement_documents AS
+SELECT 
+    d.id,
+    d.titre,
+    d.categorie,
+    d.prix,
+    d.status,
+    COUNT(a.id) AS nombre_deblocages
+FROM public.documents d
+LEFT JOIN public.acquisitions a ON a.document_id = d.id
+GROUP BY d.id, d.titre, d.categorie, d.prix, d.status
+ORDER BY nombre_deblocages DESC;
+```
+
+---
+
+## 7. Structure d'Hébergement du Supabase Storage
+
+Les buckets de stockage Supabase doivent être configurés avec les politiques d'accès suivantes :
+
+Supabase Storage Bucket
+ ├── [documents] / (PDF de cours)
+ │    └── Politique RLS : Lecture publique autorisée, Insertion réservée aux authentifiés/Admins
+ └── [couvertures] / (Images de miniature et miniatures générées)
+      └── Politique RLS : Lecture publique universelle
+
+---
+
+## 8. Procédures de Lancement & Commandes de Démarrage
+
+### A. Démarrage de l'Application Mobile (Expo Go)
+Pour lancer l'application mobile et la tester sur votre téléphone :
+1. Placez-vous dans le dossier de l'application :
+   ```bash
+   cd cauZon__utulisateur/frontend
+   ```
+2. Lancez le serveur Metro en vidant le cache pour éviter les conflits :
+   ```bash
+   npx expo start -c
+   ```
+3. Assurez-vous que votre téléphone et votre ordinateur sont connectés au même réseau Wi-Fi local.
+4. Ouvrez l'application **Expo Go** sur votre téléphone et scannez le code QR généré dans votre terminal.
+
+### B. Démarrage du Dashboard Administrateur (Vite)
+Pour lancer le panneau d'administration sur votre ordinateur :
+1. Placez-vous dans le dossier de l'administration :
+   ```bash
+   cd administrateur_cauZon
+   ```
+2. Démarrez le serveur de développement local :
+   ```bash
+   npm run dev
+   ```
+3. Ouvrez votre navigateur web et accédez à l'adresse locale affichée, généralement :
+   ```url
+   http://localhost:5173
+   ```

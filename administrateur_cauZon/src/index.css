@@ -1,0 +1,245 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Mode Clair */
+  --bg-color: #F8F9FA;
+  --bg-sidebar: #6B1124; /* Bordeaux d'origine pour la sidebar */
+  --bg-card: #FFFFFF;
+  --text-color: #2C3E50;
+  --text-muted: #7F8C8D;
+  --border-color: #E2E8F0;
+  
+  --primary-color: #6B1124;
+  --primary-hover: #520B1A;
+  --accent-color: #E5C158;
+  --accent-hover: #D4B047;
+  --accent-bg: #FAF6EB;
+  
+  --success-color: #2ECC71;
+  --danger-color: #E74C3C;
+  --warning-color: #F39C12;
+  
+  --font-sans: 'Inter', sans-serif;
+  --font-heading: 'Outfit', sans-serif;
+  
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark-mode {
+  /* -------------------------------------------------------
+   * Mode Sombre — Palette Gris Neutre (One UI / AMOLED)
+   * Zéro teinte brune ou sépia. Purs gris neutres zinc.
+   * ------------------------------------------------------- */
+  --bg-color: #121212;           /* Fond principal : noir-gris neutre absolu       */
+  --bg-sidebar: #1a1a1a;         /* Sidebar : légèrement plus clair que le fond     */
+  --bg-card: #1e1e1e;            /* Cartes, modales, panneau : zinc-900 neutre      */
+  --text-color: #FFFFFF;         /* Texte principal : blanc pur — contraste maximal */
+  --text-muted: #9CA3AF;         /* Labels secondaires : gray-400 Tailwind neutre   */
+  --border-color: #27272A;       /* Bordures : zinc-800 — subtiles sans agressivité */
+
+  --primary-color: #F87171;      /* Rouge CTA adouci pour fond sombre (red-400)     */
+  --primary-hover: #FCA5A5;      /* Hover encore plus clair                         */
+  --accent-color: #E5C158;       /* Doré accent conservé (identité cauZon)          */
+  --accent-hover: #F0D070;
+  --accent-bg: #27272A;          /* Fond accent-badge : zinc-800                    */
+
+  --success-color: #4ADE80;      /* Vert succès — green-400                         */
+  --danger-color: #F87171;       /* Danger rouge — red-400                          */
+  --warning-color: #FBBF24;      /* Avertissement — amber-400                       */
+
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: var(--transition);
+  min-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  flex: 1;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-color);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Animations utilitaires */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 🖨️ STYLES D'IMPRESSION & EXPORT PDF (STUDIO CAUZON)
+ * Isole strictement la feuille A4 et masque l'intégralité de l'interface admin
+ * ───────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* 1. Reset Global & Masquage de l'interface Admin */
+  html, body {
+    background: #FFFFFF !important;
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    font-size: 12pt;
+  }
+
+  /* Masquer tous les éléments d'interface UI */
+  header,
+  nav,
+  aside,
+  footer,
+  .print-hide,
+  .bottom-nav,
+  .studio-palette-sidebar,
+  .studio-block-actions,
+  button,
+  input[type="button"],
+  input[type="submit"] {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  #root,
+  main,
+  .studio-editor-container {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+    background: transparent !important;
+    position: static !important;
+  }
+
+  .studio-sheet-wrapper {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+  }
+
+  /* 2. Format Page A4 Monopage Longue & Compacte */
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  /* 3. Feuille A4 de cours isolée (Monopage fluide) */
+  #studio-printable-document,
+  .studio-printable-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 10px 14px !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #FFFFFF !important;
+    color: #111827 !important;
+    overflow: visible !important;
+    page-break-after: avoid !important;
+  }
+
+  /* En-tête imprimé compact */
+  #studio-printable-document > div:first-child {
+    margin-bottom: 12px !important;
+    padding-bottom: 8px !important;
+    border-bottom: 2px solid #6B1124 !important;
+  }
+
+  /* Conteneur de blocs compact */
+  #studio-printable-document > div:nth-child(2) {
+    gap: 10px !important;
+  }
+
+  /* Inputs & Textareas affichés comme du texte imprimé pur */
+  #studio-printable-document input,
+  #studio-printable-document textarea {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    resize: none !important;
+    color: inherit !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    outline: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  /* Préservation des blocs fluide sans espacement excessif */
+  .studio-block-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border: none !important;
+    padding: 2px 0 !important;
+    margin-bottom: 8px !important;
+    background: transparent !important;
+    position: static !important;
+  }
+
+  .studio-block-item:hover {
+    border-color: transparent !important;
+  }
+}

@@ -1,0 +1,155 @@
+================================================================================
+                    PROJET CAUZON - DOCUMENTATION TECHNIQUE
+                       01 - RECAPITULATIF ADMINISTRATEUR
+================================================================================
+
+Ce document récapitule l'architecture, la conception visuelle, le fonctionnement 
+applicatif et la structure de base de données de l'application Administrateur cauZon.
+
+--------------------------------------------------------------------------------
+1. ARCHITECTURE TECHNIQUE & CONFIGURATION
+--------------------------------------------------------------------------------
+L'application d'administration est un projet web moderne conçu pour la gestion et 
+la création de documents académiques.
+
+- Framework de Base : React 19 et TypeScript.
+- Outil de Build & Bundler : Vite.js.
+- Rechargement à chaud : HMR (Hot Module Replacement) réactif en cours de dev.
+- Typage Strict : TypeScript avec validation complète lors de la compilation.
+- Thème d'Affichage : Mode Sombre (Dark Mode) et Mode Clair (Light Mode) gérés 
+  via un état global (State React) appliquant des variables CSS personnalisées.
+- Palette de Couleurs Officielle cauZon :
+  * Bordeaux cauZon (Primaire) : `#6B1124` / `rgba(107, 17, 36, 1)`
+  * Or cauZon (Accentuation) : `#E5C158` / `rgba(229, 193, 88, 1)`
+  * Fonds & Textes : Variables CSS dynamiques `--bg-color`, `--text-color`, 
+    `--border-color` s'adaptant selon le mode de thème choisi.
+- Typographie : Google Fonts chargées dynamiquement dans l'application :
+  * "Outfit" (Sans-serif géométrique moderne) pour les titres et boutons.
+  * "Inter" (Sans-serif hautement lisible) pour les textes courants.
+
+--------------------------------------------------------------------------------
+2. STUDIO DE CRÉATION PDF (L'ÉDITEUR A4)
+--------------------------------------------------------------------------------
+Le Studio PDF est l'espace de composition visuel de documents d'études. Il est 
+structuré en deux colonnes principales au sein d'un conteneur global en plein écran.
+
+A. Structure Globale de l'Écran (Layout CSS) :
+   - Conteneur Principal : `display: flex`, hauteur fixe `h-screen`, `overflow: hidden`.
+   - Colonne de Gauche (Menu & Éditeur) : Largeur fixe, panneau de configuration 
+     scrollable contenant les formulaires d'édition des blocs.
+   - Colonne de Droite (Zone de Prévisualisation) : `flex: 1`, `h-full`, 
+     `overflow-y: auto`, `overflow-x: auto` (défilement fluide), fond gris neutre 
+     `bg-gray-100` (`#F3F4F6`), affichant les pages A4 empilées verticalement.
+
+B. Conception des Feuilles A4 :
+   - Chaque page A4 est rendue sous forme de feuille physique blanche.
+   - Classe CSS / Styles : `w-[210mm]` (~794px), `min-h-[297mm]` (~1123px), fond 
+     blanc `bg-white`, ombrage `shadow-lg`, positionnement relatif.
+   - Marge Intérieure de Sécurité : Un padding bas obligatoire de `50px` est appliqué 
+     pour éviter que le contenu ne vienne chevaucher le pied de page ("Certifié cauZon").
+   - En-tête & Pied de Page : Chaque page générée comporte automatiquement le bandeau 
+     d'en-tête cauZon (avec le logo, le titre du cours, et la mention "DOCUMENT OFFICIEL") 
+     ainsi qu'un pied de page paginé dynamiquement ("Certifié cauZon | Page X sur Y").
+
+C. Règles Strictes de Non-Coupure (Page-Breaks) :
+   - Pour éviter que des encadrés, des formules mathématiques, des lignes de code ou 
+     des cartes ne soient découpés horizontalement à cheval sur deux pages, la règle 
+     CSS `break-inside: avoid; page-break-inside: avoid;` est appliquée à tous les blocs.
+
+E. Algorithme de Pagination Dynamique (`paginateBlocks`) :
+   - Le système calcule en temps réel la hauteur estimée (en pixels) de chaque bloc de 
+     contenu en fonction de son type, de la longueur de son texte ou du nombre de lignes.
+   - Limite de hauteur utile par page : `880px` (hauteur A4 totale moins les marges et en-têtes).
+   - Si l'ajout d'un bloc fait dépasser la limite de `880px` sur la page courante, le bloc 
+     est automatiquement déplacé au début de la page suivante.
+
+E. Gestion des Niveaux de Zoom :
+   - Trois modes de zoom fixes et simplifiés sont proposés : [ 60% ] [ 80% ] [ 100% ].
+   - À 60% et 80% : Rendu réduit et centré horizontalement.
+   - À 100% (Plein Écran) : La largeur de la feuille A4 s'adapte dynamiquement pour occuper 
+     exactement tout l'espace disponible de la colonne de droite, s'arrêtant pile à la 
+     frontière de la barre de défilement verticale.
+   - Implémentation technique du zoom : Utilisation de la propriété CSS standard `zoom` 
+     appliquée sur les conteneurs de page A4 pour un recalcul natif de la mise en page.
+
+--------------------------------------------------------------------------------
+3. MODULES DE CONTENU & BLOCS ACADÉMIQUES
+--------------------------------------------------------------------------------
+L'éditeur intègre des blocs configurables enrichis pour couvrir tous les domaines 
+d'études (Sciences, Droit, Lettres, SVT, Informatique, etc.).
+
+A. Module Scientifique & Technique :
+   - Bloc Formule / LaTeX (`equation`) : Rendu centré dans une police serif mathématique 
+     ("Times New Roman" / "Georgia"), sur fond bleuté clair `#F7F9FA` avec bordure 
+     pointillée `#A5B4FC`.
+   - Bloc Code Informatique (`code`) : Rendu console sombre (`#1E1E1E`) avec police 
+     monospace, numérotation des lignes à gauche, et étiquette de langage programmable.
+   - Bloc Tableau Dynamique (`table`) : Tableau à en-têtes configurables avec options 
+     d'ajout et de suppression de lignes et de colonnes dynamiquement en 1 clic.
+
+B. Module Juridique & Littéraire :
+   - Bloc Article de loi (`law`) : Style solennel avec bordure gauche épaisse bordeaux 
+     `#6B1124`, fond teinté `#FDFBF7`, et texte de loi justifié entre guillemets.
+   - Bloc Citation / Extrait (`citation`) : Format blockquote avec liseré or `#E5C158` 
+     et alignement de l'auteur en bas à droite.
+   - Bloc Notes de bas de page (`footnote`) : Petites notes explicatives numérotées, 
+     placées discrètement avec un séparateur horizontal en bas de la zone de contenu.
+
+C. Module Visuel & Pédagogique :
+   - Bloc Image & Légende (`image`) : Insertion d'images via URL avec redimensionnement 
+     automatique et affichage d'une légende descriptive en italique sous l'image.
+   - Bloc Surligneur (`highlight`) : Paragraphe mis en évidence par une couleur de fond 
+     sélectionnable (Jaune fluo, Vert d'eau doux, Violet pastel royal).
+   - Bloc Lexique / Vocabulaire (`lexicon`) : Terme mis en gras bordeaux suivi de sa 
+     définition en retrait italique.
+   - Blocs de Base : Grand Titre (`title` avec réglage taille, couleur et alignement), 
+     Titre de Section (`heading` souligné d'une barre or), Paragraphe simple, Bulle Info 
+     (types info, attention, à retenir), Liste à puces (`list`), et Double Colonne (`columns`).
+
+--------------------------------------------------------------------------------
+4. LOGIQUE APPLICATIVE & ACTION DES BOUTONS
+--------------------------------------------------------------------------------
+- Insertion de composants : Les boutons d'insertion créent un nouvel objet de bloc avec 
+  des identifiants uniques et l'insèrent à la fin du tableau d'état `studioBlocks`.
+- Déplacement des blocs (Monter / Descendre) : Permet de réordonner dynamiquement 
+  les blocs en swappant leurs positions dans le tableau d'état.
+- Suppression : Retire le bloc de la liste après confirmation.
+- Barre d'outils fixe (Header de droite) :
+  * Reste ancrée en haut lors du défilement des pages A4 grâce à `position: sticky`.
+  * Boutons de zoom : Règlent la valeur de l'état `zoomMode` (`60 | 80 | 100`).
+  * Bouton "Télécharger PDF" (Export local) : Temporairement, le zoom est réinitialisé 
+    à `1` (100% réel non scalé) pour permettre au moteur de capture `html2canvas` et 
+    `jspdf` de générer des pages haute résolution sans flou, puis le zoom est restauré.
+  * Bouton "Enregistrer sur Supabase" : Enregistre ou met à jour la ligne du document 
+    avec le JSON structuré des blocs dans la base de données distante.
+
+--------------------------------------------------------------------------------
+5. BACK-END & STRUCTURE DE LA BASE DE DONNÉES
+--------------------------------------------------------------------------------
+L'application est directement reliée à Supabase pour la persistance des données.
+
+A. Table Supabase : `public.documents`
+   - `id` : uuid (clé primaire)
+   - `titre` : text (titre officiel du document)
+   - `categorie` : text (matière concernée)
+   - `description` : text
+   - `prix` : integer (prix de déblocage en FCFA, par exemple: 100)
+   - `est_certifie` : boolean (affiche le sceau de certification cauZon)
+   - `est_verrouille` : boolean (paywall requis si vrai)
+   - `nombre_pages` : integer
+   - `limite_apercu_pages` : integer (nombre de pages gratuites avant verrouillage)
+   - `taille_mo` : numeric (taille estimée du fichier)
+   - `file_path` : text (chemin relatif dans le bucket de stockage)
+   - `cover_url` : text (URL de la couverture d'illustration)
+   - `status` : text (statut de publication : brouillon, publié)
+   - `blocks` : jsonb (données structurées de l'éditeur de blocs pour le rechargement)
+
+B. Storage Supabase (Bucket) :
+   - Bucket : `cours-documents`
+   - Utilisé pour stocker les fichiers PDF exportés et les assets.
+
+C. Sécurité et Politiques RLS (Row Level Security) :
+   - RLS activé sur la table `documents`.
+   - Les politiques autorisent la lecture publique des documents par tous les clients (anonymes ou connectés).
+   - Les modifications et insertions sont autorisées pour les rôles d'administrateurs via le client d'administration configuré.
+================================================================================

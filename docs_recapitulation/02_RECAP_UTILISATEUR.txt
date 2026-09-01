@@ -1,0 +1,123 @@
+================================================================================
+                    PROJET CAUZON - DOCUMENTATION TECHNIQUE
+                         02 - RECAPITULATIF UTILISATEUR
+================================================================================
+
+Ce document récapitule l'architecture, la conception visuelle, le fonctionnement 
+applicatif et la structure de base de données de l'application Utilisateur cauZon.
+
+--------------------------------------------------------------------------------
+1. ARCHITECTURE TECHNIQUE & STYLE
+--------------------------------------------------------------------------------
+L'application utilisateur de cauZon est un projet mobile multiplateforme.
+
+- Framework de Base : React Native avec Expo SDK 54 et TypeScript.
+- Gestion du Thème : Mode Sombre (Dark Mode) et Mode Clair (Light Mode) gérés 
+  via le contexte global de l'application (`ContexteApp.tsx`) qui expose 
+  dynamiquement l'objet de style `couleurs`.
+- Palette de Couleurs Officielle :
+  * Bordeaux cauZon (Primaire) : `#6B1124` / `rgba(107, 17, 36, 1)`
+  * Or cauZon (Accentuation) : `#E5C158` / `rgba(229, 193, 88, 1)`
+  * Fonds et Textes : Variables HSL/RGB adaptées selon le mode (clair/sombre).
+- Structure de Navigation (`navigation/NavigateurApp.tsx`) :
+  * Utilise React Navigation pour structurer l'expérience utilisateur.
+  * Navigateur principal : Bottom Tab Navigator avec deux onglets principaux :
+    - `Accueil` : Flux de découverte du catalogue de documents de cours.
+    - `Bibliothèque` : Espace personnel regroupant les documents débloqués.
+  * Modales & Vues flottantes (Stack Navigation) :
+    - `DocumentViewer` : Fiche descriptive de document avec option d'achat.
+    - `PdfViewer` : Lecteur PDF sécurisé de documents.
+
+--------------------------------------------------------------------------------
+2. GESTION DU STOCKAGE ET QUOTA (SPÉCIFICATION STRICTE)
+--------------------------------------------------------------------------------
+Pour optimiser les ressources locales, cauZon impose une limitation stricte sur 
+le nombre de fichiers conservés hors-ligne par l'utilisateur.
+
+A. Spécification de Capacité :
+   - Le stockage est comptabilisé strictly en NOMBRE DE DOCUMENTS téléchargés (et 
+     non en mégaoctets de données).
+   - Plafond par défaut : **125 documents** maximum par utilisateur.
+   - Alertes de Quota :
+     * Lorsque le nombre de documents atteint 123 ou 124, l'application affiche 
+       une alerte visuelle (couleur d'avertissement orange/rouge) pour signaler à 
+       l'utilisateur qu'il approche de la saturation de son espace de stockage.
+     * À 125 documents stockés, le stockage est considéré comme saturé, bloquant 
+       téléchargement et consultation de nouveaux documents hors-ligne.
+
+B. Achat d'Extension de Capacité :
+   - L'utilisateur peut lever cette restriction en achetant une extension de stockage.
+   - Prix de l'extension : **1000 FCFA** (achat unique non récurrent).
+   - Effet de l'extension : Ajoute **+125 documents** de capacité supplémentaire, 
+     portant le plafond total de stockage à **250 documents**.
+   - Moyens de paiement mobile supportés : Orange Money, Wave, et MTN Mobile Money.
+
+C. Composants Techniques Associés :
+   - `JaugeStockage.tsx` : Composant graphique affichant la barre de progression du 
+     stockage local (`docs stockés / limite autorisée`), le pourcentage et le bouton 
+     d'amélioration de l'espace.
+   - `ModaleStockage.tsx` : Modale de transaction sécurisée simulant le paiement Mobile 
+     Money et mettant à jour l'état `aStockageEtendu` dans le contexte applicatif.
+
+--------------------------------------------------------------------------------
+3. LOGIQUE APPLICATIVE & ACTIONS DES BOUTONS
+--------------------------------------------------------------------------------
+A. Déblocage et Achat de Documents :
+   - Offre de Bienvenue : Le tout premier document téléchargé par l'appareil est 
+     100% gratuit (is_welcome_offer = true).
+   - Paywall Standard : Pour tout document suivant, le déblocage requiert un paiement 
+     unique de **100 FCFA** par document.
+   - Bouton "Débloquer le document" (Fiche descriptive / Lecteur) : Ouvre la modale de 
+     paiement mobile. L'application simule ensuite l'appel réseau et enregistre 
+     l'acquisition sur Supabase.
+
+B. Téléchargement Local & Mode Hors-Ligne :
+   - Bouton "Télécharger" : Permet d'enregistrer le document débloqué dans la 
+     mémoire de stockage locale du téléphone.
+   - L'utilisateur peut ensuite le lire sans aucune connexion internet active.
+
+C. Lecteur PDF Sécurisé (`PdfViewerScreen.tsx`) :
+   - Rendu des documents : Effectué dans un composant `WebView` en utilisant le 
+     moteur Google Docs Viewer (`https://docs.google.com/viewer?url=...`).
+   - Pour bypasser le cache agressif de Google, un timestamp (`?v=${Date.now()}`) 
+     est systématiquement injecté à la fin de l'URL publique Supabase.
+   - Protection contre la lecture non payée (Aperçu Limité) :
+     * Si l'étudiant n'a pas acheté le cours : le lecteur WebView n'affiche strictly 
+       que les 3 premières pages (défini par `limiteApercuPages` sur le document).
+     * Une bannière jaune de paywall s'affiche en bas de l'écran signalant la limite de 
+       l'aperçu gratuit et invitant à débloquer le document complet pour 100 FCFA.
+     * Si le document est débloqué : la totalité du PDF est accessible sans restriction.
+
+D. Filtrage et Recherche :
+   - Un champ de saisie permet de filtrer dynamiquement le catalogue d'accueil.
+   - Des boutons en forme de pilules de catégories permettent d'isoler rapidement 
+     une matière académique spécifique (Mathématiques, Droit, SVT, etc.).
+
+--------------------------------------------------------------------------------
+4. BACK-END & PERSISTANCE DES DONNÉES
+--------------------------------------------------------------------------------
+L'application mobile communique directement avec Supabase via son client d'API.
+
+A. Initialisation du Client (`src/lib/supabase.ts`) :
+   - Initialise `@supabase/supabase-js` avec l'URL Supabase et la clé anonyme publique.
+   - Utilise `@react-native-async-storage/async-storage` pour la persistance locale 
+     des sessions d'authentification utilisateur.
+
+B. Table Supabase : `public.acquisitions`
+   - Utilisée pour suivre les documents débloqués pour chaque utilisateur / appareil.
+   - `id` : uuid (clé primaire)
+   - `document_id` : uuid (clé étrangère liant le cours débloqué)
+   - `device_id` : text (identifiant matériel unique de l'appareil)
+     * Sur Android : obtenu via `Application.getAndroidId()`
+     * Sur iOS : obtenu via `Application.getIosIdForVendorAsync()`
+   - `user_id` : uuid (clé étrangère facultative, renseignée si l'étudiant est connecté)
+   - `is_welcome_offer` : boolean (vrai s'il s'agit du document gratuit de bienvenue)
+   - `created_at` : timestamp
+
+C. Récupération des PDF (Supabase Storage) :
+   - Les documents PDF bruts sont stockés dans le bucket de stockage Supabase 
+     `cours-documents`.
+   - La fonction `getDocumentPdfUrl(filePath)` appelle l'API publique Supabase 
+     `supabase.storage.from('cours-documents').getPublicUrl(filePath)` pour générer 
+     l'adresse URL directe du fichier PDF lue par la WebView du lecteur.
+================================================================================

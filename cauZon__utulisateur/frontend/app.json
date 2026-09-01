@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "cauZon",
+    "slug": "cauzon",
+    "scheme": "cauzon",
+    "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8bf68898-d1e1-4a72-9317-827af406386f"
+    },
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L'application a besoin d'accéder à vos photos pour partager des ressources."
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF6EB"
+    },
+    "ios": {
+      "bundleIdentifier": "com.cauzon.app",
+      "buildNumber": "1.0.0",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.cauzon.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#FAF6EB",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "name": "cauZon — Documents & Épreuves Académiques",
+      "shortName": "cauZon",
+      "themeColor": "#6B1124",
+      "backgroundColor": "#FAF6EB"
+    },
+    "extra": {
+      "EXPO_PUBLIC_SUPABASE_URL": "https://wdipnxewpmhdksrlisix.supabase.co",
+      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_oD0zi8_KXt6grTq5PX0jiA_hYTJyZQ6",
+      "eas": {
+        "projectId": "8bf68898-d1e1-4a72-9317-827af406386f"
+      }
+    },
+    "owner": "cyprien45"
+  }
+}
