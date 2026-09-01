@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
  "scripts": {
-  "build": "vite build"
+  "build": "npx vite build"
 },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
