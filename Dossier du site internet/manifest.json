@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "cauZon — Plateforme Académique",
   "short_name": "cauZon",
   "description": "Plateforme académique d'excellence : épreuves, annales corrigées et cours universitaires certifiés.",
@@ -6,10 +6,25 @@
   "id": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#FAF6EB",
+  "background_color": "#6B1124",
   "theme_color": "#6B1124",
   "categories": ["education", "books", "productivity"],
   "icons": [
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
@@ -21,11 +36,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
-    },
-    {
-      "src": "/apple-touch-icon.png",
-      "sizes": "180x180",
-      "type": "image/png"
     }
   ]
 }
