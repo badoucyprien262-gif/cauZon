@@ -5,20 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   
   <title>cauZon — Plateforme Académique d'Excellence | Site Officiel & PWA</title>
-  <meta name="description" content="Accédez à des centaines d'annales corrigées, fiches de révision et cours certifiés en Côte d'Ivoire. Téléchargez l'APK Android ou lancez cauZon Web directement.">
+  <meta name="description" content="La référence universitaire en Côte d'Ivoire : cours magistraux certifiés, annales corrigées d'examens et fiches de révision. Téléchargez l'APK Android ou lancez cauZon Web directement.">
   <meta name="theme-color" content="#6B1124">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="cauZon">
 
-  <!-- Favicon & PWA Icons -->
+  <!-- Favicon & PWA Icons Officiels -->
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon.png">
   <link rel="manifest" href="/manifest.json">
 
-  <!-- Google Fonts -->
+  <!-- Polices Google Fonts (Inter + Outfit) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
@@ -34,6 +33,7 @@
               DEFAULT: '#6B1124',
               50: '#FDF2F4',
               100: '#FBE8EB',
+              600: '#83182E',
               700: '#6B1124',
               800: '#520B1B',
               900: '#3D0613',
@@ -42,8 +42,14 @@
               DEFAULT: '#FAF6EB',
               50: '#FFFFFF',
               100: '#FAF6EB',
-              200: '#F4F1E0',
-              300: '#EAE5CE',
+              200: '#F5EBD0',
+              300: '#EAE0C4',
+            },
+            gold: {
+              DEFAULT: '#F59E0B',
+              400: '#FBBF24',
+              500: '#F59E0B',
+              600: '#D97706',
             },
             emeraude: {
               DEFAULT: '#10B981',
@@ -59,54 +65,60 @@
     }
   </script>
 
-  <!-- Custom CSS -->
+  <!-- Feuille de styles personnalisée -->
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="bg-[#FAF6EB] text-gray-900 font-sans antialiased selection:bg-[#6B1124] selection:text-[#FAF6EB]">
 
-  <!-- ==================== HEADER / NAVBAR ==================== -->
-  <header class="sticky top-0 z-40 bg-[#FAF6EB]/90 backdrop-blur-md border-b border-[#6B1124]/10 transition-all">
+  <!-- ==================== HEADER / NAVBAR HAUTE VISIBILITÉ ==================== -->
+  <header class="sticky top-0 z-40 bg-[#6B1124] text-[#FAF6EB] shadow-xl border-b border-[#FAF6EB]/15 transition-all">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-20">
         
-        <!-- Logo & Marque -->
-        <a href="#" class="flex items-center gap-3 group">
-          <div class="w-11 h-11 rounded-2xl bg-[#6B1124] flex items-center justify-center text-[#FAF6EB] font-extrabold text-2xl font-display shadow-md group-hover:scale-105 transition-transform">
-            C
+        <!-- Logo & Emblème Officiel -->
+        <a href="#" class="flex items-center gap-3.5 group">
+          <div class="relative w-11 h-11 rounded-xl overflow-hidden shadow-md border border-[#FAF6EB]/30 group-hover:scale-105 transition-transform flex-shrink-0 bg-[#520B1B]">
+            <img src="/icon.png" alt="Logo cauZon" class="w-full h-full object-cover">
           </div>
           <div>
-            <span class="text-2xl font-extrabold font-display tracking-tight text-[#6B1124]">
-              cauZon
-            </span>
-            <span class="hidden sm:inline-block ml-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-[#6B1124]/10 text-[#6B1124] rounded-full">
-              Côte d'Ivoire
+            <div class="flex items-center gap-2">
+              <span class="text-2xl font-extrabold font-display tracking-tight text-[#FAF6EB]">
+                cauZon
+              </span>
+              <span class="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 bg-amber-400/20 text-amber-300 border border-amber-400/30 rounded-full">
+                Côte d'Ivoire
+              </span>
+            </div>
+            <span class="block text-[11px] text-[#FAF6EB]/70 font-medium tracking-wide">
+              L'excellence académique à portée de main
             </span>
           </div>
         </a>
 
         <!-- Liens Desktop -->
-        <nav class="hidden md:flex items-center gap-8 text-sm font-semibold text-gray-700">
-          <a href="#avantages" class="hover:text-[#6B1124] transition-colors">Avantages</a>
-          <a href="#tarifs" class="hover:text-[#6B1124] transition-colors">Formules & Tarifs</a>
-          <a href="#apk-download" class="hover:text-[#6B1124] transition-colors flex items-center gap-1">
-            <span>Télécharger APK</span>
-            <span class="w-2 h-2 rounded-full bg-[#10B981]"></span>
+        <nav class="hidden lg:flex items-center gap-8 text-sm font-semibold text-[#FAF6EB]/90">
+          <a href="#avantages" class="hover:text-amber-300 transition-colors">Avantages</a>
+          <a href="#comment-ca-marche" class="hover:text-amber-300 transition-colors">Comment ça marche ?</a>
+          <a href="#tarifs" class="hover:text-amber-300 transition-colors">Formules & Tarifs</a>
+          <a href="#apk-download" class="hover:text-amber-300 transition-colors flex items-center gap-1.5">
+            <span>Google Play</span>
+            <span class="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span>
           </a>
-          <a href="#faq" class="hover:text-[#6B1124] transition-colors">FAQ</a>
+          <a href="#faq" class="hover:text-amber-300 transition-colors">FAQ</a>
         </nav>
 
-        <!-- Action Droite -->
+        <!-- CTA Droite -->
         <div class="hidden sm:flex items-center gap-3">
-          <button class="btn-open-web-app px-5 py-2.5 rounded-xl bg-[#6B1124] hover:bg-[#520B1B] text-white font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button class="btn-open-web-app px-5 py-2.5 rounded-xl bg-[#FAF6EB] text-[#6B1124] hover:bg-white font-extrabold text-sm shadow-md hover:shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+            <svg class="w-4 h-4 text-[#6B1124]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
             </svg>
             <span>Lancer cauZon Web</span>
           </button>
         </div>
 
-        <!-- Menu Mobile Button -->
-        <button id="menu-btn" class="md:hidden p-2 rounded-lg text-gray-700 hover:bg-[#6B1124]/10 transition-colors">
+        <!-- Bouton Menu Mobile -->
+        <button id="menu-btn" aria-label="Menu principal" class="lg:hidden p-2 rounded-xl text-[#FAF6EB] hover:bg-white/10 transition-colors">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
@@ -115,175 +127,107 @@
       </div>
     </div>
 
-    <!-- Mobile Drawer -->
-    <div id="mobile-menu" class="hidden md:hidden bg-white border-b border-gray-200 px-4 pt-3 pb-6 space-y-3">
-      <a href="#avantages" class="block py-2 text-base font-semibold text-gray-800">Avantages</a>
-      <a href="#tarifs" class="block py-2 text-base font-semibold text-gray-800">Formules & Tarifs</a>
-      <a href="#apk-download" class="block py-2 text-base font-semibold text-gray-800">Télécharger APK Android</a>
-      <a href="#faq" class="block py-2 text-base font-semibold text-gray-800">Questions Fréquentes</a>
-      <button class="btn-open-web-app w-full py-3 rounded-xl bg-[#6B1124] text-white font-bold text-sm shadow text-center flex items-center justify-center gap-2">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
-        </svg>
-        <span>Lancer cauZon Web</span>
-      </button>
+    <!-- Tiroir Mobile -->
+    <div id="mobile-menu" class="hidden lg:hidden bg-[#520B1B] border-t border-[#FAF6EB]/10 px-4 pt-4 pb-6 space-y-3">
+      <a href="#avantages" class="block py-2 text-base font-semibold text-[#FAF6EB] hover:text-amber-300">Avantages Clés</a>
+      <a href="#comment-ca-marche" class="block py-2 text-base font-semibold text-[#FAF6EB] hover:text-amber-300">Comment ça marche ?</a>
+      <a href="#tarifs" class="block py-2 text-base font-semibold text-[#FAF6EB] hover:text-amber-300">Formules & Tarifs</a>
+      <a href="https://play.google.com/store/apps/details?id=com.cauzon.app" target="_blank" rel="noopener noreferrer" class="block py-2 text-base font-semibold text-[#FAF6EB] hover:text-amber-300 flex items-center justify-between">
+        <span>Google Play Store</span>
+        <span class="text-[10px] bg-[#10B981] text-white px-2 py-0.5 rounded-full font-bold">Android</span>
+      </a>
+      <a href="#faq" class="block py-2 text-base font-semibold text-[#FAF6EB] hover:text-amber-300">Questions Fréquentes</a>
+      <div class="pt-2">
+        <button class="btn-open-web-app w-full py-3.5 rounded-xl bg-[#FAF6EB] text-[#6B1124] font-extrabold text-sm shadow text-center flex items-center justify-center gap-2">
+          <svg class="w-4 h-4 text-[#6B1124]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+          </svg>
+          <span>Lancer cauZon Web / PWA</span>
+        </button>
+      </div>
     </div>
   </header>
 
-  <!-- ==================== HERO SECTION ==================== -->
-  <section class="relative overflow-hidden bg-hero-gradient text-[#FAF6EB] pt-14 pb-24 lg:pt-20 lg:pb-32">
-    <!-- Glow Background Decorations -->
-    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full overflow-hidden pointer-events-none opacity-25">
-      <div class="absolute -top-40 left-1/4 w-[500px] h-[500px] rounded-full bg-red-600 blur-[130px]"></div>
-      <div class="absolute top-1/2 right-10 w-[450px] h-[450px] rounded-full bg-emerald-600 blur-[140px]"></div>
+  <!-- ==================== HERO SECTION (EN-TÊTE D'IMPACT) ==================== -->
+  <section class="relative overflow-hidden bg-hero-header text-[#FAF6EB] pt-14 pb-20 lg:pt-20 lg:pb-28">
+    <!-- Éléments lumineux d'arrière-plan -->
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-full overflow-hidden pointer-events-none opacity-20">
+      <div class="absolute -top-32 left-1/4 w-[500px] h-[500px] rounded-full bg-amber-500 blur-[140px]"></div>
+      <div class="absolute top-1/2 right-10 w-[450px] h-[450px] rounded-full bg-emerald-500 blur-[150px]"></div>
     </div>
 
     <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="grid lg:grid-cols-12 gap-12 lg:gap-8 items-center">
         
-        <!-- Left: Headlines & CTAs -->
+        <!-- Colonne Gauche : Titres d'Impact & Double CTA -->
         <div class="lg:col-span-7 space-y-8 text-center lg:text-left">
           
-          <!-- Top Pill -->
-          <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-semibold tracking-wide text-[#FAF6EB]">
+          <!-- Badge Institutionnel -->
+          <div class="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs font-semibold tracking-wide text-[#FAF6EB]">
             <span class="w-2 h-2 rounded-full bg-[#10B981]"></span>
-            <span>Plateforme Académique Officielle · Côte d'Ivoire & Afrique</span>
+            <span>Spécial Campus d'Abidjan & Universités de Côte d'Ivoire (IUA, Cocody)</span>
           </div>
 
-          <!-- Title -->
+          <!-- Titre Principal -->
           <h1 class="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.12] tracking-tight text-white">
-            Réussissez vos études et concours avec 
-            <span class="text-[#FAF6EB] underline decoration-[#10B981] decoration-4 underline-offset-8">
+            Réussissez vos études universitaires avec 
+            <span class="text-gold-gradient">
               cauZon
             </span>
           </h1>
 
-          <!-- Subtitle -->
+          <!-- Sous-titre explicite -->
           <p class="text-lg sm:text-xl text-[#FAF6EB]/90 max-w-2xl font-light leading-relaxed">
-            Annales corrigées des examens, fiches de révision et cours certifiés. Téléchargez l'application officielle Android (<strong class="font-semibold text-white">APK</strong>) ou accédez instantanément à l'application web depuis n'importe quel navigateur, sans encombrer votre téléphone.
+            La plateforme académique de référence en Côte d'Ivoire. Accédez aux <strong class="font-semibold text-white">cours magistraux certifiés</strong>, annales corrigées d'examens et fiches de révision conçues pour valider vos semestres avec mention.
           </p>
 
-          <!-- Dual CTAs -->
+          <!-- Double CTA Percutant -->
           <div class="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2">
-            <button class="btn-open-web-app w-full sm:w-auto px-8 py-4 rounded-2xl bg-[#FAF6EB] text-[#6B1124] font-extrabold text-base hover:bg-white flex items-center justify-center gap-3 shadow-2xl hover:scale-105 active:scale-95 transition-all">
-              <svg class="w-5 h-5 text-[#6B1124]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+            <!-- Bouton 1 : Télécharger sur Google Play Store -->
+            <a href="https://play.google.com/store/apps/details?id=com.cauzon.app" target="_blank" rel="noopener noreferrer" class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gold-gradient text-[#3D0613] font-extrabold text-base hover:opacity-95 flex items-center justify-center gap-3 shadow-xl glow-gold hover:scale-105 active:scale-95 transition-all">
+              <svg class="w-5 h-5 text-[#3D0613]" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M3.609 1.814L13.793 12 3.61 22.186c-.328-.328-.51-.787-.51-1.286V3.1c0-.499.182-.958.51-1.286zm11.603 11.605l2.42 2.42-12.066 6.96 9.646-9.38zm0-2.838L5.566 1.201l12.066 6.96-2.42 2.42zm1.42 1.419l3.864 2.228c.783.452.783 1.186 0 1.638l-3.864 2.228-2.128-2.128 2.128-2.128z"/>
               </svg>
-              <span>Lancer l'Application Web</span>
-              <span class="text-xs bg-[#6B1124]/10 text-[#6B1124] px-2 py-0.5 rounded-full font-bold">
-                Accès Direct
+              <span>Disponible sur Google Play</span>
+            </a>
+
+            <!-- Bouton 2 : Lancer l'application web / PWA (iOS & PC) -->
+            <button class="btn-open-web-app w-full sm:w-auto px-7 py-4 rounded-2xl bg-[#FAF6EB] hover:bg-white text-[#6B1124] font-extrabold text-base flex items-center justify-center gap-3 shadow-xl hover:scale-105 active:scale-95 transition-all">
+              <svg class="w-5 h-5 text-[#6B1124]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+              </svg>
+              <span>Lancer cauZon Web (PWA)</span>
+              <span class="text-xs bg-[#6B1124]/10 text-[#6B1124] px-2 py-0.5 rounded-full font-bold hidden sm:inline-block">
+                Direct iOS
               </span>
             </button>
-
-            <a href="#apk-download" class="w-full sm:w-auto px-7 py-4 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/25 text-white font-bold text-base flex items-center justify-center gap-3 backdrop-blur-sm transition-all">
-              <svg class="w-5 h-5 text-[#10B981]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-              </svg>
-              <span>Télécharger l'APK Android</span>
-            </a>
           </div>
 
-          <!-- Feature Bullets -->
+          <!-- Puces de réassurance -->
           <div class="pt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs text-[#FAF6EB]/90 font-medium">
             <div class="flex items-center gap-2">
-              <span class="text-[#10B981] font-bold">✓</span>
-              <span>100% Mobile Money (FeexPay)</span>
+              <span class="text-amber-400 font-bold text-sm">🎁</span>
+              <span>1er Document Offert</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-[#10B981] font-bold">✓</span>
-              <span>Mode Hors-ligne Sécurisé</span>
+              <span class="text-[#10B981] font-bold text-sm">✓</span>
+              <span>Mode Hors-Ligne 100%</span>
             </div>
             <div class="flex items-center gap-2 col-span-2 sm:col-span-1">
-              <span class="text-[#10B981] font-bold">✓</span>
-              <span>Import Cloud 75 Docs</span>
+              <span class="text-amber-400 font-bold text-sm">💳</span>
+              <span>Wave & Orange Money</span>
             </div>
           </div>
 
         </div>
 
-        <!-- Right: Interactive Phone Preview -->
+        <!-- Colonne Droite : Vraie Interface Utilisateur Smartphone CauZon -->
         <div class="lg:col-span-5 flex justify-center">
           <div class="phone-mockup">
             <div class="phone-notch"></div>
             
-            <div class="phone-screen">
-              <!-- Phone App Header -->
-              <div class="px-4 py-3 bg-[#6B1124] text-white flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-lg bg-[#FAF6EB] flex items-center justify-center text-[#6B1124] font-bold text-xs">C</div>
-                  <span class="font-display font-extrabold text-sm tracking-tight text-[#FAF6EB]">cauZon</span>
-                </div>
-                <span id="phone-tab-title" class="text-[10px] bg-white/10 px-2 py-0.5 rounded-full font-semibold">Accueil</span>
-              </div>
-
-              <!-- Filter Pills inside Phone -->
-              <div class="p-3 bg-[#F4F1E0] border-b border-gray-200 flex gap-1.5 overflow-x-auto">
-                <button class="phone-filter-btn px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#6B1124] text-white transition-all" data-filter="all">Tous</button>
-                <button class="phone-filter-btn px-2.5 py-1 rounded-full text-[10px] font-bold bg-white text-gray-700 transition-all" data-filter="droit">Droit</button>
-                <button class="phone-filter-btn px-2.5 py-1 rounded-full text-[10px] font-bold bg-white text-gray-700 transition-all" data-filter="gestion">Gestion</button>
-                <button class="phone-filter-btn px-2.5 py-1 rounded-full text-[10px] font-bold bg-white text-gray-700 transition-all" data-filter="maths">Maths</button>
-              </div>
-
-              <!-- Phone Courses Feed -->
-              <div class="p-3 space-y-2.5 flex-1">
-                
-                <div class="phone-course-card bg-white p-3 rounded-xl shadow-sm border border-gray-200" data-category="droit">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[9px] font-bold text-[#6B1124] bg-[#6B1124]/10 px-2 py-0.5 rounded">IUA · Droit</span>
-                    <span class="text-[9px] font-bold text-[#10B981]">100 FCFA</span>
-                  </div>
-                  <h4 class="text-xs font-bold text-gray-900 mt-1">Droit des Sociétés Commerciales (OHADA)</h4>
-                  <p class="text-[10px] text-gray-500 line-clamp-1 mt-0.5">Synthèse révisée L3 & TD corrigés</p>
-                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-500">
-                    <span>📄 84 pages</span>
-                    <button class="btn-open-web-app text-[9px] font-bold text-[#6B1124] hover:underline">Consulter →</button>
-                  </div>
-                </div>
-
-                <div class="phone-course-card bg-white p-3 rounded-xl shadow-sm border border-gray-200" data-category="droit">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">Cocody · Annales</span>
-                    <span class="text-[9px] font-bold text-[#10B981]">100 FCFA</span>
-                  </div>
-                  <h4 class="text-xs font-bold text-gray-900 mt-1">Annales Corrigées : Droit Pénal L2</h4>
-                  <p class="text-[10px] text-gray-500 line-clamp-1 mt-0.5">Sessions 2021-2025 avec méthodologie</p>
-                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-500">
-                    <span>📄 62 pages</span>
-                    <button class="btn-open-web-app text-[9px] font-bold text-[#6B1124] hover:underline">Consulter →</button>
-                  </div>
-                </div>
-
-                <div class="phone-course-card bg-white p-3 rounded-xl shadow-sm border border-gray-200" data-category="gestion">
-                  <div class="flex items-center justify-between">
-                    <span class="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">IUA · SYSCOHADA</span>
-                    <span class="text-[9px] font-bold text-[#10B981]">100 FCFA</span>
-                  </div>
-                  <h4 class="text-xs font-bold text-gray-900 mt-1">Comptabilité Financière Révisée</h4>
-                  <p class="text-[10px] text-gray-500 line-clamp-1 mt-0.5">Opérations courantes & inventaire</p>
-                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-500">
-                    <span>📄 92 pages</span>
-                    <button class="btn-open-web-app text-[9px] font-bold text-[#6B1124] hover:underline">Consulter →</button>
-                  </div>
-                </div>
-
-              </div>
-
-              <!-- Phone Bottom Nav Bar -->
-              <div class="px-4 py-2.5 bg-white border-t border-gray-200 flex justify-around text-gray-500">
-                <button class="phone-tab-btn flex flex-col items-center gap-0.5 text-[#6B1124]" data-title="Accueil">
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
-                  <span class="text-[8px] font-bold">Accueil</span>
-                </button>
-                <button class="phone-tab-btn flex flex-col items-center gap-0.5" data-title="Bibliothèque">
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/></svg>
-                  <span class="text-[8px] font-bold">Bibliothèque</span>
-                </button>
-                <button class="phone-tab-btn flex flex-col items-center gap-0.5" data-title="Mon Profil">
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
-                  <span class="text-[8px] font-bold">Profil</span>
-                </button>
-              </div>
-
+            <div class="phone-screen cursor-pointer" onclick="document.querySelector('.btn-open-web-app').click()">
+              <img src="/app-mockup.png" alt="Interface réelle de l'application cauZon" class="w-full h-full object-cover">
             </div>
           </div>
         </div>
@@ -292,87 +236,105 @@
     </div>
   </section>
 
-  <!-- ==================== AVANTAGES / FEATURES ==================== -->
+  <!-- ==================== SECTION : LES AVANTAGES CLÉS ==================== -->
   <section id="avantages" class="py-24 bg-white border-b border-[#6B1124]/10">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       
       <div class="text-center max-w-3xl mx-auto space-y-4">
         <span class="text-xs font-extrabold uppercase tracking-widest text-[#6B1124] bg-[#6B1124]/10 px-3.5 py-1.5 rounded-full">
-          Conçu pour les Étudiants
+          Pourquoi Choisir CauZon ?
         </span>
         <h2 class="font-display text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
-          L'excellence académique à portée de main
+          La technologie pensée pour la réalité étudiante en Côte d'Ivoire
         </h2>
         <p class="text-gray-600 font-light text-base sm:text-lg">
-          Tous les outils nécessaires pour réviser efficacement, même sans connexion internet stable.
+          Étudier dans les meilleures conditions matérielles, techniques et financières.
         </p>
       </div>
 
       <div class="mt-16 grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
         
-        <!-- Feature 1 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#6B1124] text-[#FAF6EB] flex items-center justify-center font-bold text-xl">
+        <!-- Avantage 1 : 1er Document 100% Offert -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 relative overflow-hidden group">
+          <div class="w-12 h-12 rounded-2xl bg-gold-gradient text-[#3D0613] flex items-center justify-center font-bold text-xl shadow-md">
+            🎁
+          </div>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Premier Document 100% Offert</h3>
+          <p class="text-sm text-gray-600 leading-relaxed">
+            Dès votre première connexion via Google, débloquez gratuitement le cours ou l'annale de votre choix dans le catalogue pour tester la qualité pédagogique sans dépenser un seul franc.
+          </p>
+          <div class="pt-2">
+            <span class="text-xs font-bold text-[#6B1124] flex items-center gap-1">
+              <span>Offre de bienvenue immédiate</span>
+              <span>→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Avantage 2 : Mode Hors-Ligne Total -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 group">
+          <div class="w-12 h-12 rounded-2xl bg-[#6B1124] text-[#FAF6EB] flex items-center justify-center font-bold text-xl shadow-md">
             ⚡
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">Mode Hors-Ligne Sécurisé</h3>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Mode Hors-Ligne Sans Connexion</h3>
           <p class="text-sm text-gray-600 leading-relaxed">
-            Consultez tous vos cours et annales enregistrés sans consommer de données mobiles. L'application stocke vos documents chiffrés localement.
+            Consultez tous vos cours enregistrés sans consommer de data mobile. Même en zone blanche ou dans les transports abidjanais, votre bibliothèque reste 100% accessible en lecture fluide.
           </p>
-        </div>
-
-        <!-- Feature 2 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-bold text-xl">
-            🎓
+          <div class="pt-2">
+            <span class="text-xs font-bold text-[#6B1124] flex items-center gap-1">
+              <span>Zéro coupure pendant vos révisions</span>
+              <span>→</span>
+            </span>
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">Annales & Corrigés d'Examens</h3>
-          <p class="text-sm text-gray-600 leading-relaxed">
-            Recueils d'épreuves semestrielles des universités ivoiriennes (IUA, Cocody) avec résolutions méthodologiques étape par étape.
-          </p>
         </div>
 
-        <!-- Feature 3 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#6B1124] text-[#FAF6EB] flex items-center justify-center font-bold text-xl">
+        <!-- Avantage 3 : Paiement Local 100% Intégré -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 group">
+          <div class="w-12 h-12 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-bold text-xl shadow-md">
             📱
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">100% Mobile Money Net</h3>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Paiement Mobile Money Sécurisé</h3>
           <p class="text-sm text-gray-600 leading-relaxed">
-            Payez par Wave, Orange Money, MTN MoMo ou Moov Money. Prix ronds stricts (100F, 500F, 1 000F) sans aucun frais additionnel facturé.
+            Réglez instantanément avec <strong>Wave</strong>, <strong>Orange Money</strong>, <strong>MTN MoMo</strong> ou <strong>Moov Money</strong> via FeexPay. Tarifs ronds nets stricts (100F, 500F, 1 000F) sans aucun frais additionnel facturé.
           </p>
+          <div class="pt-2">
+            <span class="text-xs font-bold text-[#10B981] flex items-center gap-1">
+              <span>Frais marchands absorbés par CauZon</span>
+              <span>→</span>
+            </span>
+          </div>
         </div>
 
-        <!-- Feature 4 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-bold text-xl">
+        <!-- Avantage 4 : Espace Cloud Personnel -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 group">
+          <div class="w-12 h-12 rounded-2xl bg-[#6B1124] text-[#FAF6EB] flex items-center justify-center font-bold text-xl shadow-md">
             ☁️
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">Espace Cloud Personnel (+75 Docs)</h3>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Espace Cloud Personnel (+75 Docs)</h3>
           <p class="text-sm text-gray-600 leading-relaxed">
-            Importez vos propres PDF, fascicules de TD et mémoires. Classez-les dans vos dossiers personnels accessibles sur tous vos appareils.
+            Importez vos propres PDF, fiches de TD, supports de camarades et mémoires. Classez-les dans vos dossiers personnels et retrouvez-les synchronisés sur tous vos téléphones et ordinateurs.
           </p>
         </div>
 
-        <!-- Feature 5 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#6B1124] text-[#FAF6EB] flex items-center justify-center font-bold text-xl">
-            ✓
+        <!-- Avantage 5 : Certification Pédagogique -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 group">
+          <div class="w-12 h-12 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-bold text-xl shadow-md">
+            🎓
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">Certification & Qualité</h3>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Documents Certifiés & Qualité IUA</h3>
           <p class="text-sm text-gray-600 leading-relaxed">
-            Chaque document est vérifié par un comité pédagogique pour garantir la conformité aux programmes académiques en vigueur.
+            Tous les documents publiés respectent scrupuleusement les maquettes pédagogiques LMD en vigueur (Droit OHADA, Sciences Éco, Gestion, Fiscalité ivoirienne).
           </p>
         </div>
 
-        <!-- Feature 6 -->
-        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-lg transition-all space-y-4">
-          <div class="w-12 h-12 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-bold text-xl">
+        <!-- Avantage 6 : Multi-Support Mobile & PWA -->
+        <div class="bg-[#FAF6EB] p-8 rounded-3xl border border-[#6B1124]/10 hover:shadow-xl transition-all space-y-4 group">
+          <div class="w-12 h-12 rounded-2xl bg-gold-gradient text-[#3D0613] flex items-center justify-center font-bold text-xl shadow-md">
             🌐
           </div>
-          <h3 class="font-display text-xl font-bold text-gray-900">Web & Mobile Multi-Support</h3>
+          <h3 class="font-display text-xl font-extrabold text-gray-900">Web, iOS, Android & Ordinateur</h3>
           <p class="text-sm text-gray-600 leading-relaxed">
-            Utilisez cauZon depuis votre smartphone, tablette ou ordinateur portable avec synchronisation instantanée de vos acquisitions.
+            Accédez à cauZon sans aucune barrière matérielle : APK natif pour les téléphones Android, ou Progressive Web App directe sur Safari iOS, Chrome PC et Mac.
           </p>
         </div>
 
@@ -381,30 +343,106 @@
     </div>
   </section>
 
-  <!-- ==================== FORMULES & TARIFS ==================== -->
-  <section id="tarifs" class="py-24 bg-[#FAF6EB] border-b border-[#6B1124]/10">
+  <!-- ==================== SECTION : COMMENT ÇA MARCHE ? ==================== -->
+  <section id="comment-ca-marche" class="py-24 bg-[#F5EBD0] border-b border-[#6B1124]/15">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       
       <div class="text-center max-w-3xl mx-auto space-y-4">
         <span class="text-xs font-extrabold uppercase tracking-widest text-[#6B1124] bg-[#6B1124]/10 px-3.5 py-1.5 rounded-full">
-          Tarification Transparente
+          Simplicité & Rapidité
         </span>
         <h2 class="font-display text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
-          Choisissez la formule adaptée à votre rythme
+          Comment ça marche ? En 3 étapes simples
         </h2>
         <p class="text-gray-600 font-light text-base sm:text-lg">
-          Sans abonnement caché, paiements sécurisés par Mobile Money.
+          Moins de 2 minutes pour commencer à réviser vos examens.
+        </p>
+      </div>
+
+      <div class="mt-16 grid md:grid-cols-3 gap-8 relative">
+        
+        <!-- Étape 1 -->
+        <div class="bg-white rounded-3xl p-8 border border-[#6B1124]/10 shadow-sm relative space-y-4">
+          <div class="w-14 h-14 rounded-2xl bg-[#6B1124] text-white flex items-center justify-center font-display font-extrabold text-2xl shadow-md">
+            1
+          </div>
+          <h3 class="font-display text-xl font-bold text-gray-900">Connexion Rapide via Google</h3>
+          <p class="text-sm text-gray-600 leading-relaxed">
+            Pas de formulaire interminable. Connectez-vous en un seul clic avec votre compte Google universitaire ou personnel grâce à l'authentification sécurisée OAuth PKCE.
+          </p>
+          <span class="text-xs font-semibold text-emerald-600 flex items-center gap-1 pt-2">
+            <span>✓ 100% sécurisé et instantané</span>
+          </span>
+        </div>
+
+        <!-- Étape 2 -->
+        <div class="bg-white rounded-3xl p-8 border-2 border-amber-400 shadow-md relative space-y-4">
+          <div class="absolute -top-3.5 right-6 bg-gold-gradient text-[#3D0613] text-[11px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider shadow">
+            Cadeau Inclus
+          </div>
+          <div class="w-14 h-14 rounded-2xl bg-gold-gradient text-[#3D0613] flex items-center justify-center font-display font-extrabold text-2xl shadow-md">
+            2
+          </div>
+          <h3 class="font-display text-xl font-bold text-gray-900">Récupération du Cours Offert</h3>
+          <p class="text-sm text-gray-600 leading-relaxed">
+            Parcourez le catalogue officiel, choisissez le cours magistral ou l'annale dont vous avez le plus besoin et claimer votre document gratuit de bienvenue en 1 clic.
+          </p>
+          <span class="text-xs font-semibold text-amber-700 flex items-center gap-1 pt-2">
+            <span>✓ Sans carte ni engagement</span>
+          </span>
+        </div>
+
+        <!-- Étape 3 -->
+        <div class="bg-white rounded-3xl p-8 border border-[#6B1124]/10 shadow-sm relative space-y-4">
+          <div class="w-14 h-14 rounded-2xl bg-[#10B981] text-white flex items-center justify-center font-display font-extrabold text-2xl shadow-md">
+            3
+          </div>
+          <h3 class="font-display text-xl font-bold text-gray-900">Études & Bibliothèque Hors-Ligne</h3>
+          <p class="text-sm text-gray-600 leading-relaxed">
+            Lisez vos documents avec le lecteur immersif cauZon, téléchargez-les au format PDF ou enrichissez votre bibliothèque avec la formule de Location illimitée à 500 FCFA.
+          </p>
+          <span class="text-xs font-semibold text-[#10B981] flex items-center gap-1 pt-2">
+            <span>✓ Disponible 24h/24 même sans internet</span>
+          </span>
+        </div>
+
+      </div>
+
+      <!-- Bouton d'action central -->
+      <div class="mt-12 text-center">
+        <button class="btn-open-web-app inline-flex items-center gap-3 px-8 py-4 rounded-2xl bg-[#6B1124] hover:bg-[#520B1B] text-[#FAF6EB] font-extrabold text-base shadow-xl hover:scale-105 active:scale-95 transition-all">
+          <span>Commencer maintenant avec le cours offert</span>
+          <span>→</span>
+        </button>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==================== SECTION : FORMULES & TARIFS ==================== -->
+  <section id="tarifs" class="py-24 bg-white border-b border-[#6B1124]/10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto space-y-4">
+        <span class="text-xs font-extrabold uppercase tracking-widest text-[#6B1124] bg-[#6B1124]/10 px-3.5 py-1.5 rounded-full">
+          Tarifs Clairs & Accessibles
+        </span>
+        <h2 class="font-display text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
+          Une tarification étudiante sans surprise
+        </h2>
+        <p class="text-gray-600 font-light text-base sm:text-lg">
+          Tous les paiements s'effectuent par Mobile Money net, sans aucun frais supplémentaire.
         </p>
       </div>
 
       <div class="mt-16 grid lg:grid-cols-3 gap-8 items-stretch">
         
-        <!-- Formule 1 : Découverte -->
-        <div class="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all">
+        <!-- Formule 1 : Découverte Offerte -->
+        <div class="bg-[#FAF6EB] rounded-3xl p-8 border border-gray-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all">
           <div>
-            <span class="text-xs font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-3 py-1 rounded-full">Découverte</span>
+            <span class="text-xs font-bold uppercase tracking-wider text-gray-600 bg-white px-3 py-1 rounded-full border border-gray-200">Offre Spéciale</span>
             <h3 class="font-display text-2xl font-extrabold text-gray-900 mt-4">1er Cours Offert</h3>
-            <p class="text-sm text-gray-600 mt-2">Testez la qualité des corrigés et des synthèses sans frais.</p>
+            <p class="text-sm text-gray-600 mt-2">Testez la qualité des corrigés et des synthèses sans débourser 1 FCFA.</p>
             
             <div class="my-6">
               <span class="text-4xl font-extrabold text-gray-900">0 FCFA</span>
@@ -412,93 +450,93 @@
             </div>
 
             <ul class="space-y-3 text-sm text-gray-700">
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>1 document complet débloqué</span></li>
+              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>1 document complet au choix débloqué</span></li>
               <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Aperçu de tout le catalogue</span></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Accès Web et Mobile</span></li>
+              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Disponible sur Web et Mobile</span></li>
             </ul>
           </div>
 
-          <button class="btn-open-web-app mt-8 w-full py-3.5 rounded-2xl border border-[#6B1124] text-[#6B1124] hover:bg-[#6B1124]/5 font-bold text-sm transition-all">
-            Essayer gratuitement
+          <button class="btn-open-web-app mt-8 w-full py-3.5 rounded-2xl border-2 border-[#6B1124] text-[#6B1124] hover:bg-[#6B1124]/5 font-extrabold text-sm transition-all">
+            Récupérer mon cours offert
           </button>
         </div>
 
-        <!-- Formule 2 : Location Mensuelle (Mise en avant) -->
-        <div class="bg-bordeaux-card rounded-3xl p-8 text-[#FAF6EB] shadow-2xl relative flex flex-col justify-between transform lg:-translate-y-4 border-2 border-[#10B981]">
-          <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-[#10B981] text-white text-xs font-extrabold px-4 py-1.5 rounded-full shadow-md uppercase tracking-wider">
-            Recommandé Examens
+        <!-- Formule 2 : Location Illimitée 30 Jours (Star) -->
+        <div class="bg-bordeaux-card rounded-3xl p-8 text-[#FAF6EB] shadow-2xl relative flex flex-col justify-between transform lg:-translate-y-4 border-2 border-amber-400">
+          <div class="absolute -top-4 left-1/2 -translate-x-1/2 bg-gold-gradient text-[#3D0613] text-xs font-extrabold px-4 py-1.5 rounded-full shadow-md uppercase tracking-wider">
+            Recommandé pour les Révisions
           </div>
 
           <div>
-            <span class="text-xs font-bold uppercase tracking-wider text-emerald-300 bg-white/10 px-3 py-1 rounded-full">Accès Intégral</span>
-            <h3 class="font-display text-2xl font-extrabold text-white mt-4">Location Mensuelle</h3>
-            <p class="text-sm text-[#FAF6EB]/90 mt-2">Accès illimité à l'intégralité du catalogue académique et stockage personnel.</p>
+            <span class="text-xs font-bold uppercase tracking-wider text-amber-300 bg-white/10 px-3 py-1 rounded-full">Pass Illimité VIP</span>
+            <h3 class="font-display text-2xl font-extrabold text-white mt-4">Location 30 Jours</h3>
+            <p class="text-sm text-[#FAF6EB]/90 mt-2">Accès illimité à l'intégralité du catalogue académique et stockage cloud personnel inclus.</p>
             
             <div class="my-6">
               <span class="text-4xl font-extrabold text-white">500 FCFA</span>
-              <span class="text-[#FAF6EB]/80 text-sm font-medium ml-2">/ 30 jours net</span>
+              <span class="text-amber-300 text-sm font-bold ml-2">/ 30 jours net</span>
             </div>
 
             <ul class="space-y-3 text-sm text-[#FAF6EB]">
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><strong class="text-white">Accès illimité à tous les cours et annales</strong></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><strong class="text-white">Pack de 75 documents cloud inclus</strong></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Mode hors-ligne complet</span></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Frais marchands absorbés</span></li>
+              <li class="flex items-center gap-2"><span class="text-amber-300 font-bold">✓</span><strong class="text-white">Accès illimité à TOUS les cours et annales</strong></li>
+              <li class="flex items-center gap-2"><span class="text-amber-300 font-bold">✓</span><strong class="text-white">Capacité de 75 documents personnels incluse</strong></li>
+              <li class="flex items-center gap-2"><span class="text-amber-300 font-bold">✓</span><span>Mode hors-ligne complet sans coupure</span></li>
+              <li class="flex items-center gap-2"><span class="text-amber-300 font-bold">✓</span><span>Frais marchands Mobile Money absorbés</span></li>
             </ul>
           </div>
 
-          <button class="btn-open-web-app mt-8 w-full py-4 rounded-2xl bg-[#10B981] hover:bg-emerald-600 text-white font-extrabold text-sm shadow-xl hover:scale-105 active:scale-95 transition-all">
-            Louer pour 30 jours (500 FCFA)
+          <button class="btn-open-web-app mt-8 w-full py-4 rounded-2xl bg-gold-gradient hover:opacity-95 text-[#3D0613] font-extrabold text-sm shadow-xl hover:scale-105 active:scale-95 transition-all">
+            Prendre le Pass 30 Jours (500 FCFA)
           </button>
         </div>
 
-        <!-- Formule 3 : À l'acte -->
-        <div class="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all">
+        <!-- Formule 3 : Achat à l'Acte -->
+        <div class="bg-[#FAF6EB] rounded-3xl p-8 border border-gray-200 shadow-sm flex flex-col justify-between hover:shadow-lg transition-all">
           <div>
-            <span class="text-xs font-bold uppercase tracking-wider text-gray-500 bg-gray-100 px-3 py-1 rounded-full">À la carte</span>
+            <span class="text-xs font-bold uppercase tracking-wider text-gray-600 bg-white px-3 py-1 rounded-full border border-gray-200">À l'Unité</span>
             <h3 class="font-display text-2xl font-extrabold text-gray-900 mt-4">Achat à l'Acte</h3>
-            <p class="text-sm text-gray-600 mt-2">Payez uniquement le cours ou le sujet dont vous avez besoin.</p>
+            <p class="text-sm text-gray-600 mt-2">Payez uniquement le cours magistral ou l'annale d'examen dont vous avez besoin.</p>
             
             <div class="my-6">
               <span class="text-4xl font-extrabold text-gray-900">100 FCFA</span>
-              <span class="text-gray-500 text-sm font-medium ml-2">/ document</span>
+              <span class="text-gray-500 text-sm font-medium ml-2">/ document net</span>
             </div>
 
             <ul class="space-y-3 text-sm text-gray-700">
               <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Accès définitif à vie</span></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Lecture et téléchargement PDF</span></li>
-              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Wave, Orange, MTN, Moov</span></li>
+              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Téléchargement et lecture PDF</span></li>
+              <li class="flex items-center gap-2"><span class="text-[#10B981] font-bold">✓</span><span>Wave, Orange, MTN MoMo, Moov</span></li>
             </ul>
           </div>
 
-          <button class="btn-open-web-app mt-8 w-full py-3.5 rounded-2xl bg-[#6B1124] text-white hover:bg-[#520B1B] font-bold text-sm transition-all">
-            Parcourir les cours
+          <button class="btn-open-web-app mt-8 w-full py-3.5 rounded-2xl bg-[#6B1124] text-white hover:bg-[#520B1B] font-extrabold text-sm transition-all">
+            Parcourir les documents
           </button>
         </div>
 
       </div>
 
-      <!-- Option Stockage Personnel (+75 Docs) -->
-      <div class="mt-12 bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+      <!-- Extension de Stockage Personnel -->
+      <div class="mt-12 bg-[#F5EBD0] rounded-3xl p-6 sm:p-8 border border-[#6B1124]/20 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
         <div class="flex items-center gap-4">
-          <div class="w-14 h-14 rounded-2xl bg-[#FAF6EB] border border-[#6B1124]/15 flex items-center justify-center text-[#6B1124] text-2xl flex-shrink-0">
+          <div class="w-14 h-14 rounded-2xl bg-[#6B1124] text-amber-300 flex items-center justify-center text-2xl flex-shrink-0 shadow-md">
             📦
           </div>
           <div>
-            <div class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-[#6B1124]/10 text-xs font-bold text-[#6B1124] mb-1">
-              Extension Stockage
+            <div class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-[#6B1124]/15 text-xs font-extrabold text-[#6B1124] mb-1">
+              Extension Stockage Cloud
             </div>
-            <h4 class="text-lg font-bold text-gray-900">Extension de Stockage Cloud Personnel (+75 Documents)</h4>
-            <p class="text-xs sm:text-sm text-gray-600">Augmentez votre capacité pour héberger tous vos fascicules de TD, mémoires et PDF externes.</p>
+            <h4 class="text-lg font-bold text-gray-900">Pack de +75 Documents Personnels</h4>
+            <p class="text-xs sm:text-sm text-gray-600">Importez tous vos fascicules de TD, mémoires et PDF externes directement dans votre espace étudiant.</p>
           </div>
         </div>
         <div class="flex flex-col sm:flex-row items-center gap-4 flex-shrink-0 w-full md:w-auto">
           <div class="text-center md:text-right">
-            <span class="text-2xl font-extrabold text-gray-900">1 000 FCFA</span>
-            <span class="block text-[11px] text-gray-500 font-medium">Prix net / pack de 75 docs</span>
+            <span class="text-2xl font-extrabold text-[#6B1124]">1 000 FCFA</span>
+            <span class="block text-[11px] text-gray-600 font-medium">Capacité cumulative permanente</span>
           </div>
-          <button class="btn-open-web-app w-full sm:w-auto px-6 py-3 rounded-xl bg-[#6B1124] hover:bg-[#520B1B] text-white font-bold text-xs shadow transition-all">
-            Ajouter 75 Documents
+          <button class="btn-open-web-app w-full sm:w-auto px-6 py-3 rounded-xl bg-[#6B1124] hover:bg-[#520B1B] text-white font-extrabold text-xs shadow transition-all">
+            Activer l'extension
           </button>
         </div>
       </div>
@@ -506,62 +544,67 @@
     </div>
   </section>
 
-  <!-- ==================== TÉLÉCHARGEMENT APK ==================== -->
-  <section id="apk-download" class="py-24 bg-white border-b border-[#6B1124]/10">
+  <!-- ==================== SECTION : TÉLÉCHARGEMENT DE L'APK ANDROID ==================== -->
+  <section id="apk-download" class="py-24 bg-[#FAF6EB] border-b border-[#6B1124]/10">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       
-      <div class="bg-hero-gradient rounded-3xl p-8 sm:p-12 lg:p-16 text-white shadow-2xl relative overflow-hidden">
+      <div class="bg-hero-header rounded-3xl p-8 sm:p-12 lg:p-16 text-white shadow-2xl relative overflow-hidden">
         <div class="grid lg:grid-cols-12 gap-10 items-center">
           
           <div class="lg:col-span-8 space-y-6">
-            <span class="inline-block px-3.5 py-1 rounded-full bg-[#10B981] text-white text-xs font-extrabold uppercase tracking-wider">
-              Application Android Native
+            <span class="inline-block px-3.5 py-1 rounded-full bg-amber-400 text-[#3D0613] text-xs font-extrabold uppercase tracking-wider shadow">
+              Application Android Officielle
             </span>
             <h2 class="font-display text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white">
-              Téléchargez l'APK Officiel de cauZon
+              Téléchargez l'APK Direct de cauZon
             </h2>
             <p class="text-base sm:text-lg text-[#FAF6EB]/90 font-light leading-relaxed">
-              Pour une expérience 100% hors-ligne fluide et des notifications d'examens en temps réel, installez le fichier APK certifié directement sur votre smartphone Android.
+              Installez le package Android officiel directement sur votre smartphone pour bénéficier des notifications instantanées lors de la publication de nouveaux sujets et d'une fluidité maximale hors-ligne.
             </p>
 
-            <!-- 3 Simple Steps -->
+            <!-- 3 Étapes claires d'installation -->
             <div class="grid sm:grid-cols-3 gap-4 pt-2 text-xs">
-              <div class="bg-white/10 p-3.5 rounded-xl backdrop-blur-sm border border-white/15">
-                <span class="font-bold text-[#10B981] block text-base mb-1">1. Télécharger</span>
-                <span>Récupérez l'APK sécurisé en un clic.</span>
+              <div class="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/15">
+                <span class="font-extrabold text-amber-300 block text-base mb-1">1. Télécharger</span>
+                <span class="text-[#FAF6EB]/90">Cliquez sur le bouton pour récupérer le fichier APK officiel.</span>
               </div>
-              <div class="bg-white/10 p-3.5 rounded-xl backdrop-blur-sm border border-white/15">
-                <span class="font-bold text-[#10B981] block text-base mb-1">2. Autoriser</span>
-                <span>Acceptez l'installation de sources connues.</span>
+              <div class="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/15">
+                <span class="font-extrabold text-amber-300 block text-base mb-1">2. Installer</span>
+                <span class="text-[#FAF6EB]/90">Autorisez l'installation de source inconnue si demandée.</span>
               </div>
-              <div class="bg-white/10 p-3.5 rounded-xl backdrop-blur-sm border border-white/15">
-                <span class="font-bold text-[#10B981] block text-base mb-1">3. Réviser</span>
-                <span>Accédez instantanément à vos cours.</span>
+              <div class="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/15">
+                <span class="font-extrabold text-amber-300 block text-base mb-1">3. Réviser</span>
+                <span class="text-[#FAF6EB]/90">Connectez-vous avec Google et réclamez votre cours offert.</span>
               </div>
             </div>
 
-            <!-- Actions -->
+            <!-- Boutons de Téléchargement -->
             <div class="flex flex-col sm:flex-row items-center gap-4 pt-4">
-              <a href="/cauzon-latest.apk" download="cauzon-latest.apk" class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-[#10B981] hover:bg-emerald-600 text-white font-extrabold text-base flex items-center justify-center gap-3 shadow-xl hover:scale-105 active:scale-95 transition-all">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              <a href="https://play.google.com/store/apps/details?id=com.cauzon.app" target="_blank" rel="noopener noreferrer" class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gold-gradient text-[#3D0613] font-extrabold text-base flex items-center justify-center gap-3 shadow-xl glow-gold hover:scale-105 active:scale-95 transition-all">
+                <svg class="w-5 h-5 text-[#3D0613]" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M3.609 1.814L13.793 12 3.61 22.186c-.328-.328-.51-.787-.51-1.286V3.1c0-.499.182-.958.51-1.286zm11.603 11.605l2.42 2.42-12.066 6.96 9.646-9.38zm0-2.838L5.566 1.201l12.066 6.96-2.42 2.42zm1.42 1.419l3.864 2.228c.783.452.783 1.186 0 1.638l-3.864 2.228-2.128-2.128 2.128-2.128z"/>
                 </svg>
-                <span>Télécharger l'APK (Gratuit)</span>
+                <span>Installer via Google Play</span>
               </a>
 
-              <button class="btn-open-web-app w-full sm:w-auto px-6 py-4 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/25 text-white font-bold text-base transition-all">
-                Ou utiliser la version Web
+              <button class="btn-open-web-app w-full sm:w-auto px-6 py-4 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/25 text-white font-bold text-base transition-all flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                </svg>
+                <span>Lancer cauZon Web sur iPhone / PC</span>
               </button>
             </div>
           </div>
 
+          <!-- Macaron d'authenticité -->
           <div class="lg:col-span-4 flex justify-center">
-            <div class="w-48 h-48 rounded-3xl bg-white/10 border border-white/20 p-4 flex flex-col items-center justify-center text-center shadow-inner">
-              <div class="w-20 h-20 rounded-2xl bg-[#FAF6EB] flex items-center justify-center text-[#6B1124] font-display font-extrabold text-4xl shadow-md mb-2">
-                C
+            <div class="w-52 h-52 rounded-3xl bg-white/10 border border-white/20 p-4 flex flex-col items-center justify-center text-center shadow-inner">
+              <div class="w-20 h-20 rounded-2xl bg-[#FAF6EB] p-1 shadow-md mb-2">
+                <img src="/icon.png" alt="Icon cauZon" class="w-full h-full object-cover rounded-xl">
               </div>
-              <span class="font-bold text-sm">cauZon Android</span>
-              <span class="text-[11px] text-[#FAF6EB]/70">Version 1.0.0 · APK Certifié</span>
+              <span class="font-bold text-sm text-[#FAF6EB]">cauZon Android</span>
+              <span class="text-[11px] text-[#FAF6EB]/70">Package certifié com.cauzon.app</span>
+              <span class="mt-1 text-[10px] bg-[#10B981] text-white px-2 py-0.5 rounded-full font-bold">SDK 57 Prêt</span>
             </div>
           </div>
 
@@ -571,70 +614,70 @@
     </div>
   </section>
 
-  <!-- ==================== FAQ ACCORDION ==================== -->
-  <section id="faq" class="py-24 bg-[#FAF6EB]">
+  <!-- ==================== FAQ ACCORDÉON ==================== -->
+  <section id="faq" class="py-24 bg-white">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       
       <div class="text-center space-y-4 mb-16">
         <span class="text-xs font-extrabold uppercase tracking-widest text-[#6B1124] bg-[#6B1124]/10 px-3.5 py-1.5 rounded-full">
-          Questions & Réponses
+          Questions Fréquentes
         </span>
         <h2 class="font-display text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">
-          Foire Aux Questions
+          Tout ce que vous devez savoir sur cauZon
         </h2>
       </div>
 
       <div class="space-y-4">
         
         <!-- FAQ 1 -->
-        <div class="faq-item bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="faq-item bg-[#FAF6EB] rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <button class="faq-header w-full p-6 text-left flex items-center justify-between gap-4 font-bold text-gray-900 text-base sm:text-lg">
-            <span>Quels sont les moyens de paiement acceptés sur cauZon ?</span>
+            <span>Comment obtenir mon premier document offert ?</span>
             <svg class="faq-icon w-5 h-5 text-[#6B1124] transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
           </button>
           <div class="faq-content px-6 pb-6 text-sm text-gray-600 leading-relaxed">
-            Nous acceptons l'ensemble des moyens de paiement Mobile Money disponibles en Côte d'Ivoire : <strong>Wave</strong>, <strong>Orange Money</strong>, <strong>MTN MoMo</strong>, et <strong>Moov Money</strong> ainsi que les cartes bancaires via la passerelle sécurisée FeexPay. Les frais marchands sont intégralement absorbés par cauZon : vous payez uniquement des prix ronds (100F, 500F, 1000F).
+            Il vous suffit de lancer l'application (APK ou Web), de vous connecter avec votre compte Google et de cliquer sur "Débloquer" sur le document de votre choix. L'offre de bienvenue s'applique automatiquement et le cours apparaît directement dans votre bibliothèque sans aucun frais.
           </div>
         </div>
 
         <!-- FAQ 2 -->
-        <div class="faq-item bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="faq-item bg-[#FAF6EB] rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <button class="faq-header w-full p-6 text-left flex items-center justify-between gap-4 font-bold text-gray-900 text-base sm:text-lg">
-            <span>Comment fonctionne la formule de Location du Catalogue à 500 FCFA ?</span>
+            <span>Quels opérateurs Mobile Money sont supportés en Côte d'Ivoire ?</span>
             <svg class="faq-icon w-5 h-5 text-[#6B1124] transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
           </button>
           <div class="faq-content px-6 pb-6 text-sm text-gray-600 leading-relaxed">
-            Pour 500 FCFA valables 30 jours, vous débloquez l'accès intégral et illimité à tous les cours magistraux, fiches et annales d'examens disponibles sur cauZon. Vous bénéficiez également d'un espace cloud personnel inclus pour importer et organiser jusqu'à 75 documents PDF personnels.
+            Nous acceptons <strong>Wave</strong>, <strong>Orange Money</strong>, <strong>MTN MoMo</strong> et <strong>Moov Money</strong> via notre partenaire FeexPay. Vous payez des prix ronds exacts : 100 FCFA pour un cours à l'unité, 500 FCFA pour le pass 30 jours, ou 1 000 FCFA pour l'extension de stockage.
           </div>
         </div>
 
         <!-- FAQ 3 -->
-        <div class="faq-item bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="faq-item bg-[#FAF6EB] rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <button class="faq-header w-full p-6 text-left flex items-center justify-between gap-4 font-bold text-gray-900 text-base sm:text-lg">
-            <span>Puis-je utiliser cauZon sur le Web sans installer l'application ?</span>
+            <span>Puis-je utiliser cauZon sur iPhone (iOS) ou sur PC portable ?</span>
             <svg class="faq-icon w-5 h-5 text-[#6B1124] transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
           </button>
           <div class="faq-content px-6 pb-6 text-sm text-gray-600 leading-relaxed">
-            Oui, absolument ! cauZon est conçu comme une Progressive Web App (PWA). En cliquant sur "Lancer cauZon Web", vous accédez à l'application complète directement depuis Chrome, Safari ou Firefox sur votre téléphone ou PC sans aucun téléchargement nécessaire.
+            Absolument ! Cliquez sur "Lancer cauZon Web" depuis Safari ou Chrome. Sur iPhone, vous pouvez même l'ajouter à votre écran d'accueil via le menu Partager > « Sur l'écran d'accueil » pour l'utiliser exactement comme une application native.
           </div>
         </div>
 
         <!-- FAQ 4 -->
-        <div class="faq-item bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+        <div class="faq-item bg-[#FAF6EB] rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <button class="faq-header w-full p-6 text-left flex items-center justify-between gap-4 font-bold text-gray-900 text-base sm:text-lg">
-            <span>Les documents sont-ils accessibles hors-ligne ?</span>
+            <span>Comment fonctionne la formule de Location 30 Jours à 500 FCFA ?</span>
             <svg class="faq-icon w-5 h-5 text-[#6B1124] transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
           </button>
           <div class="faq-content px-6 pb-6 text-sm text-gray-600 leading-relaxed">
-            Oui. Une fois acquis ou ouverts une première fois, les documents sont automatiquement mis en mémoire locale chiffrée sur votre appareil. Vous pouvez ainsi réviser dans les transports ou en zone blanche sans consommer votre forfait internet.
+            Pour 500 FCFA valables pendant un mois entier, vous avez un accès illimité à tous les cours et annales du catalogue sans devoir acheter chaque document individuellement. Cette formule inclut également un pack de 75 documents cloud pour importer vos propres supports.
           </div>
         </div>
 
@@ -643,72 +686,97 @@
     </div>
   </section>
 
-  <!-- ==================== FOOTER ==================== -->
-  <footer class="bg-[#3D0613] text-[#FAF6EB] py-16 border-t border-[#6B1124]/30">
+  <!-- ==================== PIED DE PAGE (FOOTER) PROFESSIONNEL ==================== -->
+  <footer class="bg-[#3D0613] text-[#FAF6EB] pt-16 pb-12 border-t border-[#6B1124]/30">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-10">
         
-        <!-- Col 1: Brand -->
+        <!-- Colonne 1 : Marque & Logo -->
         <div class="space-y-4 md:col-span-2">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-[#FAF6EB] flex items-center justify-center text-[#6B1124] font-extrabold text-xl font-display">
-              C
+            <div class="w-10 h-10 rounded-xl overflow-hidden shadow border border-[#FAF6EB]/20 bg-[#520B1B]">
+              <img src="/icon.png" alt="Logo cauZon" class="w-full h-full object-cover">
             </div>
             <span class="text-2xl font-extrabold font-display tracking-tight text-[#FAF6EB]">
               cauZon
             </span>
           </div>
-          <p class="text-sm text-[#FAF6EB]/70 max-w-sm font-light">
-            La plateforme académique de référence en Côte d'Ivoire. Fiches, annales corrigées et cours universitaires certifiés à prix étudiant.
+          <p class="text-sm text-[#FAF6EB]/70 max-w-sm font-light leading-relaxed">
+            La plateforme académique de référence en Côte d'Ivoire. Épreuves d'examens, annales corrigées et cours universitaires certifiés à prix étudiant.
           </p>
+          <div class="text-xs text-amber-300 font-semibold">
+            🎓 Développé pour la communauté universitaire ivoirienne
+          </div>
         </div>
 
-        <!-- Col 2: Navigation -->
+        <!-- Colonne 2 : Navigation Rapide -->
         <div class="space-y-3">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-[#10B981]">Navigation</h4>
+          <h4 class="text-xs font-bold uppercase tracking-wider text-amber-400">Navigation</h4>
           <ul class="space-y-2 text-sm text-[#FAF6EB]/80">
             <li><a href="#avantages" class="hover:text-white transition-colors">Avantages</a></li>
+            <li><a href="#comment-ca-marche" class="hover:text-white transition-colors">Comment ça marche ?</a></li>
             <li><a href="#tarifs" class="hover:text-white transition-colors">Formules & Tarifs</a></li>
             <li><a href="#apk-download" class="hover:text-white transition-colors">Télécharger l'APK</a></li>
             <li><a href="#faq" class="hover:text-white transition-colors">Foire Aux Questions</a></li>
           </ul>
         </div>
 
-        <!-- Col 3: Légal & Support -->
+        <!-- Colonne 3 : Informations Légales & Support -->
         <div class="space-y-3">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-[#10B981]">Support</h4>
+          <h4 class="text-xs font-bold uppercase tracking-wider text-amber-400">Légal & Contact</h4>
           <ul class="space-y-2 text-sm text-[#FAF6EB]/80">
-            <li><span>Abidjan, Côte d'Ivoire</span></li>
-            <li><a href="mailto:support@cauzon.ci" class="hover:text-white transition-colors">support@cauzon.ci</a></li>
-            <li><button class="btn-open-web-app hover:text-white transition-colors text-left">Accéder à l'App</button></li>
+            <li>
+              <button class="btn-open-cgu hover:text-white transition-colors text-left">
+                Conditions Générales d'Utilisation (CGU)
+              </button>
+            </li>
+            <li>
+              <button class="btn-open-privacy hover:text-white transition-colors text-left">
+                Politique de Confidentialité
+              </button>
+            </li>
+            <li>
+              <a href="mailto:support@cauzon.ci" class="hover:text-white transition-colors">support@cauzon.ci</a>
+            </li>
+            <li>
+              <span>Abidjan, Côte d'Ivoire</span>
+            </li>
           </ul>
         </div>
 
       </div>
 
+      <!-- Barre inférieure copyright & mentions -->
       <div class="mt-12 pt-8 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#FAF6EB]/60">
-        <p>© 2026 cauZon. Tous droits réservés.</p>
-        <p>Développé avec excellence pour les étudiants ivoiriens.</p>
+        <p>© 2026 cauZon.ci — Tous droits réservés.</p>
+        <div class="flex items-center gap-4">
+          <button class="btn-open-cgu hover:text-white transition-colors">CGU</button>
+          <span>·</span>
+          <button class="btn-open-privacy hover:text-white transition-colors">Confidentialité</button>
+          <span>·</span>
+          <a href="https://cauzon.ci" class="hover:text-white transition-colors">cauzon.ci</a>
+        </div>
       </div>
     </div>
   </footer>
 
-  <!-- ==================== LIVE WEB APP MODAL ==================== -->
-  <div id="web-modal" class="modal-backdrop fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-    <div id="modal-iframe-container" class="modal-content w-full max-w-5xl h-[85vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-gray-200">
+  <!-- ==================== MODALE LIVE PWA (ACCÈS DIRECT) ==================== -->
+  <div id="web-modal" class="modal-backdrop fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="modal-iframe-container" class="modal-content w-full max-w-5xl h-[88vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-gray-200">
       
-      <!-- Modal Header Bar -->
+      <!-- Barre d'En-tête de la Modale PWA -->
       <div class="px-6 py-4 bg-[#6B1124] text-white flex items-center justify-between flex-shrink-0">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-[#FAF6EB] flex items-center justify-center text-[#6B1124] font-bold text-sm">C</div>
+          <div class="w-8 h-8 rounded-lg overflow-hidden bg-[#FAF6EB] p-0.5 border border-white/20">
+            <img src="/icon.png" alt="cauZon" class="w-full h-full object-cover rounded-md">
+          </div>
           <div>
-            <h3 class="font-bold text-sm text-[#FAF6EB]">Application cauZon Web</h3>
-            <span class="text-[11px] text-[#FAF6EB]/70">Accès direct et instantané</span>
+            <h3 class="font-bold text-sm text-[#FAF6EB]">Application cauZon Web & PWA</h3>
+            <span class="text-[11px] text-[#FAF6EB]/70">Accès direct et universel (iOS, Android, PC)</span>
           </div>
         </div>
 
         <div class="flex items-center gap-2">
-          <!-- Ouvrir dans un nouvel onglet -->
           <button class="btn-open-new-tab p-2 rounded-lg bg-white/10 hover:bg-white/20 text-[#FAF6EB] transition-colors text-xs font-semibold flex items-center gap-1.5" title="Ouvrir dans un nouvel onglet">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
@@ -716,7 +784,6 @@
             <span class="hidden sm:inline">Plein Écran</span>
           </button>
 
-          <!-- Bouton Fermer -->
           <button class="btn-close-modal p-2 rounded-lg bg-white/10 hover:bg-white/20 text-[#FAF6EB] transition-colors" title="Fermer">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -725,7 +792,7 @@
         </div>
       </div>
 
-      <!-- Modal Iframe Body -->
+      <!-- Contenu de la Modale -->
       <div class="flex-1 bg-[#FAF6EB] relative overflow-hidden">
         <iframe id="app-iframe" src="about:blank" class="w-full h-full border-0" allow="camera; microphone; payment; fullscreen"></iframe>
       </div>
@@ -733,7 +800,95 @@
     </div>
   </div>
 
-  <!-- Vanilla JavaScript -->
+  <!-- ==================== MODALE JURIDIQUE : CGU & CONFIDENTIALITÉ ==================== -->
+  <div id="legal-modal" class="legal-modal-backdrop fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="modal-content w-full max-w-3xl max-h-[85vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-gray-200">
+      
+      <!-- En-tête Modale Légale -->
+      <div class="px-6 py-4 bg-[#6B1124] text-white flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg overflow-hidden bg-[#FAF6EB] p-0.5">
+            <img src="/icon.png" alt="cauZon" class="w-full h-full object-cover rounded-md">
+          </div>
+          <h3 class="font-bold text-sm text-[#FAF6EB]">Informations Légales cauZon.ci</h3>
+        </div>
+
+        <button class="btn-close-legal p-2 rounded-lg bg-white/10 hover:bg-white/20 text-[#FAF6EB] transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Onglets CGU / Confidentialité -->
+      <div class="flex border-b border-gray-200 bg-[#FAF6EB] px-6">
+        <button id="tab-cgu" class="py-3 px-4 text-sm font-bold border-b-2 border-[#6B1124] text-[#6B1124] transition-colors">
+          Conditions Générales d'Utilisation (CGU)
+        </button>
+        <button id="tab-privacy" class="py-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-900 transition-colors">
+          Politique de Confidentialité
+        </button>
+      </div>
+
+      <!-- Corps du texte légal -->
+      <div class="p-6 overflow-y-auto space-y-4 text-sm text-gray-700 leading-relaxed flex-1">
+        
+        <!-- Contenu CGU -->
+        <div id="content-cgu" class="space-y-4">
+          <h4 class="font-bold text-base text-gray-900">1. Présentation du Service</h4>
+          <p>
+            cauZon est une plateforme numérique académique destinée aux étudiants inscrits en Côte d'Ivoire. Elle permet la consultation de fiches de cours, d'annales d'examens et la gestion d'un espace personnel d'apprentissage.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">2. Accès et Compte Utilisateur</h4>
+          <p>
+            L'accès aux fonctionnalités d'acquisition et au document de bienvenue nécessite une authentification via un compte Google valide. L'utilisateur est responsable de la sécurité de ses accès.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">3. Tarifs et Paiements</h4>
+          <p>
+            Les prix des documents (100 FCFA à l'unité) et des abonnements/locations (500 FCFA pour 30 jours) sont indiqués en Francs CFA nets. Les transactions sont exécutées par Mobile Money via la passerelle agréée FeexPay.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">4. Propriété Intellectuelle</h4>
+          <p>
+            Les contenus et cours proposés sont protégés par le droit d'auteur. Tout partage commercial non autorisé ou diffusion publique massive est strictement interdit.
+          </p>
+        </div>
+
+        <!-- Contenu Politique de Confidentialité -->
+        <div id="content-privacy" class="space-y-4 hidden">
+          <h4 class="font-bold text-base text-gray-900">1. Données Collectées</h4>
+          <p>
+            cauZon collecte uniquement les informations nécessaires au bon fonctionnement du service : identifiant de compte Google (nom, email, photo de profil pour l'avatar), numéro de téléphone de facturation fourni lors des paiements, et token de notifications push si vous y avez consenti.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">2. Utilisation des Données</h4>
+          <p>
+            Vos données servent exclusivement à : vous identifier, vous attribuer vos documents acquis, pré-remplir vos formulaires de paiement Mobile Money et vous envoyer des alertes académiques pertinentes.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">3. Non-Cession des Données</h4>
+          <p>
+            cauZon s'engage formellement à ne jamais vendre, louer ou céder vos données personnelles à des tiers à des fins publicitaires.
+          </p>
+          <h4 class="font-bold text-base text-gray-900">4. Droit de Suppression</h4>
+          <p>
+            Conformément aux normes de protection des données, tout utilisateur peut supprimer définitivement son compte et toutes ses données associées à tout moment depuis les paramètres de l'application.
+          </p>
+        </div>
+
+      </div>
+
+      <!-- Pied de modale légale -->
+      <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+        <button class="btn-close-legal px-6 py-2.5 rounded-xl bg-[#6B1124] text-white font-bold text-sm">
+          J'ai compris
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Supabase JS Client pour le tunnel d'authentification Google OAuth -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Script JavaScript Vanille -->
   <script src="/script.js"></script>
 </body>
 </html>

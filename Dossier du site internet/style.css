@@ -1,23 +1,29 @@
-﻿/* ==============================================================================
-   cauZon — Site Officiel & PWA Vitrine | Styles CSS3 Modernes
-   Palette Officielle : Bordeaux (#6B1124, #520B1B), Crème (#FAF6EB, #F4F1E0), Émeraude (#10B981)
+/* ==============================================================================
+   cauZon.ci — Site Officiel & Portail Web (PWA)
+   Identité Visuelle Officielle :
+   - Bordeaux Signature : #6B1124 (profond: #520B1B, nocturne: #3D0613)
+   - Blanc Crème : #FAF6EB (ivoire: #FFFFFF, crème doux: #F5EBD0)
+   - Or / Ambre Prestige : #D97706, #F59E0B, #FBBF24 (touches dorées)
+   - Émeraude Succès : #10B981, #059669
 ============================================================================== */
 
 :root {
   --color-bordeaux-900: #3D0613;
   --color-bordeaux-800: #520B1B;
   --color-bordeaux-700: #6B1124;
-  --color-bordeaux-600: #7F011F;
-  --color-creme-100: #FFFFFF;
-  --color-creme-200: #FAF6EB;
-  --color-creme-300: #F4F1E0;
-  --color-creme-400: #EAE5CE;
+  --color-bordeaux-600: #83182E;
+  --color-creme-50: #FFFFFF;
+  --color-creme-100: #FAF6EB;
+  --color-creme-200: #F5EBD0;
+  --color-creme-300: #EAE0C4;
+  --color-gold-400: #FBBF24;
+  --color-gold-500: #F59E0B;
+  --color-gold-600: #D97706;
   --color-emerald-500: #10B981;
   --color-emerald-600: #059669;
   --color-dark: #1F2937;
-  --color-gray-500: #6B7280;
-  --color-gray-100: #F3F4F6;
-  
+  --color-dark-sub: #4B5563;
+
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Outfit', 'Playfair Display', Georgia, serif;
 }
@@ -31,7 +37,7 @@
 html {
   scroll-behavior: smooth;
   font-family: var(--font-sans);
-  background-color: var(--color-creme-200);
+  background-color: var(--color-bordeaux-700);
   color: var(--color-dark);
 }
 
@@ -42,40 +48,57 @@ body {
 
 ::selection {
   background-color: var(--color-bordeaux-700);
-  color: var(--color-creme-200);
+  color: var(--color-creme-100);
 }
 
-/* Typographie Spécifique */
 .font-display {
   font-family: var(--font-display);
 }
 
-/* Gradients et Effets de Lumière */
-.bg-hero-gradient {
-  background: linear-gradient(180deg, var(--color-bordeaux-700) 0%, var(--color-bordeaux-800) 50%, var(--color-bordeaux-900) 100%);
+/* Gradients et Effets Visuels Haut de Gamme */
+.bg-hero-header {
+  background: linear-gradient(180deg, #520B1B 0%, #6B1124 60%, #5E0E1F 100%);
 }
 
 .bg-bordeaux-card {
-  background: linear-gradient(180deg, var(--color-bordeaux-700) 0%, var(--color-bordeaux-800) 100%);
+  background: linear-gradient(145deg, #6B1124 0%, #4E0B1A 100%);
 }
 
-.glow-emerald {
-  box-shadow: 0 10px 30px -5px rgba(16, 185, 129, 0.4);
+.bg-gold-gradient {
+  background: linear-gradient(135deg, #FBBF24 0%, #D97706 100%);
+}
+
+.text-gold-gradient {
+  background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-border {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.glow-gold {
+  box-shadow: 0 10px 30px -5px rgba(245, 158, 11, 0.35);
 }
 
 .glow-bordeaux {
-  box-shadow: 0 15px 35px -5px rgba(107, 17, 36, 0.35);
+  box-shadow: 0 16px 40px -8px rgba(107, 17, 36, 0.45);
 }
 
-/* Phone Simulator Frame */
+.glow-emerald {
+  box-shadow: 0 10px 30px -5px rgba(16, 185, 129, 0.35);
+}
+
+/* Simulateur Mobile iPhone/Android */
 .phone-mockup {
   position: relative;
-  width: 320px;
-  height: 640px;
+  width: 325px;
+  height: 660px;
   background-color: #111827;
-  border-radius: 44px;
+  border-radius: 46px;
   border: 10px solid #1F2937;
-  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 25px 65px -15px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.12);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -87,7 +110,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   width: 120px;
-  height: 22px;
+  height: 20px;
   background-color: #1F2937;
   border-bottom-left-radius: 14px;
   border-bottom-right-radius: 14px;
@@ -96,11 +119,19 @@ body {
 
 .phone-screen {
   flex: 1;
-  background-color: var(--color-creme-200);
-  overflow-y: auto;
-  padding-top: 24px;
+  background-color: #FAF6EB;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.phone-screen img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
 }
 
 /* Custom Scrollbars */
@@ -110,23 +141,23 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-creme-300);
+  background: #F5EBD0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(107, 17, 36, 0.3);
+  background: rgba(107, 17, 36, 0.35);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-bordeaux-700);
+  background: #6B1124;
 }
 
-/* Modal Animation */
+/* Modal Live PWA */
 .modal-backdrop {
   opacity: 0;
   visibility: hidden;
-  transition: all 0.3s ease-in-out;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .modal-backdrop.active {
@@ -143,7 +174,7 @@ body {
   transform: scale(1) translateY(0);
 }
 
-/* Accordion FAQ */
+/* Accordéon FAQ */
 .faq-content {
   max-height: 0;
   overflow: hidden;
@@ -160,12 +191,14 @@ body {
   transform: rotate(180deg);
 }
 
-/* Micro-animations */
-@keyframes pulseGlow {
-  0%, 100% { transform: scale(1); opacity: 0.8; }
-  50% { transform: scale(1.05); opacity: 1; }
+/* Modale Mentions Légales */
+.legal-modal-backdrop {
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.25s ease-in-out;
 }
 
-.animate-pulse-glow {
-  animation: pulseGlow 4s infinite ease-in-out;
+.legal-modal-backdrop.active {
+  opacity: 1;
+  visibility: visible;
 }
