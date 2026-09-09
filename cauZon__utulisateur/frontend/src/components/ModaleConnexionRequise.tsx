@@ -13,7 +13,7 @@ import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 import ModaleLegale from './ModaleLegale';
 
-export type MotifGating = 'bienvenue' | 'achat' | 'vip' | 'general';
+export type MotifGating = 'bienvenue' | 'achat' | 'vip' | 'import' | 'general';
 
 interface ModaleConnexionRequiseProps {
   visible: boolean;
@@ -89,6 +89,19 @@ export default function ModaleConnexionRequise({
             { icone: 'book', texte: 'Accès illimité à tous les cours et annales' },
             { icone: 'folder', texte: 'Extension de stockage personnel (75+ docs)' },
             { icone: 'star', texte: 'Badge VIP exclusif et support prioritaire' },
+          ],
+        };
+      case 'import':
+        return {
+          icone: 'cloud-upload' as const,
+          couleurIcone: '#6B1124',
+          fondIcone: 'rgba(107, 17, 36, 0.12)',
+          titre: 'Sauvegarde Cloud Personnelle ☁️',
+          sousTitre: 'Connectez-vous avec votre compte Google pour téléverser et synchroniser vos documents PDF personnels dans le Cloud sécurisé cauZon.',
+          avantages: [
+            { icone: 'cloud-done', texte: 'Stockage Cloud permanent lié à votre compte' },
+            { icone: 'shield-checkmark', texte: 'Accès garanti même en cas de changement d\'appareil' },
+            { icone: 'lock-closed', texte: 'Documents privés et sécurisés sur vos dossiers' },
           ],
         };
       default:

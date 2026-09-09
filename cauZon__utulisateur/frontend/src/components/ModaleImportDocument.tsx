@@ -15,14 +15,21 @@ import {
 import { Ionicons } from './AppIcon';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../store/ContexteApp';
-import { importerDocumentLocal } from '../services/serviceDocument';
+import { importerDocumentLocal, televerserDocumentCloud } from '../services/serviceDocument';
 import type { DocumentCourse } from '../types';
+
+export interface FichierImporte {
+  name: string;
+  uri: string;
+  size?: number;
+}
 
 interface ModaleImportDocumentProps {
   visible: boolean;
   onClose: () => void;
   onSuccess: (nouveauDoc?: DocumentCourse) => void;
   categoriesExistantes: string[];
+  initialFile?: FichierImporte | null;
 }
 
 export default function ModaleImportDocument({
@@ -30,17 +37,14 @@ export default function ModaleImportDocument({
   onClose,
   onSuccess,
   categoriesExistantes,
+  initialFile,
 }: ModaleImportDocumentProps) {
   const { couleurs, afficherToast, aAccesVip, estVip, estAbonneVIP, debloquerDocument } = useApp();
   const styles = getStyles(couleurs);
 
   const isVipActive = aAccesVip ?? (estVip || estAbonneVIP);
 
-  const [fichierSelectionne, setFichierSelectionne] = useState<{
-    name: string;
-    uri: string;
-    size?: number;
-  } | null>(null);
+  const [fichierSelectionne, setFichierSelectionne] = useState<FichierImporte | null>(null);
 
   // Catégories valides déduites
   const categoriesDisponibles = React.useMemo(() => {
@@ -59,17 +63,23 @@ export default function ModaleImportDocument({
   const [titrePersonnalise, setTitrePersonnalise] = useState<string>('');
   const [enCours, setEnCours] = useState<boolean>(false);
 
-  // Réinitialiser les états à chaque ouverture de la modale
+  // Initialiser / Réinitialiser les états à chaque ouverture de la modale
   React.useEffect(() => {
     if (visible) {
-      setFichierSelectionne(null);
-      setTitrePersonnalise('');
+      if (initialFile) {
+        setFichierSelectionne(initialFile);
+        const titreSansExt = initialFile.name.replace(/\.[^/.]+$/, '');
+        setTitrePersonnalise(titreSansExt);
+      } else {
+        setFichierSelectionne(null);
+        setTitrePersonnalise('');
+      }
       setNouveauDossier('');
       setModeDossier('existant');
       setDossierExistant(categoriesDisponibles[0] || 'Documents Personnels');
       setEnCours(false);
     }
-  }, [visible, categoriesDisponibles]);
+  }, [visible, initialFile, categoriesDisponibles]);
 
   // 1️⃣ Étape A : Sélection du fichier PDF via DocumentPicker
   const executerSelectionFichier = async () => {
@@ -137,7 +147,7 @@ export default function ModaleImportDocument({
     }
   };
 
-  // 2️⃣ Étape B : Enregistrement final avec métadonnées complètes
+  // 2️⃣ Étape B : Enregistrement Cloud final avec métadonnées complètes
   const handleValiderImport = async () => {
     if (!fichierSelectionne) {
       afficherToast('Veuillez sélectionner un fichier PDF à importer.', 'Fichier Requis ⚠️', 'erreur');
@@ -149,15 +159,15 @@ export default function ModaleImportDocument({
       ? (nouveauDossier.trim() || 'Nouveau Dossier')
       : (dossierExistant || 'Documents Personnels');
 
-    const tailleMo = fichierSelectionne.size ? parseFloat((fichierSelectionne.size / (1024 * 1024)).toFixed(2)) : 1.5;
-
     setEnCours(true);
     try {
-      const res = await importerDocumentLocal({
-        titre: titreFinal,
-        categorie: dossierFinal,
-        file_path: fichierSelectionne.uri,
-        taille_mo: tailleMo,
+      // ☁️ Téléversement Cloud Supabase (Storage + Database)
+      const res = await televerserDocumentCloud({
+        fileUri: fichierSelectionne.uri,
+        fileName: fichierSelectionne.name,
+        fileSize: fichierSelectionne.size,
+        customTitle: titreFinal,
+        selectedFolder: dossierFinal,
       });
 
       setEnCours(false);
@@ -167,18 +177,18 @@ export default function ModaleImportDocument({
           debloquerDocument(res.document.id);
         }
         afficherToast(
-          `"${titreFinal}" a été enregistré dans le dossier "${dossierFinal}".`,
-          'Document Enregistré 📥',
+          `"${titreFinal}" a été sauvegardé dans le Cloud et rangé dans "${dossierFinal}".`,
+          'Téléversement Réussi ☁️',
           'succes'
         );
         onSuccess(res.document);
         onClose();
       } else {
-        afficherToast(res.message || "Échec de l'importation.", 'Erreur ❌', 'erreur');
+        afficherToast(res.message || "Échec du téléversement Cloud.", 'Erreur ❌', 'erreur');
       }
     } catch (e: any) {
       setEnCours(false);
-      console.error('Erreur importation document :', e);
+      console.error('Erreur téléversement Cloud document :', e);
       afficherToast("Une erreur inattendue est survenue.", 'Erreur ❌', 'erreur');
     }
   };
@@ -453,8 +463,8 @@ export default function ModaleImportDocument({
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <>
-                    <Ionicons name="checkmark-circle" size={18} color="#E5C158" style={{ marginRight: 8 }} />
-                    <Text style={styles.submitBtnText}>Confirmer et Enregistrer</Text>
+                    <Ionicons name="cloud-upload" size={18} color="#E5C158" style={{ marginRight: 8 }} />
+                    <Text style={styles.submitBtnText}>Téléverser ce document</Text>
                   </>
                 )}
               </TouchableOpacity>

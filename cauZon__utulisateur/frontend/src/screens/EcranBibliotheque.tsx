@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '../components/AppIcon';
 import { Document, DocumentCourse } from '../types';
 import { RootStackParamList } from '../navigation/NavigateurApp';
@@ -22,7 +23,8 @@ import JaugeStockage from '../components/JaugeStockage';
 import ModaleVip from '../components/ModaleVip';
 import ModaleStockage from '../components/ModaleStockage';
 import ModaleAchat from '../components/ModaleAchat';
-import ModaleImportDocument from '../components/ModaleImportDocument';
+import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
+import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
 import { fetchMesDocuments, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes } from '../services/serviceDocument';
 
@@ -47,6 +49,8 @@ export default function EcranBibliotheque() {
     dateExpirationAbonnement,
     estEnLigne,
     debloquerDocument,
+    utilisateur,
+    estConnecteGoogle,
   } = useApp();
   
   const [dossierActif, setDossierActif] = useState<'permanent' | 'vip'>('permanent');
@@ -55,6 +59,8 @@ export default function EcranBibliotheque() {
   const [achatModalVisible, setAchatModalVisible] = useState(false);
   const [forcerAchatPermanent, setForcerAchatPermanent] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
+  const [fichierImportSelectionne, setFichierImportSelectionne] = useState<FichierImporte | null>(null);
+  const [connexionModalVisible, setConnexionModalVisible] = useState(false);
   const [documentPourAchat, setDocumentPourAchat] = useState<Document | null>(null);
 
   // Modale de confirmation de suppression personnalisée CauZon
@@ -321,6 +327,61 @@ export default function EcranBibliotheque() {
     setSearchQuery('');
   };
 
+  // 📥 Processus d'importation PDF sécurisé & vérifié
+  const demarrerProcessusImport = async () => {
+    // 1. Vérification de la connexion Google
+    if (!estConnecteGoogle && !utilisateur) {
+      afficherToast(
+        "Connectez-vous avec votre compte Google pour sauvegarder vos documents personnels dans le Cloud sécurisé.",
+        "Connexion Requise 🔒",
+        "info"
+      );
+      setConnexionModalVisible(true);
+      return;
+    }
+
+    // 2. Vérification des droits VIP
+    if (!isVipActive) {
+      afficherToast(
+        "L'importation de documents personnels (PDF) est réservée aux abonnés VIP. Passez VIP pour débloquer le stockage illimité !",
+        "Pass VIP Requis 👑",
+        "info"
+      );
+      setVipModalVisible(true);
+      return;
+    }
+
+    // 3. Ouverture du sélecteur natif de PDF (DocumentPicker)
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const nomFichier = (asset.name || '').toLowerCase();
+
+        // Validation stricte du format PDF
+        if (!nomFichier.endsWith('.pdf') && asset.mimeType !== 'application/pdf') {
+          afficherToast("Seuls les fichiers PDF (.pdf) sont acceptés sur cauZon.", "Format Non Supporté 📄", "erreur");
+          return;
+        }
+
+        // Fichier sélectionné : on prépare les données et on ouvre la modale de configuration
+        setFichierImportSelectionne({
+          name: asset.name,
+          uri: asset.uri,
+          size: asset.size,
+        });
+        setImportModalVisible(true);
+      }
+    } catch (err: any) {
+      console.error('Erreur sélection document dans EcranBibliotheque :', err);
+      afficherToast("Impossible d'accéder aux fichiers de votre appareil.", "Erreur ⚠️", "erreur");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* 1. Entête avec Switch Double Dossier & Bouton Importer */}
@@ -334,18 +395,7 @@ export default function EcranBibliotheque() {
           {/* 📥 Bouton Importer un Document (Réservé aux VIP) */}
           <TouchableOpacity
             style={styles.boutonImporterHeader}
-            onPress={() => {
-              if (!isVipActive) {
-                afficherToast(
-                  "L'importation de documents personnels (PDF) est réservée aux abonnés VIP. Passez VIP pour débloquer le stockage illimité !",
-                  "Pass VIP Requis 👑",
-                  "info"
-                );
-                setVipModalVisible(true);
-                return;
-              }
-              setImportModalVisible(true);
-            }}
+            onPress={demarrerProcessusImport}
             activeOpacity={0.8}
           >
             <Ionicons name="cloud-upload" size={15} color="#FFFFFF" />
@@ -686,9 +736,27 @@ export default function EcranBibliotheque() {
       {/* Modale d'Importation de Document */}
       <ModaleImportDocument
         visible={importModalVisible}
-        onClose={() => setImportModalVisible(false)}
-        onSuccess={handleImportSuccess}
+        onClose={() => {
+          setImportModalVisible(false);
+          setFichierImportSelectionne(null);
+        }}
+        onSuccess={(doc) => {
+          setFichierImportSelectionne(null);
+          handleImportSuccess(doc);
+        }}
         categoriesExistantes={Array.from(new Set(mesDocs.map(d => d.categorie).filter(Boolean)))}
+        initialFile={fichierImportSelectionne}
+      />
+
+      {/* Modale de Connexion Requise pour Sauvegarde Cloud */}
+      <ModaleConnexionRequise
+        visible={connexionModalVisible}
+        onClose={() => setConnexionModalVisible(false)}
+        motif="import"
+        onConnexionReussie={() => {
+          setConnexionModalVisible(false);
+          demarrerProcessusImport();
+        }}
       />
 
       {/* Modale de Confirmation de Suppression Personnalisée CauZon */}

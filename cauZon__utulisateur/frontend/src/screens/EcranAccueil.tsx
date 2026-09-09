@@ -717,6 +717,14 @@ export default function EcranAccueil() {
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                style={[
+                  styles.categoryScroll,
+                  Platform.OS === 'web' && ({
+                    touchAction: 'pan-x',
+                    WebkitOverflowScrolling: 'touch',
+                    overscrollBehaviorX: 'contain',
+                  } as any),
+                ]}
                 contentContainerStyle={styles.categoriesList}
               >
                 {categories.map((cat) => (
@@ -1228,6 +1236,17 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   },
   categoriesContainer: {
     marginBottom: 4,
+    ...(Platform.OS === 'web' ? ({
+      touchAction: 'pan-x',
+    } as any) : {}),
+  },
+  categoryScroll: {
+    flexGrow: 0,
+    ...(Platform.OS === 'web' ? ({
+      touchAction: 'pan-x',
+      WebkitOverflowScrolling: 'touch',
+      overscrollBehaviorX: 'contain',
+    } as any) : {}),
   },
   sectionTitle: {
     fontSize: 18,

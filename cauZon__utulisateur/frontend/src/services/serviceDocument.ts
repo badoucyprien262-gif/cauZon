@@ -649,6 +649,259 @@ export const demanderAutorisationAccesFichiers = (
 };
 
 /**
+ * Convertit une chaîne Base64 en Uint8Array (compatible React Native Mobile et Web)
+ */
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * ☁️ TÉLÉVERSEMENT ET PERSISTANCE CLOUD D'UN DOCUMENT PDF (VIP)
+ * 
+ * Étape A : Upload dans Supabase Storage ('documents_utilisateurs' ou repli sur 'cours-documents')
+ * Étape B : Enregistrement des métadonnées dans la base de données Supabase
+ * Étape C : Enregistrement dans le cache local hors-ligne
+ */
+export const televerserDocumentCloud = async (params: {
+  fileUri: string;
+  fileName: string;
+  fileSize?: number;
+  customTitle: string;
+  selectedFolder: string;
+  nombrePages?: number;
+}): Promise<{ success: boolean; document?: DocumentCourse; message: string }> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return {
+        success: false,
+        message: 'Vous devez être connecté avec votre compte Google pour téléverser un document.',
+      };
+    }
+
+    const userId = user.id;
+    const deviceId = await getDeviceId();
+    const idUnique = `imported_${Date.now()}`;
+    const cleanFileName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const folderSlug = (params.selectedFolder || 'Documents Personnels')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_');
+
+    // Chemin de stockage distant
+    const relativePath = `${userId}/${folderSlug}/${Date.now()}_${cleanFileName}`;
+
+    // 1️⃣ Préparation du contenu binaire (Web vs Native)
+    let uploadBody: any;
+    let localCachePath = params.fileUri;
+
+    if (Platform.OS === 'web') {
+      const response = await fetch(params.fileUri);
+      uploadBody = await response.blob();
+    } else {
+      if (FileSystem.documentDirectory) {
+        try {
+          const dossierImport = `${FileSystem.documentDirectory}documents_importes/`;
+          const dirInfo = await FileSystem.getInfoAsync(dossierImport);
+          if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(dossierImport, { intermediates: true });
+          }
+          const destination = `${dossierImport}${idUnique}.pdf`;
+          await FileSystem.copyAsync({ from: params.fileUri, to: destination });
+          const check = await FileSystem.getInfoAsync(destination);
+          if (check.exists && check.size && check.size > 0) {
+            localCachePath = destination;
+          }
+        } catch (e: any) {
+          console.warn('Note copie locale cache :', e?.message);
+        }
+      }
+
+      const base64 = await FileSystem.readAsStringAsync(params.fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      uploadBody = base64ToUint8Array(base64);
+    }
+
+    // 2️⃣ Étape A : Téléversement vers Supabase Storage
+    let storageBucket = 'documents_utilisateurs';
+    let finalStoragePath = relativePath;
+
+    let uploadRes = await supabase.storage
+      .from(storageBucket)
+      .upload(finalStoragePath, uploadBody, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
+    if (uploadRes.error) {
+      console.warn(`Tentative bucket ${storageBucket} échouée (${uploadRes.error.message}), repli sur 'cours-documents'...`);
+      storageBucket = 'cours-documents';
+      finalStoragePath = `documents_utilisateurs/${relativePath}`;
+
+      const fallbackRes = await supabase.storage
+        .from(storageBucket)
+        .upload(finalStoragePath, uploadBody, {
+          contentType: 'application/pdf',
+          upsert: true,
+        });
+
+      if (fallbackRes.error) {
+        console.error('Erreur téléversement Storage Supabase :', fallbackRes.error);
+        throw new Error(`Échec du téléversement dans le Cloud : ${fallbackRes.error.message}`);
+      }
+    }
+
+    console.log(`✅ Fichier PDF téléversé avec succès dans Supabase Storage [${storageBucket}] :`, finalStoragePath);
+
+    // 3️⃣ Calcul du nombre de pages
+    let pagesCount = params.nombrePages || 1;
+    try {
+      const { PDFDocument } = await import('pdf-lib');
+      if (Platform.OS === 'web') {
+        const resp = await fetch(params.fileUri);
+        const arrayBuf = await resp.arrayBuffer();
+        const pdfDoc = await PDFDocument.load(arrayBuf, { ignoreEncryption: true });
+        pagesCount = pdfDoc.getPageCount();
+      } else {
+        const base64 = await FileSystem.readAsStringAsync(localCachePath, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const pdfDoc = await PDFDocument.load(base64, { ignoreEncryption: true });
+        pagesCount = pdfDoc.getPageCount();
+      }
+    } catch (errPages) {
+      console.warn('Note extraction pages PDF :', errPages);
+    }
+
+    const tailleMo = params.fileSize
+      ? parseFloat((params.fileSize / (1024 * 1024)).toFixed(2))
+      : 1.5;
+
+    // 4️⃣ Étape B : Persistance des métadonnées dans la base de données Supabase
+    // Tentative 1 : Table dédiée 'user_library_documents'
+    let dbPersisted = false;
+    const tableDedieePayload = {
+      id: idUnique,
+      user_id: userId,
+      title: params.customTitle.trim(),
+      folder_name: params.selectedFolder.trim() || 'Documents Personnels',
+      file_path: finalStoragePath,
+      bucket: storageBucket,
+      file_size_bytes: params.fileSize || Math.round(tailleMo * 1024 * 1024),
+      page_count: pagesCount,
+      created_at: new Date().toISOString(),
+    };
+
+    const { error: errDediee } = await supabase
+      .from('user_library_documents')
+      .insert([tableDedieePayload]);
+
+    if (!errDediee) {
+      dbPersisted = true;
+      console.log('✅ Métadonnées persistées dans la table dédiée user_library_documents');
+    } else {
+      console.warn('Note insertion user_library_documents :', errDediee.message);
+      // Tentative 2 : Fallback dans 'documents' (status = 'user_imported') + 'acquisitions'
+      const docPayload = {
+        id: idUnique,
+        titre: params.customTitle.trim(),
+        categorie: params.selectedFolder.trim() || 'Documents Personnels',
+        description: 'Document personnel importé dans votre espace VIP cauZon.',
+        prix: 0,
+        est_certifie: false,
+        est_verrouille: false,
+        nombre_pages: pagesCount,
+        limite_apercu_pages: 1,
+        limite_apercu_type: 'page',
+        limite_apercu_valeur: 1,
+        taille_mo: tailleMo,
+        file_path: finalStoragePath,
+        status: 'user_imported',
+      };
+
+      const { error: errDoc } = await supabase.from('documents').upsert([docPayload]);
+      if (!errDoc) {
+        dbPersisted = true;
+        const acqPayload: any = {
+          document_id: idUnique,
+          user_id: userId,
+          is_vip_consultation: false,
+          is_welcome_offer: false,
+          montant_paye: 0,
+        };
+        if (deviceId) acqPayload.device_id = deviceId;
+        try {
+          await supabase.from('acquisitions').insert([acqPayload]);
+        } catch (_) {}
+        console.log('✅ Métadonnées persistées via fallback documents/acquisitions');
+      } else {
+        console.warn('Note insertion documents fallback :', errDoc.message);
+      }
+    }
+
+    // 5️⃣ Étape C : Objet DocumentCourse & Cache Local
+    const dateAjoutIso = new Date().toISOString();
+    const dateAjoutMs = Date.now();
+
+    const nouveauDoc: DocumentCourse = {
+      id: idUnique,
+      titre: params.customTitle.trim(),
+      categorie: params.selectedFolder.trim() || 'Documents Personnels',
+      description: 'Document personnel importé dans votre espace VIP cauZon.',
+      prix: 0,
+      est_certifie: false,
+      est_verrouille: false,
+      nombre_pages: pagesCount,
+      limite_apercu_pages: 1,
+      limite_apercu_type: 'page',
+      limite_apercu_valeur: 1,
+      taille_mo: tailleMo,
+      file_path: finalStoragePath,
+      status: 'actif',
+      is_vip_consultation: false,
+      est_importe: true,
+      date_ajout: dateAjoutIso,
+      ...( {
+        cheminLocal: localCachePath,
+        estImporte: true,
+        typeAcquisition: 'permanent',
+        dateAjout: dateAjoutMs,
+        tailleMo: tailleMo,
+      } as any ),
+    };
+
+    // Sauvegarder dans le cache des documents importés
+    const existants = await chargerDocumentsImportes();
+    const updatedImportes = [nouveauDoc, ...existants.filter((d: any) => d.id !== idUnique)];
+    await sauvegarderDocumentsImportes(updatedImportes);
+
+    // Mettre à jour la bibliothèque locale
+    const biblioLocale = await chargerBibliothequeLocale();
+    const updatedBiblio = [nouveauDoc, ...biblioLocale.filter((d: any) => d.id !== idUnique)];
+    await sauvegarderBibliothequeLocale(updatedBiblio);
+
+    return {
+      success: true,
+      document: nouveauDoc,
+      message: `"${params.customTitle}" a été téléversé avec succès dans le Cloud et classé dans "${params.selectedFolder}" ! ☁️`,
+    };
+  } catch (error: any) {
+    console.error('Erreur lors du téléversement Cloud :', error);
+    return {
+      success: false,
+      message: error?.message || 'Une erreur est survenue lors du téléversement.',
+    };
+  }
+};
+
+/**
  * Importe un nouveau document externe (PDF, Word, Excel, etc.) dans la bibliothèque
  */
 export const importerDocumentLocal = async (params: {
@@ -930,8 +1183,82 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
       });
     }
 
-    // Charger les documents importés par l'utilisateur
-    const docsImportes = await chargerDocumentsImportes();
+    // 📥 Récupération des documents importés persistés dans le Cloud Supabase
+    let cloudUserDocs: DocumentCourse[] = [];
+    if (user?.id) {
+      try {
+        // Source 1 : Table dédiée 'user_library_documents'
+        const { data: userLibDocs, error: errUserLib } = await supabase
+          .from('user_library_documents')
+          .select('*')
+          .eq('user_id', user.id);
+
+        if (!errUserLib && userLibDocs && userLibDocs.length > 0) {
+          cloudUserDocs.push(
+            ...userLibDocs.map((uDoc: any) => ({
+              id: uDoc.id || `imported_${uDoc.created_at ? new Date(uDoc.created_at).getTime() : Date.now()}`,
+              titre: uDoc.title || 'Document Personnel',
+              categorie: uDoc.folder_name || 'Documents Personnels',
+              description: 'Document personnel importé dans votre espace VIP cauZon.',
+              prix: 0,
+              est_certifie: false,
+              est_verrouille: false,
+              nombre_pages: uDoc.page_count || 1,
+              limite_apercu_pages: 1,
+              limite_apercu_type: 'page',
+              limite_apercu_valeur: 1,
+              taille_mo: uDoc.file_size_bytes ? parseFloat((uDoc.file_size_bytes / (1024 * 1024)).toFixed(2)) : 1.5,
+              file_path: uDoc.file_path,
+              status: 'actif',
+              is_vip_consultation: false,
+              est_importe: true,
+              date_ajout: uDoc.created_at || new Date().toISOString(),
+              cheminLocal: uDoc.file_path,
+              estImporte: true,
+              typeAcquisition: 'permanent',
+            } as DocumentCourse))
+          );
+        }
+
+        // Source 2 : Table fallback 'documents' (status = 'user_imported')
+        const { data: fallbackDocs, error: errFallback } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('status', 'user_imported');
+
+        if (!errFallback && fallbackDocs && fallbackDocs.length > 0) {
+          const userAcqIds = (acquisitions || []).map((a: any) => a.document_id);
+          const mesFallback = fallbackDocs.filter((fd: any) => userAcqIds.includes(fd.id));
+          for (const fb of mesFallback) {
+            if (!cloudUserDocs.some((d) => d.id === fb.id)) {
+              cloudUserDocs.push({
+                ...fb,
+                is_vip_consultation: false,
+                est_importe: true,
+                cheminLocal: fb.file_path,
+                estImporte: true,
+                typeAcquisition: 'permanent',
+              } as DocumentCourse);
+            }
+          }
+        }
+      } catch (errCloudUser: any) {
+        console.warn('Note récupération documents Cloud utilisateur :', errCloudUser?.message);
+      }
+    }
+
+    // Charger les documents importés par l'utilisateur (cache local)
+    const docsImportesLocaux = await chargerDocumentsImportes();
+    const tousDocsImportesMap = new Map<string, DocumentCourse>();
+    docsImportesLocaux.forEach((d) => tousDocsImportesMap.set(d.id, d));
+    cloudUserDocs.forEach((d) => {
+      // Le cloud prend la priorité ou enrichit le cache
+      tousDocsImportesMap.set(d.id, { ...(tousDocsImportesMap.get(d.id) || {}), ...d });
+    });
+    const docsImportes = Array.from(tousDocsImportesMap.values());
+
+    // Mettre à jour le cache des documents importés
+    await sauvegarderDocumentsImportes(docsImportes).catch(() => {});
 
     // Charger la bibliothèque en cache local
     const cachedDocs = await chargerBibliothequeLocale();
@@ -949,7 +1276,7 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
       serverDocs = ((docs || []) as DocumentCourse[]).map((doc) => ({
         ...doc,
         is_vip_consultation: vipMap[doc.id] ?? false,
-        est_importe: false,
+        est_importe: doc.status === 'user_imported',
       }));
     }
 
@@ -968,7 +1295,7 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
     }
 
     // 📥 Fusionner les documents importés (toujours permanents)
-    const mergedWithImports = [...docsImportes, ...mergedDocs];
+    const mergedWithImports = [...docsImportes, ...mergedDocs.filter((d) => !tousDocsImportesMap.has(d.id))];
 
     // Mettre à jour le cache local
     await sauvegarderBibliothequeLocale(mergedWithImports);
@@ -993,17 +1320,19 @@ export const enregistrerConsultationVip = async (documentId: string): Promise<vo
 
     const insertData: any = {
       document_id: documentId,
-      device_id: deviceId,
-      is_welcome_offer: false,
       is_vip_consultation: true,
+      montant_paye: 0,
+      is_welcome_offer: false,
     };
-    if (user) insertData.user_id = user.id;
+
+    if (user?.id) insertData.user_id = user.id;
+    if (deviceId) insertData.device_id = deviceId;
 
     await supabase
       .from('acquisitions')
       .upsert([insertData], { onConflict: 'document_id, device_id' });
-  } catch (err) {
-    console.log('Info consultation VIP enregistrée en local/cache :', err);
+  } catch (err: any) {
+    console.warn('Note enregistrement consultation VIP :', err?.message);
   }
 };
 
@@ -1077,12 +1406,16 @@ export const acquerirDocumentVIP = async (
 
 
 /**
- * Supprime un document de la bibliothèque locale
- * - Si importé : purement supprimé du stockage local sans renvoi dans le catalogue
+ * Supprime un document de la bibliothèque locale et du Cloud
+ * - Si importé : supprimé du stockage local + Supabase Storage + user_library_documents/documents
  * - Si officiel : droits réinitialisés et renvoi dans le catalogue
  */
 export const supprimerDocumentLocal = async (documentId: string): Promise<{ success: boolean; message: string }> => {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+    const deviceId = await getDeviceId();
+
     // 1. Si le document est un document importé
     if (documentId.startsWith('imported_')) {
       // Suppression physique du fichier sur l'appareil
@@ -1094,6 +1427,32 @@ export const supprimerDocumentLocal = async (documentId: string): Promise<{ succ
             await FileSystem.deleteAsync(path, { idempotent: true });
           }
         } catch (_) {}
+      }
+
+      // Suppression distante dans Supabase (Table dédiée + Table fallback + Storage)
+      try {
+        if (userId) {
+          // Chercher le chemin storage dans user_library_documents
+          const { data: uDoc } = await supabase
+            .from('user_library_documents')
+            .select('file_path, bucket')
+            .eq('id', documentId)
+            .maybeSingle();
+
+          if (uDoc?.file_path) {
+            const bucket = uDoc.bucket || 'documents_utilisateurs';
+            await supabase.storage.from(bucket).remove([uDoc.file_path]).catch(() => {});
+            if (bucket !== 'cours-documents') {
+              await supabase.storage.from('cours-documents').remove([uDoc.file_path]).catch(() => {});
+            }
+          }
+
+          await supabase.from('user_library_documents').delete().eq('id', documentId).eq('user_id', userId);
+          await supabase.from('acquisitions').delete().eq('document_id', documentId).eq('user_id', userId);
+          await supabase.from('documents').delete().eq('id', documentId);
+        }
+      } catch (errDist: any) {
+        console.warn('Note suppression Cloud document importé :', errDist?.message);
       }
 
       const docsImportes = await chargerDocumentsImportes();
@@ -1108,10 +1467,6 @@ export const supprimerDocumentLocal = async (documentId: string): Promise<{ succ
     }
 
     // 2. Si c'est un document officiel du catalogue
-    const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id;
-    const deviceId = await getDeviceId();
-
     try {
       if (userId) {
         await supabase.from('acquisitions').delete().eq('document_id', documentId).eq('user_id', userId);
@@ -1164,8 +1519,11 @@ export const getDocumentPdfUrl = (filePath: string): string => {
 
   // 2. Si c'est une clé Supabase Storage :
   console.log('🔗 Résolution URL Supabase Storage pour :', cleanPath);
+  // Si le chemin commence par un préfixe ou bucket spécifique
+  const isDedicatedUserBucket = cleanPath.startsWith('documents_utilisateurs/');
+  const bucketName = cleanPath.includes('/') && !isDedicatedUserBucket ? 'cours-documents' : 'cours-documents';
   const { data } = supabase.storage
-    .from('cours-documents')
+    .from(bucketName)
     .getPublicUrl(cleanPath);
 
   return data.publicUrl;
