@@ -698,11 +698,11 @@ export default function EcranAccueil() {
             shadowRadius: 5,
             elevation: 4,
           }}
-          pointerEvents={barreFiltresVisible ? 'auto' : 'none'}
+          pointerEvents={barreFiltresVisible ? 'box-none' : 'none'}
         >
-          <View style={{ paddingTop: 4, paddingBottom: 4 }}>
+          <View style={{ paddingTop: 4, paddingBottom: 4 }} pointerEvents="box-none">
             {/* 1. Barre de Recherche Dynamique Compacte */}
-            <View style={styles.searchContainer}>
+            <View style={styles.searchContainer} pointerEvents="auto">
               <View style={styles.searchBar}>
                 <Ionicons name="search-outline" size={18} color={couleurs.texteSecondaire} />
                 <TextInput
@@ -721,7 +721,7 @@ export default function EcranAccueil() {
             </View>
 
             {/* 2. Catégories Horizontales Dynamiques Compactes */}
-            <View style={styles.categoriesContainer}>
+            <View style={styles.categoriesContainer} pointerEvents="auto">
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -871,7 +871,7 @@ export default function EcranAccueil() {
                     opacity: opacityInterpolate,
                   },
                 ]}
-                {...bannerPanResponder.panHandlers}
+                {...(Platform.OS !== 'web' ? bannerPanResponder.panHandlers : {})}
               >
                 <TouchableOpacity
                   activeOpacity={0.9}
@@ -1170,7 +1170,6 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: couleurs.fond,
     width: '100%',
-    ...(Platform.OS === 'web' ? { height: '100%', overflowY: 'auto' as any } : {}),
   },
   header: {
     backgroundColor: couleurs.fondEntete,
