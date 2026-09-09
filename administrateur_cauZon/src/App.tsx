@@ -218,6 +218,7 @@ export default function App() {
               <SettingsView
                 profiles={appData.profiles}
                 setProfiles={appData.setProfiles}
+                documents={appData.documents}
                 transactions={appData.transactions}
                 revenue={appData.revenue}
                 revenueCours={appData.revenueCours}

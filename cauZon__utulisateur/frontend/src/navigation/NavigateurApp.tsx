@@ -1,8 +1,8 @@
 import React from 'react';
-import { Alert, View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../components/AppIcon';
 import NetInfo from '@react-native-community/netinfo';
 import EcranAccueil from '../screens/EcranAccueil';
 import EcranBibliotheque from '../screens/EcranBibliotheque';
@@ -31,36 +31,27 @@ export type RootStackParamList = {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+import { verifierConnexionReseauRapide } from '../services/serviceReseau';
+
 function NavigateurTabsPrincipales() {
-  const { couleurs } = useApp();
-  const [estConnecte, setEstConnecte] = React.useState<boolean | null>(null);
+  const { couleurs, estEnLigne } = useApp();
+  const [estConnecte, setEstConnecte] = React.useState<boolean>(estEnLigne ?? (
+    Platform.OS === 'web' && typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true
+  ));
 
   React.useEffect(() => {
-    NetInfo.fetch().then((state) => {
-      setEstConnecte(state.isConnected);
+    // Vérification rapide non bloquante
+    verifierConnexionReseauRapide().then((enLigne) => {
+      setEstConnecte(enLigne);
     });
 
     const unsubscribe = NetInfo.addEventListener((state) => {
-      setEstConnecte(state.isConnected);
+      const enLigne = state.isConnected !== false && state.isInternetReachable !== false;
+      setEstConnecte(enLigne);
     });
 
     return () => unsubscribe();
   }, []);
-
-  if (estConnecte === null) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: couleurs.fond,
-        }}
-      >
-        <ActivityIndicator size="large" color={couleurs.primaire} />
-      </View>
-    );
-  }
 
   return (
     <View style={{ flex: 1, backgroundColor: couleurs.fond }}>
@@ -98,7 +89,7 @@ function NavigateurTabsPrincipales() {
         screenOptions={({ route }) => ({
           animation: 'fade',
           tabBarIcon: ({ focused, color }) => {
-            let iconName: keyof typeof Ionicons.glyphMap;
+            let iconName: string;
 
             if (route.name === 'Accueil') {
               iconName = focused ? 'compass' : 'compass-outline';

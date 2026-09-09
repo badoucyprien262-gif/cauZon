@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, RefreshCw, Trash2, Search, MessageSquare } from 'lucide-react';
 import type { FeedbackRow } from '../types';
 import { sendAdminReply, deleteFeedback } from '../services/serviceFeedbacks';
+import { sendFeedbackReplyPush } from '../services/servicePushNotifications';
 
 interface MessagingViewProps {
   feedbacks: FeedbackRow[];
@@ -25,7 +26,20 @@ export function MessagingView({ feedbacks, setFeedbacks, darkMode, onReload }: M
 
   const unread = feedbacks.filter(f => !f.reponse_admin);
 
-  const filtered = feedbacks.filter(f => !search || f.username.toLowerCase().includes(search.toLowerCase()) || f.message.toLowerCase().includes(search.toLowerCase()));
+  const isPushToken = (id?: string | null): boolean => {
+    if (!id) return false;
+    return id.startsWith('ExponentPushToken') || id.startsWith('ExpoPushToken');
+  };
+
+  const formatUserOrDevice = (username?: string | null, deviceId?: string | null): string => {
+    if (username && username.trim()) return username;
+    if (!deviceId) return 'Étudiant CauZon';
+    if (isPushToken(deviceId)) return '📱 Appareil prêt';
+    if (deviceId.length > 20) return `Appareil (${deviceId.substring(0, 8)}…)`;
+    return deviceId;
+  };
+
+  const filtered = feedbacks.filter(f => !search || (f.username && f.username.toLowerCase().includes(search.toLowerCase())) || f.message.toLowerCase().includes(search.toLowerCase()));
 
   const selected = feedbacks.find(f => f.id === selectedId) ?? null;
 
@@ -33,11 +47,20 @@ export function MessagingView({ feedbacks, setFeedbacks, darkMode, onReload }: M
 
   const handleSend = async () => {
     if (!selected || !replyText.trim()) return;
+    const currentReply = replyText.trim();
     setSending(true);
     try {
-      await sendAdminReply(selected.id, replyText);
-      setFeedbacks(prev => prev.map(f => f.id === selected.id ? { ...f, reponse_admin: replyText.trim() } : f));
+      await sendAdminReply(selected.id, currentReply);
+      setFeedbacks(prev => prev.map(f => f.id === selected.id ? { ...f, reponse_admin: currentReply } : f));
       setReplyText('');
+
+      // CAS 1 : Envoi push ciblé vers le téléphone de l'étudiant
+      const pushRes = await sendFeedbackReplyPush(selected, currentReply);
+      if (pushRes.success) {
+        alert(`✅ Réponse enregistrée !\nUne notification push a été transmise au smartphone de ${selected.username}.`);
+      } else {
+        console.log('Push note pour feedback :', pushRes.message);
+      }
     } catch (e: unknown) {
       alert('Erreur : ' + (e instanceof Error ? e.message : String(e)));
     } finally { setSending(false); }
@@ -82,12 +105,12 @@ export function MessagingView({ feedbacks, setFeedbacks, darkMode, onReload }: M
               <button key={fb.id} onClick={() => setSelectedId(fb.id)}
                 style={{ width: '100%', textAlign: 'left', padding: '14px 16px', border: 'none', backgroundColor: isSelected ? '#6B1124' : 'transparent', cursor: 'pointer', borderBottom: `1px solid ${border}`, display: 'flex', gap: '12px', alignItems: 'flex-start', transition: 'background 0.15s' }}>
                 <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: '#2D1220', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAF6EB', fontWeight: 700, fontSize: '15px', flexShrink: 0 }}>
-                  {(fb.username || '?')[0].toUpperCase()}
+                  {(fb.username || (isPushToken(fb.device_id) ? '📱' : fb.device_id) || '?')[0].toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 700, color: isSelected ? '#FAF6EB' : textColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {fb.username || fb.device_id}
+                      {formatUserOrDevice(fb.username, fb.device_id)}
                     </span>
                     {!hasReply && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#E74C3C', flexShrink: 0 }} />}
                   </div>
@@ -118,11 +141,21 @@ export function MessagingView({ feedbacks, setFeedbacks, darkMode, onReload }: M
             <div style={{ padding: '14px 20px', borderBottom: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: darkMode ? '#1e1e1e' : '#FFFFFF' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#6B1124', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAF6EB', fontWeight: 700, fontSize: '16px' }}>
-                  {(selected.username || '?')[0].toUpperCase()}
+                  {(selected.username || (isPushToken(selected.device_id) ? '📱' : selected.device_id) || '?')[0].toUpperCase()}
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: textColor }}>{selected.username}</p>
-                  <p style={{ margin: 0, fontSize: '12px', color: subText }}>{selected.device_id}</p>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: textColor }}>
+                    {selected.username || formatUserOrDevice(null, selected.device_id)}
+                  </p>
+                  <p style={{ margin: 0, fontSize: '12px', color: subText }}>
+                    {isPushToken(selected.device_id) ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: darkMode ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', color: '#059669', padding: '1px 8px', borderRadius: '8px', fontSize: '11px', fontWeight: 600 }}>
+                        📱 Appareil prêt
+                      </span>
+                    ) : (
+                      selected.device_id ? (selected.device_id.length > 20 ? `Appareil (${selected.device_id.substring(0, 8)}…)` : selected.device_id) : 'Appareil inconnu'
+                    )}
+                  </p>
                 </div>
               </div>
               <button onClick={() => handleDelete(selected.id)} style={{ background: 'none', border: `1px solid #E74C3C`, color: '#E74C3C', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>

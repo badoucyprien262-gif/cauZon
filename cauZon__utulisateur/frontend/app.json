@@ -20,13 +20,27 @@
           "photosPermission": "L'application a besoin d'accéder à vos photos pour partager des ressources."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6B1124",
+          "sounds": []
+        }
+      ],
+      "expo-sharing",
+      "expo-font",
+      "expo-file-system",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#6B1124"
+        }
+      ]
     ],
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FAF6EB"
-    },
     "ios": {
       "bundleIdentifier": "com.cauzon.app",
       "buildNumber": "1.0.0",
@@ -34,10 +48,11 @@
     },
     "android": {
       "package": "com.cauzon.app",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#FAF6EB",
+        "backgroundColor": "#6B1124",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -45,7 +60,10 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -55,11 +73,13 @@
       "name": "cauZon — Documents & Épreuves Académiques",
       "shortName": "cauZon",
       "themeColor": "#6B1124",
-      "backgroundColor": "#FAF6EB"
+      "backgroundColor": "#6B1124"
     },
     "extra": {
       "EXPO_PUBLIC_SUPABASE_URL": "https://wdipnxewpmhdksrlisix.supabase.co",
       "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_oD0zi8_KXt6grTq5PX0jiA_hYTJyZQ6",
+      "EXPO_PUBLIC_FEEXPAY_PUBLIC_KEY": "test_Hg7Kjl3ZAM63UuIUpuudD9nKuu3ZAM67Kjl3Uuhn",
+      "EXPO_PUBLIC_FEEXPAY_MODE": "sandbox",
       "eas": {
         "projectId": "8bf68898-d1e1-4a72-9317-827af406386f"
       }

@@ -1,6 +1,6 @@
-import React from 'react';
+﻿import React from 'react';
 import { StyleSheet, Text, View, Dimensions, TouchableOpacity, useWindowDimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 import { Document } from '../types';
 

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Search, Shield, ShieldOff, Crown, HardDrive, Trash2, CreditCard, Save, RefreshCw } from 'lucide-react';
-import type { ProfileRow, TransactionRow, GlobalConfig, BanDuration } from '../types';
+import { Search, Shield, ShieldOff, Crown, HardDrive, Trash2, CreditCard, Save, RefreshCw, Bell, Send, Compass, BookOpen, FileText, Zap, User } from 'lucide-react';
+import type { ProfileRow, TransactionRow, GlobalConfig, BanDuration, DocumentRow } from '../types';
 import { banUser, unbanUser, grantVip, grantStorage, deleteUser, formatErrorMessage } from '../services/serviceUsers';
 import { saveConfig } from '../services/serviceSettings';
+import { sendRemotePushNotification, fetchRegisteredPushTokens } from '../services/servicePushNotifications';
 
 interface SettingsViewProps {
   profiles: ProfileRow[];
   setProfiles: React.Dispatch<React.SetStateAction<ProfileRow[]>>;
+  documents?: DocumentRow[];
   transactions: TransactionRow[];
   revenue: number;
   revenueCours?: number;
@@ -39,6 +41,7 @@ type SubTab = 'users' | 'finance' | 'config';
 export function SettingsView({
   profiles,
   setProfiles,
+  documents = [],
   transactions,
   revenue,
   revenueCours: propRevenueCours = 0,
@@ -74,8 +77,90 @@ export function SettingsView({
   const cardBg = darkMode ? '#1e1e1e' : '#FFFFFF';
   const inputBg = darkMode ? '#121212' : '#F9FAFB';
 
+  // ─── États du panneau Notifications Push ──────────────────
+  const [pushTitle, setPushTitle] = useState('');
+  const [pushBody, setPushBody] = useState('');
+  const [pushRoute, setPushRoute] = useState<'Catalogue' | 'Bibliotheque' | 'Abonnement' | 'document'>('Catalogue');
+  const [pushDocId, setPushDocId] = useState('');
+  const [pushCible, setPushCible] = useState<'tous' | 'non_abonnes' | 'abonnes'>('tous');
+  const [sendingPush, setSendingPush] = useState(false);
+  const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [pushTokenCount, setPushTokenCount] = useState<number | null>(null);
+  const [loadingTokenCount, setLoadingTokenCount] = useState(false);
+
+  const handleFetchTokenCount = async (targetCible: 'tous' | 'non_abonnes' | 'abonnes' = pushCible) => {
+    setLoadingTokenCount(true);
+    try {
+      const tokens = await fetchRegisteredPushTokens(targetCible);
+      setPushTokenCount(tokens.length);
+    } catch {
+      setPushTokenCount(0);
+    } finally {
+      setLoadingTokenCount(false);
+    }
+  };
+
+  const handleSendPush = async () => {
+    if (!pushTitle.trim() || !pushBody.trim()) {
+      setPushResult({ success: false, message: 'Le titre et le corps du message sont obligatoires.' });
+      return;
+    }
+    if (pushRoute === 'document' && !pushDocId) {
+      setPushResult({ success: false, message: 'Veuillez sélectionner le document cible à ouvrir.' });
+      return;
+    }
+
+    setSendingPush(true);
+    setPushResult(null);
+    try {
+      const targetDoc = documents.find(d => d.id === pushDocId);
+      const effectiveRoute = pushRoute === 'document' ? 'Bibliotheque' : pushRoute;
+      const effectiveDocId = pushRoute === 'document' ? pushDocId : undefined;
+
+      const result = await sendRemotePushNotification({
+        title: pushTitle.trim(),
+        body: pushBody.trim(),
+        document_id: effectiveDocId,
+        route: effectiveRoute,
+        cible: pushCible,
+        data: {
+          source: 'admin_panel',
+          type: 'diffusion_directe',
+          route: effectiveRoute,
+          document_id: effectiveDocId,
+          doc_titre: targetDoc?.titre || undefined,
+        },
+      });
+
+      if (result.success && result.sentCount > 0) {
+        setPushResult({
+          success: true,
+          message: `✅ ${result.sentCount} notification(s) push transmise(s) avec succès aux appareils actifs !`,
+        });
+        setPushTitle('');
+        setPushBody('');
+        handleFetchTokenCount(pushCible);
+      } else {
+        setPushResult({
+          success: false,
+          message: result.message || '⚠️ Aucun appareil trouvé pour ce ciblage.',
+        });
+      }
+    } catch (e: unknown) {
+      setPushResult({ success: false, message: `❌ ${formatErrorMessage(e)}` });
+    } finally {
+      setSendingPush(false);
+    }
+  };
+
+
   const filteredProfiles = profiles.filter(p =>
-    !userSearch || (p.username ?? '').toLowerCase().includes(userSearch.toLowerCase()) || p.id.includes(userSearch)
+    !userSearch ||
+    (p.username ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
+    (p.nom_complet ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
+    (p.email ?? '').toLowerCase().includes(userSearch.toLowerCase()) ||
+    (p.phone_number ?? '').includes(userSearch) ||
+    p.id.toLowerCase().includes(userSearch.toLowerCase())
   );
 
   const handleBan = async () => {
@@ -188,6 +273,145 @@ export function SettingsView({
           </button>
         </div>
       )}
+      {/* ── Panneau Notifications Push (toujours visible dans le tab config) ── */}
+      {subTab === 'config' && (
+        <div style={{ backgroundColor: cardBg, border: `1px solid ${border}`, borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Header du panneau */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ color: textColor, fontWeight: 700, fontSize: '17px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Bell size={18} color="#6B1124" /> Notifications Push Distantes
+            </h2>
+            <button onClick={() => handleFetchTokenCount(pushCible)} disabled={loadingTokenCount}
+              style={{ padding: '6px 14px', border: `1px solid ${border}`, borderRadius: '8px', background: 'none', color: subText, cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <RefreshCw size={12} /> {loadingTokenCount ? 'Vérification…' : (pushTokenCount !== null ? `${pushTokenCount} appareil(s) ciblés` : 'Vérifier les appareils')}
+            </button>
+          </div>
+
+          {/* Description & Badge FlashScore */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: subText, lineHeight: 1.6 }}>
+              Envoyez une <strong style={{ color: textColor }}>notification push prioritaire</strong> sur tous les téléphones des étudiants — même si l'application est <strong style={{ color: textColor }}>totalement fermée (mode Killed)</strong>. La notification s'affiche en bannière Heads-Up sur l'écran verrouillé avec son et vibration.
+            </p>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '8px', backgroundColor: darkMode ? '#1e0d16' : '#FFF1F2', border: '1px solid #FDA4AF', width: 'fit-content' }}>
+              <Zap size={14} color="#E11D48" />
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#BE123C' }}>Mode FlashScore Actif : Haute priorité (FCM v1 / Expo) • Réveil en arrière-plan garanti</span>
+            </div>
+          </div>
+
+          {/* Formulaire */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: subText, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Titre de la notification *</label>
+              <input
+                value={pushTitle}
+                onChange={e => setPushTitle(e.target.value)}
+                placeholder="Ex: 📣 Nouveau document disponible !"
+                maxLength={65}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+              />
+              <span style={{ fontSize: '11px', color: subText }}>{pushTitle.length}/65 caractères</span>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: subText, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Corps du message *</label>
+              <textarea
+                value={pushBody}
+                onChange={e => setPushBody(e.target.value)}
+                placeholder="Ex: Le document « Mathématiques L1 – Examen 2025 » vient d'être ajouté au catalogue."
+                maxLength={200}
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '14px', outline: 'none', resize: 'vertical', lineHeight: 1.5, boxSizing: 'border-box' }}
+              />
+              <span style={{ fontSize: '11px', color: subText }}>{pushBody.length}/200 caractères</span>
+            </div>
+
+            {/* Sélecteurs de ciblage et Deep Link */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', padding: '14px', backgroundColor: darkMode ? '#150a0e' : '#F9FAFB', borderRadius: '10px', border: `1px solid ${border}` }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: textColor, marginBottom: '6px' }}>
+                  🎯 Ciblage des destinataires
+                </label>
+                <select
+                  value={pushCible}
+                  onChange={e => {
+                    const newCible = e.target.value as 'tous' | 'non_abonnes' | 'abonnes';
+                    setPushCible(newCible);
+                    handleFetchTokenCount(newCible);
+                  }}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '13px', outline: 'none' }}
+                >
+                  <option value="tous">👥 Tous les utilisateurs</option>
+                  <option value="non_abonnes">🆓 Non abonnés uniquement</option>
+                  <option value="abonnes">👑 Abonnés VIP uniquement</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: textColor, marginBottom: '6px' }}>
+                  🔗 Action au clic (Deep Link)
+                </label>
+                <select
+                  value={pushRoute}
+                  onChange={e => {
+                    const val = e.target.value as 'Catalogue' | 'Bibliotheque' | 'Abonnement' | 'document';
+                    setPushRoute(val);
+                    if (val !== 'document') setPushDocId('');
+                  }}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '13px', outline: 'none' }}
+                >
+                  <option value="Catalogue">🏪 Ouvrir le Catalogue des cours</option>
+                  <option value="Bibliotheque">📚 Ouvrir la Bibliothèque personnelle</option>
+                  <option value="Abonnement">👑 Ouvrir la page Offre VIP</option>
+                  <option value="document">📄 Ouvrir un document précis…</option>
+                </select>
+              </div>
+
+              {pushRoute === 'document' && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: textColor, marginBottom: '6px' }}>
+                    📑 Document à ouvrir à l'arrivée *
+                  </label>
+                  <select
+                    value={pushDocId}
+                    onChange={e => setPushDocId(e.target.value)}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: `2px solid ${pushDocId ? '#6B1124' : '#E74C3C'}`, backgroundColor: inputBg, color: textColor, fontSize: '13px', outline: 'none' }}
+                  >
+                    <option value="">-- Sélectionnez un document ({documents.length} disponibles) --</option>
+                    {documents.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.titre || 'Document sans titre'} ({d.categorie || 'Général'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Résultat de l'envoi */}
+          {pushResult && (
+            <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: pushResult.success ? '#D1FAE5' : '#FEE2E2', border: `1px solid ${pushResult.success ? '#6EE7B7' : '#FCA5A5'}` }}>
+              <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: pushResult.success ? '#065F46' : '#991B1B' }}>
+                {pushResult.success ? '✅' : '❌'} {pushResult.message}
+              </p>
+            </div>
+          )}
+
+          {/* Bouton d'envoi */}
+          <button
+            onClick={handleSendPush}
+            disabled={sendingPush || !pushTitle.trim() || !pushBody.trim() || (pushRoute === 'document' && !pushDocId)}
+            style={{
+              alignSelf: 'flex-start', padding: '12px 24px',
+              backgroundColor: (sendingPush || !pushTitle.trim() || !pushBody.trim() || (pushRoute === 'document' && !pushDocId)) ? '#4B5563' : '#6B1124',
+              color: '#FAF6EB', border: 'none', borderRadius: '8px', fontWeight: 700,
+              cursor: (sendingPush || !pushTitle.trim() || !pushBody.trim() || (pushRoute === 'document' && !pushDocId)) ? 'not-allowed' : 'pointer',
+              fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px',
+              opacity: (sendingPush || !pushTitle.trim() || !pushBody.trim() || (pushRoute === 'document' && !pushDocId)) ? 0.6 : 1,
+            }}>
+            <Send size={16} /> {sendingPush ? 'Transmission en cours…' : '📡 Diffuser la notification push'}
+          </button>
+        </div>
+      )}
 
       {/* Users tab */}
       {subTab === 'users' && (
@@ -216,35 +440,55 @@ export function SettingsView({
                     </tr>
                   ) : (
                     filteredProfiles.map(p => {
-                      const initial = (p.username || '?')[0].toUpperCase();
-                      const hasAvatarImg = p.avatar_url && (p.avatar_url.startsWith('http') || p.avatar_url.startsWith('data:'));
+                      const hasAvatarImg = Boolean(p.avatar_url && (p.avatar_url.startsWith('http') || p.avatar_url.startsWith('data:')));
+                      const isPushTokenId = Boolean(p.id && (p.id.startsWith('ExponentPushToken') || p.id.startsWith('ExpoPushToken')));
+                      const nomAffiche = p.nom_complet || p.username || (p.email ? p.email.split('@')[0] : (isPushTokenId ? '📱 Appareil prêt' : `Étudiant (${p.id.substring(0, 6)})`));
                       return (
                         <tr key={p.id} style={{ borderTop: `1px solid ${border}`, opacity: processingUser === p.id ? 0.5 : 1 }}>
                           <td style={{ padding: '12px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                               {hasAvatarImg ? (
                                 <img
                                   src={p.avatar_url!}
-                                  alt={p.username || ''}
-                                  style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid #6B1124', flexShrink: 0 }}
+                                  alt={nomAffiche}
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                  style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid #6B1124', flexShrink: 0, backgroundColor: '#FAF6EB' }}
                                 />
                               ) : (
-                                <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#6B1124', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAF6EB', fontWeight: 800, fontSize: '14px', flexShrink: 0 }}>
-                                  {initial}
+                                <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: darkMode ? '#2B0E17' : '#FCE7ED', border: '1px solid #FDA4AF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B1124', flexShrink: 0 }}>
+                                  <User size={18} color="#6B1124" />
                                 </div>
                               )}
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ fontWeight: 700, color: textColor, fontSize: '13px' }}>{p.username || 'Étudiant cauZon'}</span>
-                                {p.phone_number ? (
-                                  <span style={{ fontSize: '11px', color: subText, fontWeight: 500 }}>📞 {p.phone_number}</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                <span style={{ fontWeight: 700, color: textColor, fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {nomAffiche}
+                                </span>
+                                {p.email ? (
+                                  <span style={{ fontSize: '11px', color: '#6B1124', fontWeight: 600 }}>
+                                    ✉️ {p.email}
+                                  </span>
+                                ) : p.phone_number ? (
+                                  <span style={{ fontSize: '11px', color: subText, fontWeight: 500 }}>
+                                    📞 {p.phone_number}
+                                  </span>
                                 ) : (
-                                  <span style={{ fontSize: '11px', color: subText, opacity: 0.8 }}>Compte Google / Invité</span>
+                                  <span style={{ fontSize: '11px', color: subText, opacity: 0.7 }}>
+                                    {isPushTokenId ? 'Terminal Mobile' : (p.id.length > 20 ? 'Compte Google' : 'Terminal Visiteur')}
+                                  </span>
                                 )}
                               </div>
                             </div>
                           </td>
                           <td style={{ padding: '12px 16px', color: subText, fontFamily: 'monospace', fontSize: '11px' }}>
-                            {p.id.length > 18 ? `${p.id.substring(0, 10)}…${p.id.substring(p.id.length - 4)}` : p.id}
+                            {isPushTokenId ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: darkMode ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5', color: '#059669', padding: '2px 8px', borderRadius: '10px', fontWeight: 700, fontFamily: 'sans-serif' }}>
+                                📱 Appareil prêt
+                              </span>
+                            ) : (
+                              p.id.length > 18 ? `${p.id.substring(0, 10)}…${p.id.substring(p.id.length - 4)}` : p.id
+                            )}
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             {p.has_vip_pass ? (
@@ -268,20 +512,63 @@ export function SettingsView({
                             </span>
                           </td>
                           <td style={{ padding: '12px 16px' }}>
-                            <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, backgroundColor: p.is_banned ? '#FEE2E2' : '#D1FAE5', color: p.is_banned ? '#991B1B' : '#065F46' }}>
-                              {p.is_banned ? '🚫 Suspendu' : '✅ Actif'}
-                            </span>
+                            {p.is_banned ? (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                backgroundColor: '#FEE2E2',
+                                color: '#991B1B',
+                                border: '1px solid #F87171'
+                              }}>
+                                🚫 Suspendu
+                              </span>
+                            ) : p.est_actif === false ? (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                backgroundColor: '#FEF2F2',
+                                color: '#DC2626',
+                                border: '1px solid #FCA5A5'
+                              }}>
+                                🔴 Désactivé
+                              </span>
+                            ) : (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                borderRadius: '20px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                backgroundColor: '#ECFDF5',
+                                color: '#047857',
+                                border: '1px solid #A7F3D0'
+                              }}>
+                                🟢 Actif
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               {!p.has_vip_pass && (
                                 <button onClick={() => handleGrantVip(p)} disabled={processingUser === p.id} title="Accorder VIP" style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${border}`, background: 'none', color: '#6B1124', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <Crown size={12} color="#6B1124" /> VIP
+                                   <Crown size={12} color="#6B1124" /> VIP
                                 </button>
                               )}
                               {!p.has_extended_storage && (
                                 <button onClick={() => handleGrantStorage(p)} disabled={processingUser === p.id} title="Stockage+" style={{ padding: '5px 10px', borderRadius: '6px', border: `1px solid ${border}`, background: 'none', color: '#10B981', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <HardDrive size={12} color="#10B981" /> Stockage
+                                   <HardDrive size={12} color="#10B981" /> Stockage
                                 </button>
                               )}
                               {p.is_banned ? (

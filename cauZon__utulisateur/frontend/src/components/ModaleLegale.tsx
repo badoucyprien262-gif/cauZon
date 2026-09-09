@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,7 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 
 interface ModaleLegaleProps {

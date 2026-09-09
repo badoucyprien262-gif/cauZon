@@ -1,9 +1,13 @@
 import React, { useState, useRef } from 'react';
-import { ArrowRight, ArrowLeft, CheckCircle, X, Image as ImageIcon, Film, FileText, Upload, Trash2, Ban } from 'lucide-react';
+import { ArrowRight, ArrowLeft, CheckCircle, X, Image as ImageIcon, Film, FileText, Upload, Trash2, Ban, Bell } from 'lucide-react';
 import type { BannerRow, DocumentRow } from '../types';
 import { uploadBannerMedia } from '../services/serviceBanners';
 
-type BannerFormData = Omit<BannerRow, 'id' | 'created_at'>;
+export type BannerFormData = Omit<BannerRow, 'id' | 'created_at'> & {
+  diffuser_push?: boolean;
+  titre_push?: string;
+  corps_push?: string;
+};
 
 interface BannerWizardProps {
   documents: DocumentRow[];
@@ -65,6 +69,10 @@ export function BannerWizard({ documents, editingBanner, onSave, onClose, darkMo
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(initialMedia.url);
   const [mediaType, setMediaType] = useState<'image' | 'video' | null>(initialMedia.type);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Options Push Notifications (Activé par défaut systématiquement)
+  const [diffuserPush, setDiffuserPush] = useState<boolean>(true);
+  const [titrePush, setTitrePush] = useState<string>('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -128,6 +136,8 @@ export function BannerWizard({ documents, editingBanner, onSave, onClose, darkMo
         ...form,
         contenu_detaille: finalContent,
         document_id_associe: finalDocId,
+        diffuser_push: diffuserPush,
+        titre_push: titrePush.trim() || undefined,
       };
 
       await onSave(payload, editingBanner?.id ?? null);
@@ -216,6 +226,48 @@ export function BannerWizard({ documents, editingBanner, onSave, onClose, darkMo
                   <option value="non_abonnes">🆓 Non abonnés uniquement</option>
                   <option value="abonnes">👑 Abonnés VIP uniquement</option>
                 </select>
+              </div>
+
+              {/* Module Push Haute Priorité (FlashScore) */}
+              <div style={{ padding: '14px 16px', borderRadius: '10px', backgroundColor: diffuserPush ? (darkMode ? '#2a111a' : '#FFF1F2') : (darkMode ? '#161616' : '#F9FAFB'), border: `1px solid ${diffuserPush ? '#F43F5E' : borderColor}`, transition: 'all 0.2s ease' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                  <label htmlFor="wizard-diffuser-push" style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', margin: 0 }}>
+                    <input
+                      id="wizard-diffuser-push"
+                      type="checkbox"
+                      checked={diffuserPush}
+                      onChange={e => setDiffuserPush(e.target.checked)}
+                      style={{ width: '18px', height: '18px', accentColor: '#6B1124', cursor: 'pointer' }}
+                    />
+                    <div>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: textColor, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Bell size={14} color="#6B1124" /> Diffuser en Push haute priorité (FlashScore)
+                      </span>
+                      <span style={{ fontSize: '11px', color: darkMode ? '#9CA3AF' : '#6B7280', display: 'block', marginTop: '2px' }}>
+                        Réveille instantanément les téléphones Android (même fermés / tués) avec son et vibration.
+                      </span>
+                    </div>
+                  </label>
+                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '3px 8px', borderRadius: '12px', backgroundColor: diffuserPush ? '#6B1124' : '#6B7280', color: '#FAF6EB', textTransform: 'uppercase' }}>
+                    {diffuserPush ? 'Actif' : 'Désactivé'}
+                  </span>
+                </div>
+
+                {diffuserPush && (
+                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: `1px dashed ${darkMode ? '#3d1627' : '#FECDD3'}` }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: textColor, marginBottom: '4px' }}>
+                      Titre personnalisé pour la notification (Optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={titrePush}
+                      onChange={e => setTitrePush(e.target.value)}
+                      placeholder={`Par défaut : 📢 ${form.titre_bande || "Titre de l'annonce"}`}
+                      maxLength={65}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${borderColor}`, backgroundColor: inputBg, color: textColor, fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -377,6 +429,10 @@ export function BannerWizard({ documents, editingBanner, onSave, onClose, darkMo
 
                 <p style={{ fontSize: '12px', color: darkMode ? '#6B7280' : '#9CA3AF', marginTop: '8px' }}>
                   {form.date_debut ? `Du ${form.date_debut}` : 'Immédiatement'} → {form.date_fin ? `au ${form.date_fin}` : '(sans fin)'} · {form.ciblage_role}
+                </p>
+
+                <p style={{ fontSize: '12px', color: diffuserPush ? '#10B981' : (darkMode ? '#6B7280' : '#9CA3AF'), fontWeight: 700, marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Bell size={13} /> {diffuserPush ? `Notification push FlashScore active (Cible : ${form.ciblage_role})` : 'Pas de notification push'}
                 </p>
               </div>
 

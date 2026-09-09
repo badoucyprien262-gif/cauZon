@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+﻿import React, { useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,7 +9,7 @@ import {
   Animated,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 import { Document } from '../types';
 import { getCouleurCategorie, TOKENS } from '../theme/couleurs';
@@ -191,7 +191,7 @@ export default function CarteDocument({
               </View>
             ) : isVipUser ? (
               <View style={styles.prixVipTag}>
-                <Ionicons name="sparkles" size={12} color="#6B1124" />
+                <Ionicons name="sparkles" size={12} color={couleurs.primaire} />
                 <Text style={styles.textePrixVip}>0 FCFA (VIP)</Text>
               </View>
             ) : (
@@ -448,7 +448,9 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      backgroundColor: 'rgba(107, 17, 36, 0.12)',
+      backgroundColor: couleurs.estSombre
+        ? 'rgba(249, 168, 184, 0.12)'
+        : 'rgba(107, 17, 36, 0.12)',
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: 6,
@@ -456,7 +458,7 @@ const getStyles = (couleurs: any, categorieColor: string) =>
     textePrixVip: {
       fontSize: 11,
       fontWeight: '800',
-      color: '#6B1124',
+      color: couleurs.primaire,
     },
     prixVerrouilleTag: {
       flexDirection: 'row',

@@ -1,37 +1,68 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Linking, Platform } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Linking, Platform, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { couleursClair, couleursSombre } from '../theme/couleurs';
-import { fetchMesDocuments, activerStockageEtendu, verifierEligibiliteOffreBienvenue } from '../services/serviceDocument';
+import { fetchMesDocuments, activerStockageEtendu, verifierEligibiliteOffreBienvenue, chargerBibliothequeLocale, chargerDocumentsImportes } from '../services/serviceDocument';
 import { connexionAvecGoogle, deconnexionAuth, synchroniserProfilGoogle, gererUrlRetourAuth } from '../services/serviceAuth';
+import { getPushTokenLocal, synchroniserPushTokenSupabase, verifierEtRenouvelerPushToken, synchroniserNotificationsManquees } from '../services/serviceNotifications';
+import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../lib/supabase';
+import ToastNotification, { ToastType } from '../components/ToastNotification';
 
 // Clés de persistance locale permanente
 const STORAGE_KEY_PHOTO = 'CAUZON_PHOTO_PROFIL';
 const STORAGE_KEY_NOM = 'CAUZON_NOM_UTILISATEUR';
 const STORAGE_KEY_TELEPHONE = 'CAUZON_TELEPHONE';
+export const STORAGE_KEY_THEME = '@cauzon_theme_preference';
+
+import { verifierConnexionReseauRapide, avecTimeoutSecurise } from '../services/serviceReseau';
+
+export type PreferenceTheme = 'clair' | 'sombre' | 'systeme';
+
+export interface ToastOptions {
+  type?: ToastType;
+  titre?: string;
+  message: string;
+  dureeMs?: number;
+}
 
 // ─────────────────────────────────────────────
 // Types du contexte global
 // ─────────────────────────────────────────────
 interface AppContextType {
   docsDebloquesIds: string[];
+  setDocsDebloquesIds: React.Dispatch<React.SetStateAction<string[]>>;
+  acquisitions: any[];
+  setAcquisitions: React.Dispatch<React.SetStateAction<any[]>>;
+  documentsImportes: any[];
+  setDocumentsImportes: React.Dispatch<React.SetStateAction<any[]>>;
+  utilisateur: any | null;
+  setUtilisateur: React.Dispatch<React.SetStateAction<any | null>>;
   debloquerDocument: (id: string) => void;
   reinitialiserDemo: () => void;
+  desactiverCompte: () => Promise<{ success: boolean; message: string }>;
   couleurs: typeof couleursClair;
   modeTheme: 'light' | 'dark';
+  preferenceTheme: PreferenceTheme;
+  themeCharge: boolean;
+  definirPreferenceTheme: (pref: PreferenceTheme) => Promise<void>;
   basculerTheme: () => void;
+  afficherToast: (optionsOrMessage: ToastOptions | string, titre?: string, type?: ToastType, dureeMs?: number) => void;
+  masquerToast: () => void;
+  aAccesVip: boolean;
   nomUtilisateur: string;
+  setNomUtilisateur: React.Dispatch<React.SetStateAction<string>>;
   emailUtilisateur: string;
   telephoneFacturation: string;
   photoProfil: string;
   estConnecteGoogle: boolean;
   estEligibleOffreBienvenue: boolean;
   consommerOffreBienvenueLocal: () => void;
-  connexionGoogle: () => Promise<{ success: boolean; error?: string }>;
+  connexionGoogle: (customRedirectUrl?: string) => Promise<{ success: boolean; error?: string }>;
   deconnexion: () => Promise<void>;
   mettreAJourProfil: (nom: string, telephone: string, photo: string) => void;
   estVip: boolean;
+  setEstVip: React.Dispatch<React.SetStateAction<boolean>>;
   aStockageEtendu: boolean;
   limiteStockage: number;               // Limite dynamique cumulative (75, 150, 225, 300...)
   chargementStockage: boolean;          // true pendant la vérif initiale du stockage
@@ -40,6 +71,7 @@ interface AppContextType {
   aReponseNonLue: boolean;
   marquerCommentairesCommeLus: () => void;
   estAbonneVIP: boolean;
+  setEstAbonneVIP: React.Dispatch<React.SetStateAction<boolean>>;
   dateExpirationAbonnement: string | null;
   vipExpireAt: string | null;
   chargementVip: boolean;
@@ -50,22 +82,118 @@ interface AppContextType {
   estSuspendu: boolean;
   dateFinSuspension: string | null;
   motifSuspension: string | null;
+  // État réseau ultra-rapide
+  estEnLigne: boolean;
+  // Tunnel d'authentification Google sécurisé
+  chargementAuth: boolean;
+  setChargementAuth: (val: boolean) => void;
+  sessionVerifiee: boolean;
 }
 
 const ContexteApp = createContext<AppContextType | undefined>(undefined);
 
 export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [docsDebloquesIds, setDocsDebloquesIds] = useState<string[]>([]);
-  const [nomUtilisateur, setNomUtilisateur] = useState<string>('Jean Dupont');
+  const [acquisitions, setAcquisitions] = useState<any[]>([]);
+  const [documentsImportes, setDocumentsImportes] = useState<any[]>([]);
+  const [utilisateur, setUtilisateur] = useState<any | null>(null);
+  const [nomUtilisateur, setNomUtilisateur] = useState<string>('Étudiant cauZon');
   const [emailUtilisateur, setEmailUtilisateur] = useState<string>('');
-  const [telephoneFacturation, setTelephoneFacturation] = useState<string>('+225 07 12 34 56 78');
+  const [telephoneFacturation, setTelephoneFacturation] = useState<string>('');
   const [photoProfil, setPhotoProfil] = useState<string>('avatar-1');
   const [estConnecteGoogle, setEstConnecteGoogle] = useState<boolean>(false);
   const [estEligibleOffreBienvenue, setEstEligibleOffreBienvenue] = useState<boolean>(false);
   const [estVip, setEstVip] = useState<boolean>(false);
   const [aStockageEtendu, setAStockageEtendu] = useState<boolean>(false);
   const [limiteStockage, setLimiteStockage] = useState<number>(75);
-  const [modeTheme, setModeTheme] = useState<'light' | 'dark'>('light');
+
+  // 🎨 Gestion pérenne du Thème (Clair / Sombre / Système)
+  const systemColorScheme = useColorScheme();
+  const [themeCharge, setThemeCharge] = useState<boolean>(false);
+  const [preferenceTheme, setPreferenceTheme] = useState<PreferenceTheme>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = window.localStorage.getItem(STORAGE_KEY_THEME) as PreferenceTheme | null;
+        if (saved && (saved === 'clair' || saved === 'sombre' || saved === 'systeme')) {
+          return saved;
+        }
+      } catch {}
+    }
+    return 'systeme';
+  });
+
+  // Calcul dynamique et réactif du mode effectif :
+  // Si l'utilisateur a explicitement choisi 'clair' ou 'sombre', cette valeur DOIT impérativement primer et ne JAMAIS être supplantée par useColorScheme().
+  const modeTheme: 'light' | 'dark' =
+    preferenceTheme === 'clair'
+      ? 'light'
+      : preferenceTheme === 'sombre'
+      ? 'dark'
+      : systemColorScheme === 'dark'
+      ? 'dark'
+      : 'light';
+
+  // 🏝️ Gestionnaire Toast "Dynamic Island" adaptatif global
+  const [toastState, setToastState] = useState<{
+    visible: boolean;
+    type: ToastType;
+    titre?: string;
+    message: string;
+    dureeMs?: number;
+  }>({
+    visible: false,
+    type: 'succes',
+    titre: undefined,
+    message: '',
+    dureeMs: 3200,
+  });
+
+  const afficherToast = useCallback(
+    (optionsOrMessage: ToastOptions | string, titre?: string, type?: ToastType, dureeMs?: number) => {
+      if (typeof optionsOrMessage === 'string') {
+        const typeNorm = (type === 'success' ? 'succes' : type === 'error' ? 'erreur' : type) as 'succes' | 'erreur' | 'info';
+        setToastState({
+          visible: true,
+          message: optionsOrMessage,
+          titre: titre,
+          type: typeNorm || 'succes',
+          dureeMs: dureeMs || 3200,
+        });
+      } else {
+        const typeNorm = (optionsOrMessage.type === 'success' ? 'succes' : optionsOrMessage.type === 'error' ? 'erreur' : optionsOrMessage.type) as 'succes' | 'erreur' | 'info';
+        setToastState({
+          visible: true,
+          type: typeNorm || 'succes',
+          titre: optionsOrMessage.titre,
+          message: optionsOrMessage.message,
+          dureeMs: optionsOrMessage.dureeMs || 3200,
+        });
+      }
+    },
+    []
+  );
+
+  const masquerToast = useCallback(() => {
+    setToastState((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  const definirPreferenceTheme = async (nouvellePref: PreferenceTheme) => {
+    setPreferenceTheme(nouvellePref);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY_THEME, nouvellePref);
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY_THEME, nouvellePref);
+      }
+    } catch (err) {
+      console.warn('Erreur sauvegarde preference theme :', err);
+    }
+  };
+
+  const basculerTheme = () => {
+    const nextPref: PreferenceTheme = modeTheme === 'dark' ? 'clair' : 'sombre';
+    definirPreferenceTheme(nextPref);
+  };
+
   const [aReponseNonLue, setAReponseNonLue] = useState<boolean>(true);
   const [estAbonneVIP, setEstAbonneVIP] = useState<boolean>(false);
   const [dateExpirationAbonnement, setDateExpirationAbonnement] = useState<string | null>(null);
@@ -78,107 +206,330 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   const [dateFinSuspension, setDateFinSuspension] = useState<string | null>(null);
   const [motifSuspension, setMotifSuspension] = useState<string | null>(null);
 
+  // 🌐 Détection ultra-rapide de l'état réseau (Web synchrone / Mobile rapide)
+  const [estEnLigne, setEstEnLigne] = useState<boolean>(() => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return true;
+  });
+
+  // 🛡️ État du tunnel d'authentification (écran de chargement élégant aux couleurs cauZon)
+  const [chargementAuth, setChargementAuth] = useState<boolean>(false);
+  const [sessionVerifiee, setSessionVerifiee] = useState<boolean>(false);
+
   // ─────────────────────────────────────────────
   // INITIALISATION AU DÉMARRAGE & ÉCOUTEUR AUTH RÉSISTANT AUX DÉCONNEXIONS
   // ─────────────────────────────────────────────
   useEffect(() => {
-    chargerProfilLocal();
-    chargerStatutVIP();
-    chargerAcquisitionsReelles();
-    chargerEligibiliteBienvenue();
+    let linkSubscription: { remove: () => void } | null = null;
+    let authSubscription: { unsubscribe: () => void } | null = null;
+    let heartbeatInterval: any = null;
+    let userRealtimeChannel: any = null;
 
-    // 0. Écouteur de Deep Links Google OAuth (Android / iOS)
-    const handleDeepLink = async ({ url }: { url: string }) => {
-      if (url && (url.includes('cauzon://') || url.includes('access_token=') || url.includes('code='))) {
-        console.log('🔗 Deep link reçu :', url);
-        await gererUrlRetourAuth(url);
-      }
-    };
-
-    const linkSubscription = Linking.addEventListener('url', handleDeepLink);
-    Linking.getInitialURL().then((initUrl) => {
-      if (initUrl) handleDeepLink({ url: initUrl });
-    });
-
-    // 1. Restauration proactive immédiate de la session persistée
-    const initialiserSession = async () => {
+    const initialiserApplication = async () => {
       try {
-        // Sur Web : détection et traitement immédiat des tokens dans l'URL
-        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          const currentUrl = window.location.href;
-          if (currentUrl.includes('access_token=') || currentUrl.includes('code=')) {
-            console.log('🌐 Capture OAuth Web depuis l\'URL');
-            await gererUrlRetourAuth(currentUrl);
-            try {
-              window.history.replaceState({}, document.title, window.location.pathname);
-            } catch (_) {}
-          }
+        // 1. Toujours charger le profil et statut VIP/Stockage depuis le cache local immédiatement
+        try {
+          await chargerProfilLocal();
+        } catch (errProf) {
+          console.warn('Note chargement profil local :', errProf);
         }
 
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // 2. Détection réseau ultra-rapide (500ms max sur mobile, 0ms sur Web)
+        let connecte = true;
+        try {
+          connecte = await verifierConnexionReseauRapide();
+        } catch (_) {}
+        setEstEnLigne(connecte);
+
+        // ─── FAST-PATH COURT-CIRCUIT HORS-LIGNE ───
+        if (!connecte) {
+          console.log('⚡ [Fast-Path Hors-Ligne] Pas de connexion Internet : chargement immédiat de la Bibliothèque locale.');
+          // Charger immédiatement les documents débloqués depuis le cache local sans attendre Supabase
+          try {
+            const docsLocaux = await chargerBibliothequeLocale();
+            const docsImportes = await chargerDocumentsImportes();
+            const tousLesDocsLocaux = [...docsImportes, ...docsLocaux];
+            if (tousLesDocsLocaux.length > 0) {
+              setDocsDebloquesIds(tousLesDocsLocaux.map((d: any) => d.id));
+            }
+          } catch (_) {}
+          setChargementVip(false);
+          setChargementStockage(false);
+          setChargementAuth(false);
+          setSessionVerifiee(true);
+          return;
+        }
+
+        // ─── MODE EN LIGNE : CHARGEMENT DISTANT AVEC TIMEOUTS SÉCURISÉS ───
+        // Enveloppé dans avecTimeoutSecurise pour ne jamais bloquer sur réseau instable
+        avecTimeoutSecurise(chargerStatutVIP(), 2500, undefined).catch(() => {});
+        avecTimeoutSecurise(chargerAcquisitionsReelles(), 2500, undefined).catch(() => {});
+        avecTimeoutSecurise(chargerEligibiliteBienvenue(), 2500, undefined).catch(() => {});
+
+        // ⚡ Synchronisation de rattrapage des notifications hors-ligne (Effet WhatsApp)
+        try {
+          synchroniserNotificationsManquees({
+            afficherToast: (opts) => afficherToast(opts.message, opts.titre, opts.type as any, opts.dureeMs),
+          }).catch(() => {});
+        } catch (_) {}
+
+      // 0. Écouteur de Deep Links Google OAuth (Android / iOS)
+      const handleDeepLink = async ({ url }: { url: string }) => {
+        if (url && (url.includes('cauzon://') || url.includes('access_token=') || url.includes('code='))) {
+          console.log('📲 Deep Link reçu dans ContexteApp :', url.substring(0, 60));
+          setChargementAuth(true);
+          try {
+            const succes = await gererUrlRetourAuth(url);
+            if (succes) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session?.user) {
+                console.log('✅ Session active synchronisée suite au Deep Link :', session.user.email);
+                setEstConnecteGoogle(true);
+                if (session.user.email) setEmailUtilisateur(session.user.email);
+                const meta = session.user.user_metadata || {};
+                const nomG = meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
+                setNomUtilisateur(nomG);
+                AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
+                const photoG = meta.avatar_url || meta.picture;
+                if (photoG) {
+                  setPhotoProfil(photoG);
+                  AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
+                }
+                setUtilisateur(session.user);
+                await synchroniserProfilGoogle(session.user);
+                await chargerStatutVIP();
+                await chargerAcquisitionsReelles();
+                await chargerEligibiliteBienvenue();
+              }
+            }
+          } catch (errDeepLink) {
+            console.warn('⚠️ Erreur traitement Deep Link :', errDeepLink);
+          } finally {
+            setChargementAuth(false);
+            setSessionVerifiee(true);
+          }
+        }
+      };
+
+      linkSubscription = Linking.addEventListener('url', handleDeepLink);
+      Linking.getInitialURL().then((initUrl) => {
+        if (initUrl) handleDeepLink({ url: initUrl });
+      });
+
+      // 1. Restauration proactive immédiate de la session persistée (avec timeout sécurisé)
+      const initialiserSession = async () => {
+        try {
+          // Sur Web : détection, traitement sécurisé et nettoyage transparent des tokens dans l'URL
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window?.location) {
+            const currentUrl = window.location?.href || '';
+            const storedUrl = typeof window.sessionStorage !== 'undefined' ? window.sessionStorage?.getItem('cauzon_oauth_redirect_url') : null;
+            const hasAuthParams = currentUrl.includes('access_token=') || currentUrl.includes('code=');
+            const authUrl = storedUrl || (hasAuthParams ? currentUrl : null);
+
+            if (authUrl) {
+              setChargementAuth(true);
+              try {
+                if (typeof window.sessionStorage !== 'undefined') {
+                  window.sessionStorage?.removeItem('cauzon_oauth_redirect_url');
+                }
+                // Nettoie les paramètres d'authentification de l'URL pour éviter toute boucle infinie au rechargement
+                if (window?.history?.replaceState) {
+                  const cleanUrl = new URL(currentUrl);
+                  cleanUrl.hash = '';
+                  cleanUrl.searchParams.delete('code');
+                  cleanUrl.searchParams.delete('state');
+                  cleanUrl.searchParams.delete('error');
+                  cleanUrl.searchParams.delete('error_description');
+                  window.history.replaceState({}, (typeof document !== 'undefined' ? document.title : '') || '', cleanUrl.toString());
+                }
+              } catch (_) {}
+              await gererUrlRetourAuth(authUrl);
+            }
+          }
+
+          const { data: { session }, error } = await avecTimeoutSecurise(
+            supabase.auth.getSession(),
+            2500,
+            { data: { session: null }, error: null } as any
+          );
         if (!error && session?.user) {
           console.log('✅ Session Supabase active restaurée :', session.user.email);
           setEstConnecteGoogle(true);
           if (session.user.email) setEmailUtilisateur(session.user.email);
 
+          // 1. Récupération du profil Supabase associé pour gestion Soft Delete / Réactivation
+          const { data: profilExistant } = await supabase
+            .from('profiles')
+            .select('est_actif, desactive_le, username, avatar_url, phone_number')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          // Si le profil était désactivé (est_actif === false), réactivation automatique immédiate
+          if (profilExistant && profilExistant.est_actif === false) {
+            console.log('🔄 Compte désactivé détecté lors de la restauration -> Réactivation automatique...');
+            await supabase
+              .from('profiles')
+              .update({
+                est_actif: true,
+                desactive_le: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', session.user.id);
+          }
+
           const meta = session.user.user_metadata || {};
-          const nomG = meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
+          const nomG = profilExistant?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
           setNomUtilisateur(nomG);
           AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
 
-          const photoG = meta.avatar_url || meta.picture;
+          const photoG = profilExistant?.avatar_url || meta.avatar_url || meta.picture;
           if (photoG) {
             setPhotoProfil(photoG);
             AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
           }
 
+          setUtilisateur(session.user);
           await synchroniserProfilGoogle(session.user);
-          chargerStatutVIP();
-          chargerAcquisitionsReelles();
-          chargerEligibiliteBienvenue();
+          await chargerStatutVIP();
+          await chargerAcquisitionsReelles();
+          await chargerEligibiliteBienvenue();
+
+          // Vérifier et resynchroniser le push token de l'appareil avec le profil et Supabase
+          verifierEtRenouvelerPushToken().catch(() => {});
+        } else {
+          setUtilisateur(null);
+          await chargerStatutVIP();
+          await chargerAcquisitionsReelles();
+          await chargerEligibiliteBienvenue();
         }
       } catch (errSession) {
         console.warn('⚠️ Info vérification session initiale :', errSession);
+      } finally {
+        setChargementAuth(false);
+        setSessionVerifiee(true);
       }
     };
 
     initialiserSession();
 
     // 2. Écouter les changements d'authentification Supabase de façon ciblée
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Événement Auth Supabase :', event);
-
+    const authSubRes = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
         if (session?.user) {
           setEstConnecteGoogle(true);
           if (session.user.email) setEmailUtilisateur(session.user.email);
+
+          // Vérification du statut Soft Delete à la connexion
+          let userProf: any = null;
+          try {
+            const { data } = await supabase
+              .from('profiles')
+              .select('est_actif, desactive_le, username, avatar_url')
+              .eq('id', session.user.id)
+              .maybeSingle();
+            userProf = data;
+
+            if (userProf && userProf.est_actif === false) {
+              console.log('🔄 Réactivation automatique du compte utilisateur suite à SIGNED_IN');
+              await supabase
+                .from('profiles')
+                .update({
+                  est_actif: true,
+                  desactive_le: null,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', session.user.id);
+            }
+          } catch (reactivErr) {
+            console.warn('Note réactivation profil :', reactivErr);
+          }
           
           const meta = session.user.user_metadata || {};
-          const nomG = meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
+          const nomG = userProf?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
           setNomUtilisateur(nomG);
           AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
 
-          const photoG = meta.avatar_url || meta.picture;
+          const photoG = userProf?.avatar_url || meta.avatar_url || meta.picture;
           if (photoG) {
             setPhotoProfil(photoG);
             AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
           }
           
+          setUtilisateur(session.user);
           await synchroniserProfilGoogle(session.user);
-          chargerStatutVIP();
-          chargerAcquisitionsReelles();
-          chargerEligibiliteBienvenue();
+          await chargerStatutVIP();
+          await chargerAcquisitionsReelles();
+          await chargerEligibiliteBienvenue();
+
+          // Resynchroniser immédiatement le push token de l'appareil dès la connexion
+          verifierEtRenouvelerPushToken().catch(() => {});
+          // Rattrapage des notifications & réponses administratives ciblées
+          synchroniserNotificationsManquees({
+            afficherToast: (opts) => afficherToast(opts.message, opts.titre, opts.type as any, opts.dureeMs),
+          }).catch(() => {});
+          setChargementAuth(false);
+          setSessionVerifiee(true);
         }
       } else if (event === 'SIGNED_OUT') {
-        // Déconnexion explicite demandée par l'utilisateur
-        console.log('👋 Déconnexion explicite confirmée');
         setEstConnecteGoogle(false);
+        setUtilisateur(null);
         setEmailUtilisateur('');
+        setNomUtilisateur('Étudiant cauZon');
+        setTelephoneFacturation('');
+        setPhotoProfil('avatar-1');
+        setEstVip(false);
+        setEstAbonneVIP(false);
+        setDateExpirationAbonnement(null);
+        setVipExpireAt(null);
+        setAStockageEtendu(false);
+        setLimiteStockage(75);
+        setDocsDebloquesIds([]);
+        setAcquisitions([]);
+        setDocumentsImportes([]);
+        setChargementAuth(false);
+        setSessionVerifiee(true);
+        const clesPurge = [
+          STORAGE_KEY_PHOTO,
+          STORAGE_KEY_NOM,
+          STORAGE_KEY_TELEPHONE,
+          'CAUZON_PHOTO_PROFIL',
+          'CAUZON_NOM_UTILISATEUR',
+          'CAUZON_TELEPHONE',
+          'cauzon_vip_status',
+          'cauzon_storage_status',
+          'cauzon_local_library_cache',
+          'cauzon_documents_importes_cache',
+          'cauzon_documents_hors_ligne',
+          '@cauzon_documents_hors_ligne',
+          '@cauzon_documents_importes',
+          '@cauzon_vip',
+          '@cauzon_acquisitions',
+          '@cauzon_abonnements',
+          '@cauzon_locations',
+          '@cauzon_panier',
+          'cauzon_panier',
+          'CAUZON_PUSH_TOKEN',
+          'CAUZON_NOTIF_PROMPT_DECIDED',
+        ];
+        AsyncStorage.multiRemove(clesPurge).catch(() => {});
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          try {
+            clesPurge.forEach((cle) => window.localStorage.removeItem(cle));
+            Object.keys(window.localStorage).forEach((k) => {
+              if (k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')) {
+                window.localStorage.removeItem(k);
+              }
+            });
+          } catch (_) {}
+        }
       }
     });
+    authSubscription = authSubRes?.data?.subscription ?? null;
 
     // 3. Heartbeat silencieux : rafraîchit automatiquement le token en arrière-plan toutes les 15 min
-    const heartbeatInterval = setInterval(async () => {
+    heartbeatInterval = setInterval(async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
@@ -190,7 +541,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     }, 15 * 60 * 1000);
 
     // 4. 📡 Écouteur Supabase Realtime Utilisateur (Synchronisation instantanée statut VIP, Stockage, Modération, Feedbacks)
-    const userRealtimeChannel = supabase
+    userRealtimeChannel = supabase
       .channel('cauzon-user-realtime')
       .on(
         'postgres_changes',
@@ -217,13 +568,53 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
           setAReponseNonLue(true);
         }
       )
-      .subscribe();
+      } catch (errInitGlobal) {
+        console.warn('⚠️ Erreur globale non fatale lors de initialiserApplication :', errInitGlobal);
+      } finally {
+        setChargementVip(false);
+        setChargementStockage(false);
+        setChargementAuth(false);
+        setSessionVerifiee(true);
+      }
+    }; // fin initialiserApplication
+
+    try {
+      initialiserApplication();
+    } catch (e) {
+      console.warn('Erreur invocation initialiserApplication :', e);
+    }
+
+    // 5. 🌐 Écouteur de connectivité réseau : rattrapage immédiat au retour en ligne (Effet WhatsApp)
+    let etaitConnecte = true;
+    let unsubscribeNetInfo: (() => void) | null = null;
+    try {
+      unsubscribeNetInfo = NetInfo.addEventListener((state) => {
+        try {
+          const connecteActuel = state.isConnected !== false && state.isInternetReachable !== false;
+          setEstEnLigne(connecteActuel);
+          if (connecteActuel && !etaitConnecte) {
+            console.log('🌐 [Réseau] Reconnexion Internet détectée -> Rattrapage immédiat des notifications (Effet WhatsApp)');
+            synchroniserNotificationsManquees({
+              afficherToast: (opts) => afficherToast(opts.message, opts.titre, opts.type as any, opts.dureeMs),
+            }).catch(() => {});
+          }
+          etaitConnecte = connecteActuel;
+        } catch (e) {
+          console.warn('Note callback NetInfo :', e);
+        }
+      });
+    } catch (e) {
+      console.warn('Note addEventListener NetInfo :', e);
+    }
 
     return () => {
-      linkSubscription.remove();
-      subscription.unsubscribe();
-      clearInterval(heartbeatInterval);
-      supabase.removeChannel(userRealtimeChannel);
+      try {
+        if (linkSubscription) linkSubscription.remove();
+        if (authSubscription) authSubscription.unsubscribe();
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        if (userRealtimeChannel) supabase.removeChannel(userRealtimeChannel);
+        if (unsubscribeNetInfo) unsubscribeNetInfo();
+      } catch (_) {}
     };
   }, []);
 
@@ -242,14 +633,23 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         STORAGE_KEY_TELEPHONE,
         'cauzon_vip_status',
         'cauzon_storage_status',
+        STORAGE_KEY_THEME,
       ]);
       const photo = stored[0][1];
       const nom = stored[1][1];
       const telephone = stored[2][1];
+      const savedTheme = stored[5]?.[1] as PreferenceTheme | null;
 
       if (photo) setPhotoProfil(photo);
       if (nom) setNomUtilisateur(nom);
       if (telephone) setTelephoneFacturation(telephone);
+
+      // 🎨 Hydratation pérenne prioritaire de la préférence Thème (Clair / Sombre / Système)
+      if (savedTheme && (savedTheme === 'clair' || savedTheme === 'sombre' || savedTheme === 'systeme')) {
+        console.log('🎨 [Persistance Thème] Thème restauré depuis AsyncStorage :', savedTheme);
+        setPreferenceTheme(savedTheme);
+      }
+      setThemeCharge(true);
 
       // Hydratation immédiate VIP
       if (stored[3][1]) {
@@ -278,6 +678,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     } catch (err) {
       console.warn('⚠️ Erreur lecture cache profil local :', err);
+      setThemeCharge(true);
     }
   };
 
@@ -422,13 +823,32 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   const chargerAcquisitionsReelles = async () => {
     try {
       const docs = await fetchMesDocuments();
-      if (docs && docs.length > 0) {
-        const ids = docs.map((d: any) => d.id);
-        setDocsDebloquesIds(ids);
-        console.log('📡 Acquisitions réelles chargées :', ids.length, 'document(s)');
-      }
+      const imported = await chargerDocumentsImportes();
+      const importedIds = (imported || []).map((d: any) => d.id);
+      
+      const officialDocs = (docs || []).filter((d: any) => !d.id?.startsWith('imported_'));
+      setAcquisitions(officialDocs);
+      setDocumentsImportes(imported || []);
+
+      const allIds = Array.from(new Set([
+        ...officialDocs.map((d: any) => d.id),
+        ...importedIds
+      ]));
+
+      setDocsDebloquesIds(allIds);
+      console.log('📡 Acquisitions réelles chargées :', allIds.length, 'document(s) (dont', importedIds.length, 'importés)');
     } catch (erreur) {
       console.error('❌ Erreur lors du chargement des acquisitions :', erreur);
+      try {
+        const imported = await chargerDocumentsImportes();
+        const importedIds = (imported || []).map((d: any) => d.id);
+        setDocumentsImportes(imported || []);
+        setDocsDebloquesIds(importedIds);
+      } catch (_) {
+        setDocsDebloquesIds([]);
+        setDocumentsImportes([]);
+      }
+      setAcquisitions([]);
     }
   };
 
@@ -444,17 +864,22 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const reinitialiserDemo = () => {
     setDocsDebloquesIds([]);
+    setAcquisitions([]);
+    setDocumentsImportes([]);
+    setUtilisateur(null);
     setEstVip(false);
     setAStockageEtendu(false);
     setLimiteStockage(75);
-    setModeTheme('light');
+    definirPreferenceTheme('systeme');
     setPhotoProfil('avatar-1');
-    setNomUtilisateur('Jean Dupont');
-    setTelephoneFacturation('+225 07 12 34 56 78');
-    setAReponseNonLue(true);
+    setNomUtilisateur('Étudiant cauZon');
+    setTelephoneFacturation('');
+    setAReponseNonLue(false);
     setEstAbonneVIP(false);
     setDateExpirationAbonnement(null);
     setVipExpireAt(null);
+    setEstConnecteGoogle(false);
+    setEmailUtilisateur('');
   };
 
   const marquerCommentairesCommeLus = () => {
@@ -543,34 +968,183 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const retirerDocumentDebloque = (id: string) => {
     setDocsDebloquesIds((prev) => prev.filter((dId) => dId !== id));
+    setAcquisitions((prev) => prev.filter((d) => d.id !== id));
+    setDocumentsImportes((prev) => prev.filter((d) => d.id !== id));
   };
 
-  const basculerTheme = () => {
-    setModeTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  };
-
-  const connexionGoogle = async () => {
-    return await connexionAvecGoogle();
+  const connexionGoogle = async (customRedirectUrl?: string) => {
+    setChargementAuth(true);
+    const res = await connexionAvecGoogle(customRedirectUrl);
+    if (!res.success) {
+      setChargementAuth(false);
+    }
+    return res;
   };
 
   const deconnexion = async () => {
-    await deconnexionAuth();
     setEstConnecteGoogle(false);
+    setUtilisateur(null);
     setEmailUtilisateur('');
+    setNomUtilisateur('Étudiant cauZon');
+    setTelephoneFacturation('');
+    setPhotoProfil('avatar-1');
+    setEstVip(false);
+    setEstAbonneVIP(false);
+    setDateExpirationAbonnement(null);
+    setVipExpireAt(null);
+    setAStockageEtendu(false);
+    setLimiteStockage(75);
+    setDocsDebloquesIds([]);
+    setAcquisitions([]);
+    setDocumentsImportes([]);
+
+    await deconnexionAuth().catch(() => {});
+
+    const clesAPurger = [
+      STORAGE_KEY_PHOTO,
+      STORAGE_KEY_NOM,
+      STORAGE_KEY_TELEPHONE,
+      'CAUZON_PHOTO_PROFIL',
+      'CAUZON_NOM_UTILISATEUR',
+      'CAUZON_TELEPHONE',
+      'cauzon_vip_status',
+      'cauzon_storage_status',
+      'cauzon_local_library_cache',
+      'cauzon_documents_importes_cache',
+      'cauzon_documents_hors_ligne',
+      '@cauzon_documents_hors_ligne',
+      '@cauzon_documents_importes',
+      '@cauzon_vip',
+      '@cauzon_acquisitions',
+      '@cauzon_abonnements',
+      '@cauzon_locations',
+      '@cauzon_panier',
+      'cauzon_panier',
+      'CAUZON_PUSH_TOKEN',
+      'CAUZON_NOTIF_PROMPT_DECIDED',
+    ];
+    await AsyncStorage.multiRemove(clesAPurger).catch(() => {});
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        clesAPurger.forEach((cle) => window.localStorage.removeItem(cle));
+        Object.keys(window.localStorage).forEach((k) => {
+          if (k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')) {
+            window.localStorage.removeItem(k);
+          }
+        });
+      } catch (_) {}
+    }
+  };
+
+  /**
+   * Désactivation atomique du compte :
+   * 1. Mise à jour synchrone immédiate de tous les states en mémoire
+   * 2. Purge intégrale du stockage local (AsyncStorage + localStorage)
+   * 3. Appel Supabase de Soft Delete et signOut
+   */
+  const desactiverCompte = async (): Promise<{ success: boolean; message: string }> => {
+    // 1. Mise à jour IMMÉDIATE de tous les states React en mémoire en un seul bloc synchrone
+    setEstVip(false);
+    setEstAbonneVIP(false);
+    setDocsDebloquesIds([]);
+    setAcquisitions([]);
+    setDocumentsImportes([]);
+    setUtilisateur(null);
+    setNomUtilisateur('Étudiant cauZon');
+    setEmailUtilisateur('');
+    setTelephoneFacturation('');
+    setPhotoProfil('avatar-1');
+    setEstConnecteGoogle(false);
+    setDateExpirationAbonnement(null);
+    setVipExpireAt(null);
+    setAStockageEtendu(false);
+    setLimiteStockage(75);
+
+    // 2. Exécute ensuite la purge du stockage local (AsyncStorage et localStorage.clear() pour les clés de session)
+    const clesAPurger = [
+      STORAGE_KEY_PHOTO,
+      STORAGE_KEY_NOM,
+      STORAGE_KEY_TELEPHONE,
+      'CAUZON_PHOTO_PROFIL',
+      'CAUZON_NOM_UTILISATEUR',
+      'CAUZON_TELEPHONE',
+      'cauzon_vip_status',
+      'cauzon_storage_status',
+      'cauzon_local_library_cache',
+      'cauzon_documents_importes_cache',
+      'cauzon_documents_hors_ligne',
+      '@cauzon_documents_hors_ligne',
+      '@cauzon_documents_importes',
+      '@cauzon_vip',
+      '@cauzon_acquisitions',
+      '@cauzon_abonnements',
+      '@cauzon_locations',
+      '@cauzon_panier',
+      'cauzon_panier',
+      'CAUZON_PUSH_TOKEN',
+      'CAUZON_NOTIF_PROMPT_DECIDED',
+    ];
+
+    await AsyncStorage.multiRemove(clesAPurger).catch(() => {});
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const cauzonKeys = allKeys.filter(
+        (k) => k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')
+      );
+      if (cauzonKeys.length > 0) {
+        await AsyncStorage.multiRemove(cauzonKeys);
+      }
+    } catch (_) {}
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        clesAPurger.forEach((cle) => window.localStorage.removeItem(cle));
+        Object.keys(window.localStorage).forEach((k) => {
+          if (k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')) {
+            window.localStorage.removeItem(k);
+          }
+        });
+      } catch (_) {}
+    }
+
+    // 3. Exécute l'appel Supabase de soft delete et supabase.auth.signOut()
+    try {
+      const { desactiverCompteUtilisateur } = await import('../services/serviceDocument');
+      return await desactiverCompteUtilisateur();
+    } catch (e: any) {
+      console.error('Erreur appel distant désactivation :', e);
+      return { success: true, message: 'Compte désactivé localement.' };
+    }
   };
 
   const couleurs = modeTheme === 'light' ? couleursClair : couleursSombre;
+  const aAccesVip = Boolean(estVip || estAbonneVIP || utilisateur?.has_vip_pass);
 
   return (
     <ContexteApp.Provider
       value={{
         docsDebloquesIds,
+        setDocsDebloquesIds,
+        acquisitions,
+        setAcquisitions,
+        documentsImportes,
+        setDocumentsImportes,
+        utilisateur,
+        setUtilisateur,
         debloquerDocument,
         reinitialiserDemo,
+        desactiverCompte,
         couleurs,
         modeTheme,
+        preferenceTheme,
+        themeCharge,
+        definirPreferenceTheme,
         basculerTheme,
+        afficherToast,
+        masquerToast,
+        aAccesVip,
         nomUtilisateur,
+        setNomUtilisateur,
         emailUtilisateur,
         telephoneFacturation,
         photoProfil,
@@ -582,6 +1156,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         mettreAJourProfil,
 
         estVip,
+        setEstVip,
         aStockageEtendu,
         limiteStockage,
         chargementStockage,
@@ -590,6 +1165,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         aReponseNonLue,
         marquerCommentairesCommeLus,
         estAbonneVIP,
+        setEstAbonneVIP,
         dateExpirationAbonnement,
         vipExpireAt,
         chargementVip,
@@ -599,9 +1175,21 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         estSuspendu,
         dateFinSuspension,
         motifSuspension,
+        estEnLigne,
+        chargementAuth,
+        setChargementAuth,
+        sessionVerifiee,
       }}
     >
       {children}
+      <ToastNotification
+        visible={toastState.visible}
+        type={toastState.type}
+        titre={toastState.titre}
+        message={toastState.message}
+        dureeMs={toastState.dureeMs}
+        onFermer={masquerToast}
+      />
     </ContexteApp.Provider>
   );
 };

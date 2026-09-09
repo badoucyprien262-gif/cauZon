@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { BannerRow } from '../types';
+import { sendRemotePushNotification } from './servicePushNotifications';
 
 export const fetchBanners = async (): Promise<BannerRow[]> => {
   const { data, error } = await supabase
@@ -21,10 +22,16 @@ export const fetchBanners = async (): Promise<BannerRow[]> => {
   }));
 };
 
+export interface BannerSavePayload extends Omit<BannerRow, 'id' | 'created_at'> {
+  diffuser_push?: boolean;
+  titre_push?: string;
+  corps_push?: string;
+}
+
 export const saveBanner = async (
-  payload: Omit<BannerRow, 'id' | 'created_at'>,
+  payload: BannerSavePayload,
   editingId: string | null
-): Promise<void> => {
+): Promise<{ pushResult?: any }> => {
   const titreClean = (payload.titre_bande || '').trim();
   const contenuClean = (payload.contenu_detaille || '').trim();
 
@@ -46,6 +53,8 @@ export const saveBanner = async (
     updated_at: new Date().toISOString()
   };
 
+  let pushResult: any = undefined;
+
   if (editingId) {
     const { error } = await supabase.from('annonces_bannieres').update(clean).eq('id', editingId);
     if (error) throw error;
@@ -53,6 +62,38 @@ export const saveBanner = async (
     const { error } = await supabase.from('annonces_bannieres').insert([clean]);
     if (error) throw error;
   }
+
+  // 🚀 DÉCLENCHEMENT DU PUSH DISTANT HAUTE PRIORITÉ (EXPO PUSH API / EDGE FUNCTION)
+  // Réveille les téléphones en arrière-plan ou fermés (mode Killed State)
+  // Déclenché à la création ou modification dès que la bannière est active
+  if (payload.diffuser_push !== false && clean.statut === 'actif') {
+    const pTitle = payload.titre_push?.trim() || clean.titre_bande;
+    const pBody = (payload.corps_push?.trim() || clean.contenu_detaille)
+      .replace(/\[MEDIA:(image|video):[^\]]+\]/g, '')
+      .trim();
+
+    try {
+      pushResult = await sendRemotePushNotification({
+        title: pTitle,
+        body: pBody || clean.titre_bande,
+        document_id: clean.document_id_associe,
+        route: clean.document_id_associe ? 'Bibliotheque' : 'Accueil',
+        cible: clean.ciblage_role as 'tous' | 'non_abonnes' | 'abonnes',
+        data: {
+          type: 'annonce',
+          importance: clean.type_importance,
+          document_id: clean.document_id_associe || undefined,
+          route: clean.document_id_associe ? 'Bibliotheque' : 'Accueil',
+          action: 'open_banner',
+          titre_bande: clean.titre_bande,
+        },
+      });
+    } catch (err) {
+      console.warn('Note envoi push annonce :', err);
+    }
+  }
+
+  return { pushResult };
 };
 
 export const uploadBannerMedia = async (file: File): Promise<{ url: string; type: 'image' | 'video' }> => {
@@ -75,8 +116,46 @@ export const deleteBanner = async (id: string): Promise<void> => {
   if (error) throw error;
 };
 
-export const toggleBannerStatus = async (id: string, current: string): Promise<void> => {
+export const toggleBannerStatus = async (
+  id: string,
+  current: string,
+  banner?: BannerRow
+): Promise<{ newStatut: 'actif' | 'inactif'; pushResult?: any }> => {
   const newStatut = current === 'actif' ? 'inactif' : 'actif';
-  const { error } = await supabase.from('annonces_bannieres').update({ statut: newStatut, updated_at: new Date().toISOString() }).eq('id', id);
+  const { error } = await supabase
+    .from('annonces_bannieres')
+    .update({ statut: newStatut, updated_at: new Date().toISOString() })
+    .eq('id', id);
   if (error) throw error;
+
+  let pushResult: any = undefined;
+
+  // 🚀 Si la bannière passe en statut "actif", diffuser automatiquement la notification push
+  if (newStatut === 'actif' && banner) {
+    const cleanDesc = (banner.contenu_detaille || '')
+      .replace(/\[MEDIA:(image|video):[^\]]+\]/g, '')
+      .trim();
+
+    try {
+      pushResult = await sendRemotePushNotification({
+        title: banner.titre_bande,
+        body: cleanDesc || banner.titre_bande,
+        document_id: banner.document_id_associe || null,
+        route: banner.document_id_associe ? 'Bibliotheque' : 'Accueil',
+        cible: (banner.ciblage_role as 'tous' | 'non_abonnes' | 'abonnes') || 'tous',
+        data: {
+          type: 'annonce',
+          importance: banner.type_importance || 'info',
+          document_id: banner.document_id_associe || undefined,
+          route: banner.document_id_associe ? 'Bibliotheque' : 'Accueil',
+          action: 'open_banner',
+          titre_bande: banner.titre_bande,
+        },
+      });
+    } catch (err) {
+      console.warn('Note envoi push activation bannière :', err);
+    }
+  }
+
+  return { newStatut, pushResult };
 };

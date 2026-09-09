@@ -1,6 +1,6 @@
-import React from 'react';
+﻿import React from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 
 interface StorageGaugeProps {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, BookOpen, BellRing, Edit3, Trash2, CheckCircle, AlignLeft, Hash, FunctionSquare, Scale, Table, CheckSquare, Lightbulb, AlertTriangle, Target, ArrowUp, ArrowDown, Download, Copy } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, BookOpen, BellRing, Edit3, Trash2, CheckCircle, AlignLeft, Hash, FunctionSquare, Scale, Table, CheckSquare, Lightbulb, AlertTriangle, Target, ArrowUp, ArrowDown, Download, Copy, X } from 'lucide-react';
 import type { BannerRow, DocumentRow } from '../types';
 import { BannerWizard } from '../components/BannerWizard';
 import { saveBanner, deleteBanner, toggleBannerStatus } from '../services/serviceBanners';
@@ -123,6 +123,17 @@ export function StudioView({
   const setStudioTab = propSetStudioTab ?? setInternalStudioTab;
   const [showBannerWizard, setShowBannerWizard] = useState(false);
   const [editingBanner, setEditingBanner] = useState<BannerRow | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Rich Academic Blocks State
   const [blocks, setBlocks] = useState<StudioBlock[]>(INITIAL_BLOCKS);
@@ -134,20 +145,64 @@ export function StudioView({
   const cardBg = darkMode ? '#1e1e1e' : '#FFFFFF';
   const inputBg = darkMode ? '#121212' : '#F9FAFB';
 
-  const handleSaveBanner = async (data: Omit<BannerRow, 'id' | 'created_at'>, editingId: string | null) => {
-    await saveBanner(data, editingId);
-    onReload();
+  const handleSaveBanner = async (data: any, editingId: string | null) => {
+    try {
+      const res = await saveBanner(data, editingId);
+      if (res?.pushResult) {
+        if (res.pushResult.success && res.pushResult.sentCount > 0) {
+          showToast(`Bannière publiée et notification push transmise à ${res.pushResult.sentCount} étudiant(s) !`, 'success');
+        } else if (res.pushResult.message) {
+          showToast(`Bannière enregistrée (${res.pushResult.message})`, 'info');
+        } else {
+          showToast('Bannière enregistrée avec succès !', 'success');
+        }
+      } else {
+        showToast('Bannière enregistrée avec succès !', 'success');
+      }
+      onReload();
+    } catch (e: any) {
+      showToast(`Erreur : ${e.message || String(e)}`, 'error');
+    }
   };
 
   const handleDeleteBanner = async (id: string) => {
     if (!window.confirm('Supprimer cette bannière ?')) return;
-    await deleteBanner(id);
-    setBanners(prev => prev.filter(b => b.id !== id));
+    try {
+      await deleteBanner(id);
+      setBanners(prev => prev.filter(b => b.id !== id));
+      showToast('Bannière supprimée.', 'info');
+    } catch (e: any) {
+      showToast(`Erreur : ${e.message || String(e)}`, 'error');
+    }
   };
 
   const handleToggleStatus = async (b: BannerRow) => {
-    await toggleBannerStatus(b.id, b.statut);
-    setBanners(prev => prev.map(bb => bb.id === b.id ? { ...bb, statut: bb.statut === 'actif' ? 'inactif' : 'actif' } : bb));
+    const willActivate = b.statut !== 'actif';
+    if (willActivate) {
+      const confirmPush = window.confirm(
+        `Activer la bannière « ${b.titre_bande} » ?\n\nUne notification push FlashScore sera immédiatement transmise aux étudiants ciblés (${b.ciblage_role}).`
+      );
+      if (!confirmPush) return;
+    }
+
+    try {
+      const res = await toggleBannerStatus(b.id, b.statut, b);
+      setBanners(prev => prev.map(bb => bb.id === b.id ? { ...bb, statut: res.newStatut } : bb));
+
+      if (res.newStatut === 'actif') {
+        if (res.pushResult?.success && res.pushResult.sentCount > 0) {
+          showToast(`Bannière activée et notification push transmise à ${res.pushResult.sentCount} étudiant(s) !`, 'success');
+        } else if (res.pushResult?.message) {
+          showToast(`Bannière activée (${res.pushResult.message})`, 'info');
+        } else {
+          showToast('Bannière activée avec succès !', 'success');
+        }
+      } else {
+        showToast('Bannière désactivée.', 'info');
+      }
+    } catch (e: any) {
+      showToast(`Erreur : ${e.message || String(e)}`, 'error');
+    }
   };
 
   // Block management
@@ -744,6 +799,47 @@ export function StudioView({
           onClose={() => { setShowBannerWizard(false); setEditingBanner(null); }}
           darkMode={darkMode}
         />
+      )}
+
+      {/* Toast Notification Administrateur */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '14px 22px',
+          borderRadius: '12px',
+          backgroundColor: toast.type === 'success' ? '#065F46' : toast.type === 'error' ? '#991B1B' : '#1E3A8A',
+          color: '#FFFFFF',
+          boxShadow: '0 12px 36px rgba(0,0,0,0.35)',
+          border: '1px solid rgba(255,255,255,0.2)',
+          fontSize: '14px',
+          fontWeight: 600,
+          backdropFilter: 'blur(8px)',
+        }}>
+          <span style={{ fontSize: '18px' }}>{toast.type === 'success' ? '🚀' : toast.type === 'error' ? '❌' : 'ℹ️'}</span>
+          <span style={{ maxWidth: '400px', lineHeight: 1.4 }}>{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'rgba(255,255,255,0.8)',
+              cursor: 'pointer',
+              marginLeft: '8px',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '6px',
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
     </div>
   );

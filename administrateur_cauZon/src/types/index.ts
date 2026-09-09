@@ -25,6 +25,8 @@ export interface DocumentRow {
 export interface ProfileRow {
   id: string;
   username: string | null;
+  nom_complet?: string | null;
+  email?: string | null;
   phone_number?: string | null;
   avatar_url: string | null;
   has_extended_storage: boolean | null;
@@ -34,12 +36,16 @@ export interface ProfileRow {
   ban_reason?: string | null;
   has_vip_pass?: boolean | null;
   vip_expiration_date?: string | null;
+  est_actif?: boolean | null;
+  desactive_le?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface FeedbackRow {
   id: string;
   device_id: string;
+  user_id?: string | null;
   username: string;
   message: string;
   reponse_admin: string | null;

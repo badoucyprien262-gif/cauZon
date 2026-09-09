@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import type { DocumentRow } from '../types';
 import { PDFDocument } from 'pdf-lib';
+import { sendRemotePushNotification } from './servicePushNotifications';
 
 export const BUCKET_DOCS = 'cours-documents';
 
@@ -77,6 +78,15 @@ export const publishDocument = async (
 
   const { error: insertErr } = await supabase.from('documents').insert([payload]);
   if (insertErr) throw insertErr;
+
+  // Diffusion push automatique si le document est directement publié
+  if (payload.status === 'published') {
+    sendRemotePushNotification({
+      title: `📚 Nouveau document disponible !`,
+      body: `"${wizardData.titre}" vient d'être mis en ligne dans la catégorie ${wizardData.categorie || 'Général'}.`,
+      data: { type: 'document', id: wizardData.titre }
+    }).catch(() => {});
+  }
 };
 
 export const updateDocumentPaywall = async (

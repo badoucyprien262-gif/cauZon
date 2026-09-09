@@ -8,21 +8,34 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ScrollView,
   ActivityIndicator,
   Image,
+  Linking,
+  Switch,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from './AppIcon';
+import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../store/ContexteApp';
 import ModaleVip from './ModaleVip';
 import ModaleLegale from './ModaleLegale';
+import ModaleDemandeNotification from './ModaleDemandeNotification';
+import ModaleConfirmationCauzon from './ModaleConfirmationCauzon';
 import AvatarDynamique from './AvatarDynamique';
 import BoutonThemeAnime from './BoutonThemeAnime';
 import ToastNotification from './ToastNotification';
 import { supabase } from '../lib/supabase';
 import { getDeviceId } from '../services/serviceDocument';
+import {
+  verifierStatutPermissionsNotifications,
+  aDejaReponduInviteNotification,
+  enregistrerPushToken,
+  desactiverPushToken,
+  getPushTokenLocal,
+  STORAGE_KEY_NOTIF_ACTIVE,
+} from '../services/serviceNotifications';
 
 
 
@@ -51,21 +64,36 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
   const { 
     couleurs, 
     nomUtilisateur, 
+    setNomUtilisateur,
     emailUtilisateur,
     telephoneFacturation, 
     photoProfil,
     estConnecteGoogle,
     connexionGoogle,
     deconnexion,
+    desactiverCompte,
     mettreAJourProfil, 
     reinitialiserDemo, 
     modeTheme, 
+    preferenceTheme,
+    definirPreferenceTheme,
     basculerTheme,
+    afficherToast: afficherToastGlobal,
     estVip,
+    setEstVip,
+    estAbonneVIP,
+    setEstAbonneVIP,
+    docsDebloquesIds,
+    setDocsDebloquesIds,
+    acquisitions,
+    setAcquisitions,
+    utilisateur,
+    setUtilisateur,
     aReponseNonLue,
     marquerCommentairesCommeLus
   } = useApp();
   const styles = getStyles(couleurs);
+  const navigation = useNavigation<any>();
 
   const [nomLocal, setNomLocal] = useState(nomUtilisateur);
   const [telephoneLocal, setTelephoneLocal] = useState(telephoneFacturation);
@@ -76,8 +104,9 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
   const [afficherChoixAvatar, setAfficherChoixAvatar] = useState(false);
   const [modaleLegaleVisible, setModaleLegaleVisible] = useState(false);
   const [ongletLegal, setOngletLegal] = useState<'cgu' | 'confidentialite'>('cgu');
-
-
+  const [notificationsActives, setNotificationsActives] = useState<boolean>(false);
+  const [tokenPushAffiche, setTokenPushAffiche] = useState<string | null>(null);
+  const [modaleNotifVisible, setModaleNotifVisible] = useState<boolean>(false);
 
   const [chargementPhoto, setChargementPhoto] = useState(false);
   const [commentSectionOpen, setCommentSectionOpen] = useState(false);
@@ -87,15 +116,12 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
   const [suppressionEnCours, setSuppressionEnCours] = useState(false);
   const [historiqueFeedbacks, setHistoriqueFeedbacks] = useState<any[]>([]);
 
-  const [toast, setToast] = useState<{
-    visible: boolean;
-    message: string;
-    titre?: string;
-    type?: 'success' | 'info' | 'error';
-  }>({ visible: false, message: '' });
-
-  const afficherToast = (message: string, titre?: string, type: 'success' | 'info' | 'error' = 'success') => {
-    setToast({ visible: true, message, titre, type });
+  const afficherToast = (message: string, titre?: string, type: 'success' | 'info' | 'error' | 'succes' | 'erreur' = 'success') => {
+    afficherToastGlobal({
+      type: (type === 'success' || type === 'succes') ? 'succes' : (type === 'error' || type === 'erreur') ? 'erreur' : 'info',
+      titre,
+      message,
+    });
   };
 
   const chargerHistoriqueFeedbacks = async () => {
@@ -124,6 +150,19 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
       setPhotoLocal(photoProfil);
       setAfficherChoixAvatar(false);
       chargerHistoriqueFeedbacks();
+
+      // Vérification discrète du statut des notifications
+      verifierStatutPermissionsNotifications().then(async ({ granted }) => {
+        const notifActiveLocale = await AsyncStorage.getItem(STORAGE_KEY_NOTIF_ACTIVE);
+        const estActif = granted && notifActiveLocale !== 'false';
+        setNotificationsActives(estActif);
+        if (estActif) {
+          const tok = await getPushTokenLocal();
+          setTokenPushAffiche(tok);
+        } else {
+          setTokenPushAffiche(null);
+        }
+      });
     }
   }, [visible, nomUtilisateur, telephoneFacturation, photoProfil]);
 
@@ -141,33 +180,114 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
     }, 400);
   };
 
+  // État pour la boîte de dialogue de confirmation CauZon
+  const [modaleConfirmationVisible, setModaleConfirmationVisible] = useState(false);
+  const [configConfirmation, setConfigConfirmation] = useState<{
+    titre: string;
+    message: string;
+    onConfirmer: () => void | Promise<void>;
+    texteConfirmer?: string;
+    texteAnnuler?: string;
+    type?: 'danger' | 'warning' | 'info' | 'succes';
+    icone?: string;
+  } | null>(null);
+
+  /**
+   * Boîte de dialogue de confirmation universelle CauZon :
+   * Remplace Alert.alert et window.confirm par ModaleConfirmationCauzon
+   */
+  const confirmationUniverselle = (
+    titre: string,
+    message: string,
+    onConfirmer: () => void | Promise<void>,
+    texteConfirmer: string = 'Confirmer',
+    texteAnnuler: string = 'Annuler',
+    estDestructeur: boolean = false,
+    icone?: string
+  ) => {
+    setConfigConfirmation({
+      titre,
+      message,
+      onConfirmer,
+      texteConfirmer,
+      texteAnnuler,
+      type: estDestructeur ? 'danger' : 'info',
+      icone,
+    });
+    setModaleConfirmationVisible(true);
+  };
 
   const handleGoogleAuth = async () => {
     if (estConnecteGoogle) {
-      Alert.alert(
-        'Déconnexion 🚪',
-        `Voulez-vous vous déconnecter de votre compte Google (${emailUtilisateur}) ?`,
-        [
-          { text: 'Annuler', style: 'cancel' },
-          { 
-            text: 'Se déconnecter', 
-            style: 'destructive',
-            onPress: async () => {
-              await deconnexion();
-              Alert.alert('Déconnecté', 'Vous avez été déconnecté avec succès.');
-            }
-          }
-        ]
-      );
-    } else {
-      setChargementGoogle(true);
-      const res = await connexionGoogle();
-      setChargementGoogle(false);
-      if (res.success) {
-        Alert.alert('Succès 🎉', 'Connexion avec Google réussie ! Vos informations ont été synchronisées.');
-      } else if (res.error && res.error !== 'Connexion annulée') {
-        Alert.alert('Erreur de connexion ⚠️', res.error);
+      // Si déjà connecté, aucune action de déconnexion directe autorisée ici
+      return;
+    }
+
+    setChargementGoogle(true);
+    const redirectWeb = (Platform.OS === 'web' && typeof window !== 'undefined' && window?.location?.href)
+      ? window.location.href
+      : undefined;
+    const res = await connexionGoogle(redirectWeb);
+    setChargementGoogle(false);
+    if (res.success) {
+      afficherToast('Vos informations ont été synchronisées avec succès.', 'Connexion Réussie 🎉', 'success');
+      // Invite contextuelle non-bloquante pour les notifications
+      try {
+        const dejaRepondu = await aDejaReponduInviteNotification();
+        if (!dejaRepondu) {
+          setTimeout(() => {
+            setModaleNotifVisible(true);
+          }, 800);
+        }
+      } catch (e) {
+        // silencieux
       }
+    } else if (res.error && res.error !== 'Connexion annulée') {
+      afficherToast(res.error, 'Erreur de Connexion ⚠️', 'error');
+    }
+  };
+
+  const [chargementNotifSwitch, setChargementNotifSwitch] = useState<boolean>(false);
+
+  /**
+   * Gestion de la bascule (Switch) des notifications d'examens et nouveaux cours
+   */
+  const handleToggleSwitch = async (nouveauStatut: boolean) => {
+    setChargementNotifSwitch(true);
+    try {
+      if (nouveauStatut) {
+        const res = await enregistrerPushToken();
+        if (res.success) {
+          setNotificationsActives(true);
+          setTokenPushAffiche(res.token || null);
+          afficherToast("Vous recevrez les alertes d'examens et nouveaux cours.", "Notifications Activées 🔔", "success");
+        } else {
+          setNotificationsActives(false);
+          setTokenPushAffiche(null);
+          if (Platform.OS !== 'web') {
+            confirmationUniverselle(
+              'Autorisation Requise 🔔',
+              'Veuillez autoriser les notifications dans les réglages de votre appareil pour recevoir les alertes de cours.',
+              () => { Linking.openSettings().catch(() => {}); },
+              'Ouvrir les Réglages',
+              'Annuler',
+              false,
+              'notifications-outline'
+            );
+          } else {
+            afficherToast('Notifications non supportées ou refusées sur ce navigateur.', 'Information ℹ️', 'info');
+          }
+        }
+      } else {
+        await desactiverPushToken();
+        setNotificationsActives(false);
+        setTokenPushAffiche(null);
+        afficherToast("Alertes de cours et d'examens désactivées.", "Notifications Désactivées 🔕", "info");
+      }
+    } catch (err) {
+      console.warn('Erreur bascule notifications :', err);
+    } finally {
+      setChargementNotifSwitch(false);
     }
   };
 
@@ -183,9 +303,10 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
         try {
           const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (status === 'denied') {
-            Alert.alert(
+            afficherToast(
+              'L\'accès aux photos a été refusé. Vous pouvez l\'activer dans les Paramètres de votre téléphone.',
               'Accès Galerie ⚠️',
-              'L\'accès aux photos a été refusé. Vous pouvez l\'activer dans les Paramètres de votre téléphone.'
+              'erreur'
             );
           }
         } catch (permErr) {
@@ -281,93 +402,90 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
 
 
   const handleReset = () => {
-    Alert.alert(
+    confirmationUniverselle(
       'Réinitialisation 🔄',
       'Voulez-vous réinitialiser toutes les acquisitions de documents et restaurer la démo ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Oui, réinitialiser', 
-          onPress: () => {
-            reinitialiserDemo();
-            setNomLocal('Jean Dupont');
-            setTelephoneLocal('+221 77 123 45 67');
-            setPhotoLocal('avatar-1');
-            Alert.alert('Succès', 'Les acquisitions, photo et thèmes ont été réinitialisés.');
-          } 
-        }
-      ]
+      () => {
+        reinitialiserDemo();
+        setNomLocal('Jean Dupont');
+        setTelephoneLocal('+221 77 123 45 67');
+        setPhotoLocal('avatar-1');
+        afficherToast('Les acquisitions, photo et thèmes ont été réinitialisés.', 'Réinitialisation Réussie 🔄', 'success');
+      },
+      'Oui, réinitialiser',
+      'Annuler',
+      true
     );
   };
 
   /**
-   * Suppression définitive du compte — Étape 1 : première confirmation
+   * Désactivation du compte (Soft Delete) universelle :
+   * Valide via window.confirm sur Web ou Alert.alert sur Mobile
    */
   const handleSupprimerCompte = () => {
-    Alert.alert(
-      '⚠️ Supprimer mon compte',
-      'Cette action est irréversible. Toutes vos acquisitions et données de profil seront définitivement supprimées.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Continuer',
-          style: 'destructive',
-          onPress: () => {
-            // Étape 2 : deuxième confirmation explicite
-            Alert.alert(
-              '❌ Dernière confirmation',
-              'Confirmez-vous vouloir supprimer DÉFINITIVEMENT votre compte cauZon et toutes vos données ?',
-              [
-                { text: 'Non, conserver mon compte', style: 'cancel' },
-                {
-                  text: 'Oui, supprimer définitivement',
-                  style: 'destructive',
-                  onPress: executerSuppressionCompte,
-                },
-              ]
-            );
-          },
-        },
-      ]
+    confirmationUniverselle(
+      '⚠️ Désactiver mon compte',
+      'Votre compte sera désactivé et vos sessions fermées. Vous pourrez réactiver votre compte et retrouver tous vos cours et acquisitions à tout moment en vous reconnectant avec votre compte Google. Confirmez-vous la désactivation ?',
+      () => {
+        executerSuppressionCompte();
+      },
+      'Oui, désactiver',
+      'Annuler',
+      true
     );
   };
 
   /**
-   * Exécution de la suppression : purge des données personnelles et traçabilité anonyme du Device ID
+   * Exécution de la désactivation (Soft Delete) : mise à jour profil (est_actif: false), purge locale et déconnexion propre
    */
   const executerSuppressionCompte = async () => {
-    setSuppressionEnCours(true);
+    // 1. Mets à jour IMMÉDIATEMENT tous les states React en mémoire en un seul bloc synchrone
+    setEstVip(false);
+    setEstAbonneVIP(false);
+    setDocsDebloquesIds([]);
+    setAcquisitions([]);
+    setUtilisateur(null);
+    setNomUtilisateur('Étudiant cauZon');
+    setNomLocal('Étudiant cauZon');
+    setTelephoneLocal('');
+    setPhotoLocal('avatar-1');
+
+    // 4. Force la fermeture immédiate de la modale des paramètres
+    onClose();
+
+    // Redirection immédiate vers l'écran d'accueil
     try {
-      const { supprimerCompteUtilisateur } = await import('../services/serviceDocument');
-      const resultat = await supprimerCompteUtilisateur();
-
-      if (!resultat.success) {
-        throw new Error(resultat.message);
+      if (navigation?.reset) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs', params: { screen: 'Accueil' } }],
+        });
+      } else if (navigation?.navigate) {
+        navigation.navigate('MainTabs', { screen: 'Accueil' });
       }
+    } catch (navErr) {
+      console.warn('Redirection accueil post-désactivation :', navErr);
+    }
 
-      // Réinitialisation complète du contexte local
-      reinitialiserDemo();
-      onClose();
+    // Déclenche une notification propre
+    afficherToast(
+      'Votre compte a été désactivé. Reconnectez-vous avec Google à tout moment pour restaurer vos cours.',
+      'Compte désactivé ✅',
+      'info'
+    );
 
-      Alert.alert(
-        'Compte supprimé ✅',
-        'Toutes vos données personnelles ont été supprimées définitivement (Droit à l\'oubli respecté).'
-      );
+    // 2. Exécute ensuite la purge du stockage local & 3. Exécute l'appel Supabase de soft delete et signOut
+    try {
+      await desactiverCompte();
     } catch (err: any) {
-      console.error('Erreur suppression compte :', err.message);
-      Alert.alert(
-        'Erreur ❌',
-        err.message || 'Impossible de supprimer le compte. Veuillez réessayer.'
-      );
-    } finally {
-      setSuppressionEnCours(false);
+      console.error('Erreur désactivation compte en arrière-plan :', err?.message);
     }
   };
 
 
   const handleSendCommentaire = async () => {
     if (commentaireTexte.trim() === '') {
-      Alert.alert('Message vide ⚠️', 'Veuillez saisir votre message avant de l\'envoyer.');
+      afficherToast('Veuillez saisir votre message avant de l\'envoyer.', 'Message vide ⚠️', 'error');
       return;
     }
 
@@ -415,14 +533,6 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        {/* Toast Notification Glissante */}
-        <ToastNotification
-          visible={toast.visible}
-          message={toast.message}
-          titre={toast.titre}
-          type={toast.type}
-          onFermer={() => setToast((prev) => ({ ...prev, visible: false }))}
-        />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.keyboardContainer}
@@ -576,8 +686,10 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                       value={telephoneLocal}
                       onChangeText={setTelephoneLocal}
                       keyboardType="phone-pad"
-                      placeholder="Ex: +221 77 123 45 67"
-                      placeholderTextColor={couleurs.texteSecondaire}
+                      placeholder="+225 07 01 02 03 04"
+                      placeholderTextColor="#94A3B8"
+                      autoCorrect={false}
+                      autoCapitalize="none"
                     />
                   </View>
                   <Text style={styles.helpText}>
@@ -603,22 +715,49 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                   </Text>
 
                   {estConnecteGoogle ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: couleurs.estSombre ? '#18181B' : '#FFFFFF', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#10B981' }}>
-                      <View style={{ flex: 1, marginRight: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                          <Text style={{ fontSize: 12.5, fontWeight: 'bold', color: couleurs.texte }}>Connecté avec Google</Text>
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      backgroundColor: couleurs.estSombre ? '#18181B' : '#FFFFFF',
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: '#10B981',
+                      shadowColor: '#10B981',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 4,
+                      elevation: 1,
+                    }}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                          <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: couleurs.texte }}>
+                            {nomLocal || nomUtilisateur || 'Compte Google'}
+                          </Text>
                         </View>
-                        <Text style={{ fontSize: 11.5, color: couleurs.texteSecondaire, marginTop: 2 }} numberOfLines={1}>
+                        <Text style={{ fontSize: 12, color: couleurs.texteSecondaire, marginTop: 3, marginLeft: 25 }} numberOfLines={1}>
                           {emailUtilisateur || 'Compte Google actif'}
                         </Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={handleGoogleAuth}
-                        style={{ paddingVertical: 6, paddingHorizontal: 10, backgroundColor: 'rgba(239, 68, 68, 0.1)', borderRadius: 8 }}
-                      >
-                        <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: 'bold' }}>Déconnexion</Text>
-                      </TouchableOpacity>
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
+                        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                        paddingVertical: 4,
+                        paddingHorizontal: 10,
+                        borderRadius: 20,
+                        borderWidth: 1,
+                        borderColor: 'rgba(16, 185, 129, 0.3)',
+                      }}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
+                        <Text style={{ color: '#047857', fontSize: 11, fontWeight: '800', letterSpacing: 0.3 }}>
+                          Actif / Connecté
+                        </Text>
+                      </View>
                     </View>
                   ) : (
                     <View style={{ gap: 12 }}>
@@ -726,20 +865,67 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
               <View style={styles.preferencesSection}>
                 <Text style={styles.prefTitle}>Préférences & Offres</Text>
 
-                {/* Mode Sombre */}
-                <View style={styles.settingRow}>
+                {/* Mode d'affichage (Clair / Sombre / Système) */}
+                <View style={[styles.settingRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
                   <View style={styles.settingLabelRow}>
                     <Ionicons 
-                      name={modeTheme === 'dark' ? "moon" : "sunny"} 
+                      name={preferenceTheme === 'sombre' ? "moon" : preferenceTheme === 'clair' ? "sunny" : "phone-portrait-outline"} 
                       size={20} 
                       color={couleurs.primaire} 
                     />
-                    <Text style={styles.settingLabel}>Mode Sombre</Text>
+                    <Text style={styles.settingLabel}>Thème d'affichage</Text>
                   </View>
-                  <BoutonThemeAnime
-                    isDark={modeTheme === 'dark'}
-                    onToggle={basculerTheme}
-                  />
+
+                  {/* Sélecteur 3 choix : Clair | Sombre | Système */}
+                  <View style={{
+                    flexDirection: 'row',
+                    width: '100%',
+                    backgroundColor: couleurs.estSombre ? 'rgba(255,255,255,0.06)' : 'rgba(107, 17, 36, 0.06)',
+                    borderRadius: 12,
+                    padding: 4,
+                    gap: 6,
+                  }}>
+                    {(['clair', 'sombre', 'systeme'] as const).map((choix) => {
+                      const estActif = preferenceTheme === choix;
+                      const libelle = choix === 'clair' ? 'Clair' : choix === 'sombre' ? 'Sombre' : 'Système';
+                      const icone = choix === 'clair' ? 'sunny-outline' : choix === 'sombre' ? 'moon-outline' : 'phone-portrait-outline';
+
+                      return (
+                        <TouchableOpacity
+                          key={choix}
+                          onPress={() => definirPreferenceTheme(choix)}
+                          activeOpacity={0.8}
+                          style={{
+                            flex: 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            paddingVertical: 9,
+                            borderRadius: 9,
+                            backgroundColor: estActif
+                              ? (couleurs.estSombre ? '#3F3F46' : '#6B1124')
+                              : 'transparent',
+                            gap: 6,
+                          }}
+                        >
+                          <Ionicons
+                            name={icone as any}
+                            size={16}
+                            color={estActif ? '#FFFFFF' : (couleurs.estSombre ? '#9CA3AF' : '#6B7280')}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 12.5,
+                              fontWeight: estActif ? '700' : '500',
+                              color: estActif ? '#FFFFFF' : (couleurs.estSombre ? '#E5E7EB' : '#4B5563'),
+                            }}
+                          >
+                            {libelle}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 {/* Option Location du Catalogue */}
@@ -761,6 +947,43 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                       <Text style={styles.actionBtnMiniText}>Louer</Text>
                     </TouchableOpacity>
                   )}
+                </View>
+
+                {/* Notifications d'examens et nouveaux cours (Bascule Switch) */}
+                <View style={[styles.settingRow, { alignItems: 'center', gap: 8, paddingVertical: 4 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, flexShrink: 1, marginRight: 8 }}>
+                    <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: couleurs.estSombre ? 'rgba(255,255,255,0.08)' : 'rgba(107, 17, 36, 0.08)', justifyContent: 'center', alignItems: 'center', flexShrink: 0 }}>
+                      <Ionicons
+                        name={notificationsActives ? "notifications" : "notifications-outline"}
+                        size={19}
+                        color={notificationsActives ? '#10B981' : couleurs.primaire}
+                      />
+                    </View>
+                    <View style={{ flex: 1, flexShrink: 1 }}>
+                      <Text style={styles.settingLabel} numberOfLines={1} ellipsizeMode="tail">
+                        Notifications d'examens et nouveaux cours
+                      </Text>
+                      <Text style={{ fontSize: 11, color: couleurs.texteSecondaire, marginTop: 1 }} numberOfLines={1} ellipsizeMode="tail">
+                        {notificationsActives ? 'Alertes instantanées activées' : 'Recevez les nouveaux cours et annales'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ flexShrink: 0, justifyContent: 'center', alignItems: 'center' }}>
+                    {chargementNotifSwitch ? (
+                      <ActivityIndicator size="small" color={couleurs.primaire} />
+                    ) : (
+                      <Switch
+                        value={notificationsActives}
+                        onValueChange={handleToggleSwitch}
+                        trackColor={{
+                          false: couleurs.estSombre ? '#374151' : '#E5E7EB',
+                          true: '#10B981',
+                        }}
+                        thumbColor={notificationsActives ? '#FFFFFF' : '#9CA3AF'}
+                        ios_backgroundColor={couleurs.estSombre ? '#374151' : '#E5E7EB'}
+                      />
+                    )}
+                  </View>
                 </View>
 
                 {/* Espace Commentaires / Feedback */}
@@ -931,24 +1154,24 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                 </TouchableOpacity>
               </View>
 
-              {/* Zone dangereuse — Suppression de compte */}
+              {/* Zone sensible — Désactivation de compte */}
               <View style={styles.dangerSection}>
                 <View style={styles.dangerHeader}>
                   <Ionicons name="warning-outline" size={14} color="#B91C1C" />
-                  <Text style={styles.dangerTitle}>Zone dangereuse</Text>
+                  <Text style={styles.dangerTitle}>Zone sensible</Text>
                 </View>
                 <Text style={styles.dangerDesc}>
-                  La suppression de votre compte est irréversible. Toutes vos acquisitions et données personnelles seront définitivement effacées.
+                  La désactivation déconnecte votre compte et ferme vos accès locaux. Vous pourrez réactiver votre compte et récupérer tous vos cours débloqués en vous reconnectant avec Google.
                 </Text>
                 {suppressionEnCours ? (
                   <View style={styles.dangerLoadingBox}>
                     <ActivityIndicator size="small" color="#B91C1C" />
-                    <Text style={styles.dangerLoadingText}>Suppression en cours…</Text>
+                    <Text style={styles.dangerLoadingText}>Désactivation en cours…</Text>
                   </View>
                 ) : (
                   <TouchableOpacity style={styles.deleteAccountBtn} onPress={handleSupprimerCompte}>
-                    <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.deleteAccountText}>Supprimer mon compte</Text>
+                    <Ionicons name="power-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.deleteAccountText}>Désactiver mon compte</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -970,6 +1193,40 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
         onClose={() => setModaleLegaleVisible(false)}
         ongletInitial={ongletLegal}
       />
+
+      {/* Modale d'invite contextuelle pour les notifications */}
+      <ModaleDemandeNotification
+        visible={modaleNotifVisible}
+        onClose={(active) => {
+          setModaleNotifVisible(false);
+          if (active) {
+            setNotificationsActives(true);
+            afficherToast('Notifications administratives activées !', 'Alertes Activées 🔔', 'success');
+          }
+        }}
+      />
+
+      {/* Modale de Confirmation Universelle CauZon */}
+      {configConfirmation && (
+        <ModaleConfirmationCauzon
+          visible={modaleConfirmationVisible}
+          titre={configConfirmation.titre}
+          message={configConfirmation.message}
+          texteConfirmer={configConfirmation.texteConfirmer || 'Confirmer'}
+          texteAnnuler={configConfirmation.texteAnnuler || 'Annuler'}
+          type={configConfirmation.type || 'danger'}
+          icone={configConfirmation.icone}
+          onConfirmer={async () => {
+            setModaleConfirmationVisible(false);
+            if (configConfirmation.onConfirmer) {
+              await configConfirmation.onConfirmer();
+            }
+          }}
+          onAnnuler={() => {
+            setModaleConfirmationVisible(false);
+          }}
+        />
+      )}
     </Modal>
   );
 }

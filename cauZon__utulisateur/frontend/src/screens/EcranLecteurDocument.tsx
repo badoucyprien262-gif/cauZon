@@ -8,12 +8,11 @@ import {
   Platform,
   StatusBar,
   ActivityIndicator,
-  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../components/AppIcon';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Accelerometer } from 'expo-sensors';
@@ -31,7 +30,7 @@ export default function EcranLecteurDocument() {
   const navigation = useNavigation();
   const route = useRoute<DocumentViewerRouteProp>();
   const { document, onUnlock } = route.params;
-  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP } = useApp();
+  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast } = useApp();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
@@ -631,11 +630,11 @@ export default function EcranLecteurDocument() {
               style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]}
               onPress={async () => {
                 const res = await exporterDocumentVersAppareil(document);
-                if (Platform.OS === 'web') {
-                  window.alert(res.message);
-                } else {
-                  Alert.alert("Exportation 💾", res.message);
-                }
+                afficherToast(
+                  res.message,
+                  "Exportation 💾",
+                  res.success ? "succes" : "erreur"
+                );
               }}
             >
               <Ionicons name="download-outline" size={estPaysage ? 15 : 18} color="#FFFFFF" />
@@ -800,12 +799,13 @@ export default function EcranLecteurDocument() {
                 if (res.success) {
                   debloquerDocument(document.id);
                   if (onUnlock) onUnlock(document.id);
-                  Alert.alert(
+                  afficherToast(
+                    'Ce cours a été ajouté avec succès à votre dossier VIP !',
                     'Accès VIP 👑',
-                    'Ce cours a été ajouté avec succès à votre dossier VIP !'
+                    'succes'
                   );
                 } else {
-                  Alert.alert('Erreur ❌', res.message);
+                  afficherToast(res.message, 'Erreur ❌', 'erreur');
                 }
               }}
               activeOpacity={0.85}

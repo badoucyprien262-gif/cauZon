@@ -7,13 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
-  Alert,
   TextInput,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { WebView } from 'react-native-webview';
 import * as Application from 'expo-application';
 import { useApp } from '../store/ContexteApp';
+import ModaleConnexionRequise, { MotifGating } from './ModaleConnexionRequise';
 import {
   debloquerDocument as welcomeUnlock,
   enregistrerAchatDocument as paidUnlock,
@@ -37,6 +37,7 @@ interface PurchaseModalProps {
   documentTitle: string;
   documentId: string;
   documentPrix?: number;
+  forcerAchatPermanent?: boolean;
 }
 
 export default function ModaleAchat({
@@ -46,6 +47,7 @@ export default function ModaleAchat({
   documentTitle,
   documentId,
   documentPrix,
+  forcerAchatPermanent = false,
 }: PurchaseModalProps) {
   const {
     couleurs,
@@ -58,11 +60,19 @@ export default function ModaleAchat({
     sAbonnerVIPCinetPay,
     nomUtilisateur,
     telephoneFacturation,
+    estConnecteGoogle,
+    afficherToast,
   } = useApp();
   const styles = getStyles(couleurs);
 
-  // L'utilisateur est-il abonné VIP ?
-  const isVipUser = estVip || estAbonneVIP;
+  // Gating authentification pour utilisateurs non connectés
+  const [modaleGatingVisible, setModaleGatingVisible] = useState<boolean>(false);
+  const [motifGating, setMotifGating] = useState<MotifGating>('achat');
+
+  // L'utilisateur est-il en mode consultation VIP gratuite ?
+  // Si forcerAchatPermanent est actif (ex: bouton "Transférer à vie (100 F)"),
+  // on FORCE le tunnel d'achat définitif à 100 FCFA même si le pass VIP est actif !
+  const isVipMode = (estVip || estAbonneVIP) && !forcerAchatPermanent;
 
   // Prix dynamique réel du document (fallback à 100 FCFA si non spécifié)
   const prixReel = typeof documentPrix === 'number' && documentPrix > 0 ? documentPrix : 100;
@@ -163,29 +173,44 @@ export default function ModaleAchat({
 
   /** Action d'acquisition directe VIP (0 FCFA) */
   const executerAcquisitionVip = async () => {
+    if (!estConnecteGoogle) {
+      setMotifGating('vip');
+      setModaleGatingVisible(true);
+      return;
+    }
+
     setChargementEnCours(true);
     const res = await acquerirDocumentVIP(documentId);
     setChargementEnCours(false);
 
     if (res.success) {
       debloquerDocument(documentId);
-      Alert.alert(
-        'Accès VIP 👑',
+      afficherToast(
         res.message || 'Cours débloqué et ajouté à votre dossier VIP !',
-        [{ text: 'Accéder au cours', onPress: () => { onSuccess(); onClose(); } }]
+        'Accès VIP 👑',
+        'succes'
       );
+      onSuccess();
+      onClose();
     } else {
-      Alert.alert('Erreur ❌', res.message || "Échec de l'acquisition VIP.");
+      afficherToast(res.message || "Échec de l'acquisition VIP.", 'Erreur ❌', 'erreur');
     }
   };
 
-  /** Étape 1 : afficher le sélecteur d'opérateur pour non-VIP */
+  /** Étape 1 : afficher le sélecteur d'opérateur pour non-VIP ou transfert permanent */
   const demarrerPaiementFeexPay = () => {
+    if (!estConnecteGoogle) {
+      setMotifGating('achat');
+      setModaleGatingVisible(true);
+      return;
+    }
+
     const amount = selectedOption === 'single' ? prixReel : 500;
-    const desc =
-      selectedOption === 'single'
-        ? `Achat Cours (${prixReel} F): ${documentTitle}`
-        : 'Location Mensuelle Catalogue cauZon';
+    const desc = forcerAchatPermanent
+      ? `Transfert définitif à vie (${prixReel} F): ${documentTitle}`
+      : selectedOption === 'single'
+      ? `Achat Cours (${prixReel} F): ${documentTitle}`
+      : 'Location Mensuelle Catalogue cauZon';
     const newTransId = generateFeexPayTransactionId();
     setPayAmount(amount);
     setPayDescription(desc);
@@ -214,19 +239,20 @@ export default function ModaleAchat({
       setChargementEnCours(true);
 
       if (selectedOption === 'single') {
-        // Achat à l'acte (100 FCFA)
+        // Achat à l'acte / Transfert à vie (100 FCFA)
         const result = await paidUnlock(documentId, payAmount);
         setChargementEnCours(false);
 
         if (result.success) {
           debloquerDocument(documentId);
-          Alert.alert(
-            'Achat Réussi 🎉',
-            `Le document "${documentTitle}" a été débloqué définitivement sur cet appareil !`,
-            [{ text: 'Super !', onPress: () => { onSuccess(); onClose(); } }]
-          );
+          const messageSucces = forcerAchatPermanent
+            ? `Le cours "${documentTitle}" a été transféré avec succès dans votre bibliothèque permanente à vie !`
+            : `Le document "${documentTitle}" a été débloqué définitivement sur cet appareil !`;
+          afficherToast(messageSucces, 'Achat Réussi 🎉', 'succes');
+          onSuccess();
+          onClose();
         } else {
-          Alert.alert('Attention ⚠️', result.message);
+          afficherToast(result.message, 'Attention ⚠️', 'erreur');
         }
       } else {
         // Location Mensuelle (500 FCFA)
@@ -236,16 +262,19 @@ export default function ModaleAchat({
         sAbonnerVIPCinetPay(vipResult.dateAffichage);
         debloquerDocument(documentId);
 
-        Alert.alert(
-          'Formule Location Activée 👑',
+        afficherToast(
           `Félicitations ! Votre formule de location est active jusqu'au ${vipResult.dateAffichage}. Accès illimité à tous les cours et import personnel débloqués.`,
-          [{ text: 'Profiter', onPress: () => { onSuccess(); onClose(); } }]
+          'Formule Location Activée 👑',
+          'succes'
         );
+        onSuccess();
+        onClose();
       }
     } else {
-      Alert.alert(
+      afficherToast(
+        data.message || 'La transaction FeexPay a été annulée ou a échoué.',
         'Annulé ❌',
-        data.message || 'La transaction FeexPay a été annulée ou a échoué.'
+        'erreur'
       );
     }
   };
@@ -263,6 +292,12 @@ export default function ModaleAchat({
 
   /** Offre de bienvenue (1er cours offert) */
   const executerOffreBienvenue = async () => {
+    if (!estConnecteGoogle) {
+      setMotifGating('bienvenue');
+      setModaleGatingVisible(true);
+      return;
+    }
+
     setChargementEnCours(true);
     const result = await welcomeUnlock(documentId, prixReel);
     setChargementEnCours(false);
@@ -270,17 +305,20 @@ export default function ModaleAchat({
     if (result.success) {
       consommerOffreBienvenueLocal();
       debloquerDocument(documentId);
-      Alert.alert(
-        'Offre de Bienvenue 🎁',
+      afficherToast(
         result.message || 'Félicitations ! Votre 1er document offert a été débloqué avec succès.',
-        [{ text: 'Super !', onPress: () => { onSuccess(); onClose(); } }]
+        'Offre de Bienvenue 🎁',
+        'succes'
       );
+      onSuccess();
+      onClose();
     } else {
-      Alert.alert('Information', result.message);
+      afficherToast(result.message, 'Information', 'info');
     }
   };
 
   return (
+    <>
     <Modal
       animationType="slide"
       transparent={true}
@@ -292,7 +330,11 @@ export default function ModaleAchat({
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>
-              {isVipUser ? 'Accès VIP au Document' : 'Débloquer le Document'}
+              {forcerAchatPermanent
+                ? `Transférer à vie (${prixReel} F)`
+                : isVipMode
+                ? 'Accès VIP au Document'
+                : 'Débloquer le Document'}
             </Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={24} color={couleurs.texte} />
@@ -422,7 +464,7 @@ export default function ModaleAchat({
                 <Text style={styles.tousOperateursText}>🌐 Guichet Web Universel & Carte Bancaire</Text>
               </TouchableOpacity>
             </View>
-          ) : isVipUser ? (
+          ) : isVipMode ? (
             /* 👑 VUE VIP : BOUTON "ACQUÉRIR (VIP · 0 FCFA)" DYNAMIQUE */
             <View style={styles.optionsWrapper}>
               <View style={styles.docInfoBox}>
@@ -464,7 +506,7 @@ export default function ModaleAchat({
               )}
             </View>
           ) : (
-            /* VUE STANDARD NON-VIP : Choix Single / VIP */
+            /* VUE STANDARD NON-VIP OU TRANSFERT PERMANENT (100 FCFA) */
             <View style={styles.optionsWrapper}>
               {/* Infos Fichier */}
               <View style={styles.docInfoBox}>
@@ -475,45 +517,62 @@ export default function ModaleAchat({
               </View>
 
               {/* Options Selection Cards */}
-              <Text style={styles.sectionLabel}>Choisissez votre formule :</Text>
-
-              {/* Option A: Single Purchase */}
-              <TouchableOpacity
-                style={[
-                  styles.optionCard,
-                  selectedOption === 'single' && styles.optionCardActive,
-                ]}
-                onPress={() => setSelectedOption('single')}
-              >
-                <View style={styles.optionHeader}>
-                  <Text style={styles.optionTitle}>📚 Achat Unique</Text>
-                  <Text style={styles.optionPrice}>{prixReel} FCFA</Text>
-                </View>
-                <Text style={styles.optionDesc}>
-                  Accès à vie pour ce cours sur cet appareil, mode hors-ligne inclus.
-                </Text>
-              </TouchableOpacity>
-
-              {/* Option B: Location Mensuelle */}
-              <TouchableOpacity
-                style={[
-                  styles.optionCard,
-                  selectedOption === 'vip' && styles.optionCardActive,
-                  styles.optionCardVip,
-                ]}
-                onPress={() => setSelectedOption('vip')}
-              >
-                <View style={styles.optionHeader}>
-                  <View style={styles.vipTag}>
-                    <Text style={styles.vipTagText}>👑 CATALOGUE ENTIER</Text>
+              {forcerAchatPermanent ? (
+                <View style={[styles.optionCard, styles.optionCardActive, { borderColor: '#15803D', backgroundColor: couleurs.estSombre ? 'rgba(21,128,61,0.12)' : '#F0FDF4', marginBottom: 16 }]}>
+                  <View style={styles.optionHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="shield-checkmark" size={18} color="#15803D" />
+                      <Text style={[styles.optionTitle, { color: '#15803D' }]}>Transfert à vie (Permanent)</Text>
+                    </View>
+                    <Text style={[styles.optionPrice, { color: '#15803D', fontWeight: '900' }]}>{prixReel} FCFA</Text>
                   </View>
-                  <Text style={[styles.optionPrice, { color: '#10B981' }]}>500 FCFA</Text>
+                  <Text style={[styles.optionDesc, { color: couleurs.texteSecondaire, marginTop: 6 }]}>
+                    Ce document sera basculé définitivement dans votre bibliothèque permanente. Vous en conservez l'accès intégral et illimité à vie.
+                  </Text>
                 </View>
-                <Text style={styles.optionTitleVip}>Formule Location (30 jours)</Text>
-                <Text style={styles.optionDesc}>
-                  Accès illimité à tout le catalogue + Import & Stockage de 75 documents personnels.
-                </Text>
-              </TouchableOpacity>
+              ) : (
+                <>
+                  <Text style={styles.sectionLabel}>Choisissez votre formule :</Text>
+
+                  {/* Option A: Single Purchase */}
+                  <TouchableOpacity
+                    style={[
+                      styles.optionCard,
+                      selectedOption === 'single' && styles.optionCardActive,
+                    ]}
+                    onPress={() => setSelectedOption('single')}
+                  >
+                    <View style={styles.optionHeader}>
+                      <Text style={styles.optionTitle}>📚 Achat Unique</Text>
+                      <Text style={styles.optionPrice}>{prixReel} FCFA</Text>
+                    </View>
+                    <Text style={styles.optionDesc}>
+                      Accès à vie pour ce cours sur cet appareil, mode hors-ligne inclus.
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Option B: Location Mensuelle */}
+                  <TouchableOpacity
+                    style={[
+                      styles.optionCard,
+                      selectedOption === 'vip' && styles.optionCardActive,
+                      styles.optionCardVip,
+                    ]}
+                    onPress={() => setSelectedOption('vip')}
+                  >
+                    <View style={styles.optionHeader}>
+                      <View style={styles.vipTag}>
+                        <Text style={styles.vipTagText}>👑 CATALOGUE ENTIER</Text>
+                      </View>
+                      <Text style={[styles.optionPrice, { color: '#10B981' }]}>500 FCFA</Text>
+                    </View>
+                    <Text style={styles.optionTitleVip}>Formule Location (30 jours)</Text>
+                    <Text style={styles.optionDesc}>
+                      Accès illimité à tout le catalogue + Import & Stockage de 75 documents personnels.
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
               {/* Action Buttons */}
               {chargementEnCours ? (
@@ -523,7 +582,7 @@ export default function ModaleAchat({
                 </View>
               ) : (
                 <View style={styles.actionsContainer}>
-                  {offreBienvenueDisponible && (
+                  {!forcerAchatPermanent && offreBienvenueDisponible && (
                     <TouchableOpacity
                       style={styles.freeBtn}
                       onPress={executerOffreBienvenue}
@@ -534,12 +593,14 @@ export default function ModaleAchat({
                   )}
 
                   <TouchableOpacity
-                    style={styles.payBtn}
+                    style={[styles.payBtn, forcerAchatPermanent && { backgroundColor: '#15803D' }]}
                     onPress={demarrerPaiementFeexPay}
                   >
                     <Ionicons name="card" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
                     <Text style={styles.payText}>
-                      Payer {selectedOption === 'single' ? prixReel : '500'} FCFA par FeexPay
+                      {forcerAchatPermanent
+                        ? `Transférer pour ${prixReel} FCFA par FeexPay`
+                        : `Payer ${selectedOption === 'single' ? prixReel : '500'} FCFA par FeexPay`}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -554,6 +615,25 @@ export default function ModaleAchat({
         </View>
       </View>
     </Modal>
+
+    {/* Pop-up de verrouillage (Gating) pour les utilisateurs non connectés */}
+    <ModaleConnexionRequise
+      visible={modaleGatingVisible}
+      onClose={() => setModaleGatingVisible(false)}
+      motif={motifGating}
+      titreDocument={documentTitle}
+      onConnexionReussie={() => {
+        setModaleGatingVisible(false);
+        if (motifGating === 'bienvenue') {
+          executerOffreBienvenue();
+        } else if (motifGating === 'vip') {
+          executerAcquisitionVip();
+        } else {
+          demarrerPaiementFeexPay();
+        }
+      }}
+    />
+    </>
   );
 }
 

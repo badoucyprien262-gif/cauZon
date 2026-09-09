@@ -76,8 +76,13 @@ export interface AnnonceBanniere {
   contenu_detaille: string;
   type_importance: 'urgent' | 'promo' | 'info';
   date_expiration?: string | null;
+  date_debut?: string | null;
+  date_fin?: string | null;
   document_id_associe?: string | null;
-  est_active: boolean;
+  document_id?: string | null;
+  ciblage_role?: 'tous' | 'non_abonnes' | 'abonnes' | null;
+  statut?: 'actif' | 'inactif' | string | null;
+  est_active?: boolean;
   created_at?: string;
 }
 

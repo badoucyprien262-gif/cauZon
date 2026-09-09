@@ -6,11 +6,10 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Platform,
   TextInput,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { WebView } from 'react-native-webview';
 import { useApp } from '../store/ContexteApp';
 import {
@@ -30,7 +29,7 @@ interface StorageModalProps {
 }
 
 export default function ModaleStockage({ visible, onClose, onSuccess }: StorageModalProps) {
-  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, limiteStockage } = useApp();
+  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, limiteStockage, afficherToast } = useApp();
   const styles = getStyles(couleurs);
 
   const limiteActuelle = limiteStockage || 75;
@@ -136,15 +135,18 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
       // Persistance cumulative dans Supabase (+75 docs)
       await acheterExtensionStockage();
       setChargementEnCours(false);
-      Alert.alert(
-        'Espace Stockage Étendu 📁',
+      afficherToast(
         `Votre extension de stockage est active ! Votre limite passe désormais à ${nouvelleLimite} documents hors-ligne.`,
-        [{ text: 'Super !', onPress: () => { onSuccess(); onClose(); } }]
+        'Espace Stockage Étendu 📁',
+        'succes'
       );
+      onSuccess();
+      onClose();
     } else {
-      Alert.alert(
+      afficherToast(
+        data.message || 'La transaction FeexPay a été annulée ou a échoué.',
         'Annulé ❌',
-        data.message || 'La transaction FeexPay a été annulée ou a échoué.'
+        'erreur'
       );
     }
   };

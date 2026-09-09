@@ -10,12 +10,11 @@ import {
   StatusBar,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import { Document } from '../types';
+import { Ionicons } from '../components/AppIcon';
+import { Document, DocumentCourse } from '../types';
 import { RootStackParamList } from '../navigation/NavigateurApp';
 import { useApp } from '../store/ContexteApp';
 import ListeDossiers from '../components/ListeDossiers';
@@ -24,7 +23,8 @@ import ModaleVip from '../components/ModaleVip';
 import ModaleStockage from '../components/ModaleStockage';
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument from '../components/ModaleImportDocument';
-import { fetchMesDocuments, exporterDocumentVersAppareil } from '../services/serviceDocument';
+import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
+import { fetchMesDocuments, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes } from '../services/serviceDocument';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -33,22 +33,43 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function EcranBibliotheque() {
   const navigation = useNavigation<NavigationProp>();
-  const { docsDebloquesIds, couleurs, retirerDocumentDebloque, estVip, estAbonneVIP, dateExpirationAbonnement } = useApp();
+  const {
+    docsDebloquesIds,
+    setDocsDebloquesIds,
+    setAcquisitions: setAcquisitionsContexte,
+    setDocumentsImportes: setDocumentsImportesContexte,
+    couleurs,
+    retirerDocumentDebloque,
+    estVip,
+    estAbonneVIP,
+    aAccesVip,
+    afficherToast,
+    dateExpirationAbonnement,
+    estEnLigne,
+    debloquerDocument,
+  } = useApp();
   
   const [dossierActif, setDossierActif] = useState<'permanent' | 'vip'>('permanent');
   const [vipModalVisible, setVipModalVisible] = useState(false);
   const [storageModalVisible, setStorageModalVisible] = useState(false);
   const [achatModalVisible, setAchatModalVisible] = useState(false);
+  const [forcerAchatPermanent, setForcerAchatPermanent] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [documentPourAchat, setDocumentPourAchat] = useState<Document | null>(null);
+
+  // Modale de confirmation de suppression personnalisée CauZon
+  const [modaleSuppressionVisible, setModaleSuppressionVisible] = useState(false);
+  const [docASupprimer, setDocASupprimer] = useState<{ id: string; titre: string; estImporte: boolean } | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [mesDocs, setMesDocs] = useState<Document[]>([]);
+  const [documentsImportes, setDocumentsImportes] = useState<Document[]>([]);
+  const [acquisitions, setAcquisitions] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const styles = getStyles(couleurs);
 
-  const isVipActive = estVip || estAbonneVIP;
+  const isVipActive = aAccesVip ?? (estVip || estAbonneVIP);
 
   const executerSuppression = async (docId: string, estImporte: boolean = false) => {
     try {
@@ -59,51 +80,25 @@ export default function EcranBibliotheque() {
         // Mise à jour optimiste immédiate de la liste locale
         setMesDocs((prev) => prev.filter((d) => d.id !== docId));
         await loadLibrary();
-        if (Platform.OS !== 'web') {
-          Alert.alert(
-            "Succès 🗑️",
-            estImporte
-              ? "Le document importé a été supprimé de votre appareil."
-              : "Le cours a été retiré et renvoyé dans le catalogue."
-          );
-        }
+        afficherToast(
+          estImporte
+            ? "Le document importé a été supprimé de votre appareil."
+            : "Le cours a été retiré et renvoyé dans le catalogue.",
+          "Succès 🗑️",
+          "succes"
+        );
       } else {
-        if (Platform.OS === 'web') {
-          window.alert("Erreur : " + result.message);
-        } else {
-          Alert.alert("Erreur", result.message);
-        }
+        afficherToast(result.message || "Impossible de supprimer le document.", "Erreur ⚠️", "erreur");
       }
     } catch (err: any) {
       console.error('Erreur exécution suppression :', err);
+      afficherToast("Une erreur est survenue lors de la suppression.", "Erreur ⚠️", "erreur");
     }
   };
 
   const confirmerSuppression = (docId: string, docTitre: string, estImporte: boolean = false) => {
-    const question = estImporte
-      ? `Êtes-vous sûr de vouloir supprimer définitivement le document importé "${docTitre}" de votre appareil ?`
-      : `Êtes-vous sûr de vouloir retirer "${docTitre}" de votre bibliothèque ?`;
-
-    if (Platform.OS === 'web') {
-      const accepte = window.confirm(question);
-      if (accepte) {
-        executerSuppression(docId, estImporte);
-      }
-      return;
-    }
-
-    Alert.alert(
-      estImporte ? "Supprimer le document importé ? 🗑️" : "Supprimer le cours ? ⚠️",
-      question,
-      [
-        { text: "Annuler", style: "cancel" },
-        { 
-          text: "Oui, supprimer", 
-          style: "destructive", 
-          onPress: () => executerSuppression(docId, estImporte)
-        }
-      ]
-    );
+    setDocASupprimer({ id: docId, titre: docTitre, estImporte });
+    setModaleSuppressionVisible(true);
   };
 
   useEffect(() => {
@@ -117,55 +112,145 @@ export default function EcranBibliotheque() {
   );
 
 
+  const formaterDocsPourAffichage = (data: any[]) => {
+    return data.map((dbDoc: any) => {
+      const rawType = (dbDoc.limite_apercu_type || 'pourcentage').toLowerCase().trim();
+      let parsedType: 'page' | 'pourcentage' | 'fluide' | 'neutre' = 'pourcentage';
+      let parsedVal = dbDoc.limite_apercu_valeur ?? 30;
+
+      if (rawType.startsWith('fluide:') || rawType.startsWith('neutre:')) {
+        parsedType = 'fluide';
+        const dec = parseFloat(rawType.split(':')[1]);
+        if (!isNaN(dec)) parsedVal = dec;
+      } else if (rawType === 'fluide' || rawType === 'neutre') {
+        parsedType = 'fluide';
+      } else if (rawType === 'page') {
+        parsedType = 'page';
+      }
+
+      return {
+        id: dbDoc.id,
+        titre: dbDoc.titre,
+        categorie: dbDoc.categorie,
+        estCertifie: dbDoc.est_certifie ?? false,
+        estPretHorsLigne: dbDoc.est_pret_hors_ligne ?? true,
+        prix: dbDoc.prix ?? 100,
+        estVerrouille: false,
+        nombrePages: dbDoc.total_pages || dbDoc.page_count || dbDoc.nombre_pages || dbDoc.pages || dbDoc.nombrePages || 1,
+        tailleMo: dbDoc.taille_mo ?? 1.5,
+        limiteApercuPages: dbDoc.limite_apercu_pages ?? 2,
+        limiteApercuType: parsedType,
+        limiteApercuValeur: parsedVal,
+        description: dbDoc.description ?? '',
+        cheminLocal: dbDoc.file_path ?? '',
+        is_vip_consultation: dbDoc.is_vip_consultation ?? false,
+        estImporte: dbDoc.est_importe ?? dbDoc.id?.startsWith('imported_') ?? false,
+      };
+    });
+  };
+
   const loadLibrary = async () => {
     try {
-      setLoading(true);
-      const data = await fetchMesDocuments();
-      if (data && data.length > 0) {
-        const mapped = data.map((dbDoc: any) => {
-          const rawType = (dbDoc.limite_apercu_type || 'pourcentage').toLowerCase().trim();
-          let parsedType: 'page' | 'pourcentage' | 'fluide' | 'neutre' = 'pourcentage';
-          let parsedVal = dbDoc.limite_apercu_valeur ?? 30;
+      // 1. Chargement instantané des documents importés locaux et du cache de la bibliothèque
+      const imported = await chargerDocumentsImportes();
+      const cached = await chargerBibliothequeLocale();
 
-          if (rawType.startsWith('fluide:') || rawType.startsWith('neutre:')) {
-            parsedType = 'fluide';
-            const dec = parseFloat(rawType.split(':')[1]);
-            if (!isNaN(dec)) parsedVal = dec;
-          } else if (rawType === 'fluide' || rawType === 'neutre') {
-            parsedType = 'fluide';
-          } else if (rawType === 'page') {
-            parsedType = 'page';
-          }
+      // Les documents importés sont TOUJOURS valides et accessibles sur cet appareil
+      const cachedOfficiels = (cached || []).filter(
+        (d: any) => !d.id?.startsWith('imported_') && !d.est_importe && !d.estImporte
+      );
 
-          return {
-            id: dbDoc.id,
-            titre: dbDoc.titre,
-            categorie: dbDoc.categorie,
-            estCertifie: dbDoc.est_certifie ?? false,
-            estPretHorsLigne: dbDoc.est_pret_hors_ligne ?? true,
-            prix: dbDoc.prix ?? 100,
-            estVerrouille: false,
-            nombrePages: dbDoc.total_pages || dbDoc.page_count || dbDoc.nombre_pages || dbDoc.pages || dbDoc.nombrePages || 1,
-            tailleMo: dbDoc.taille_mo ?? 1.5,
-            limiteApercuPages: dbDoc.limite_apercu_pages ?? 2,
-            limiteApercuType: parsedType,
-            limiteApercuValeur: parsedVal,
-            description: dbDoc.description ?? '',
-            cheminLocal: dbDoc.file_path ?? '',
-            is_vip_consultation: dbDoc.is_vip_consultation ?? false,
-            estImporte: dbDoc.est_importe ?? dbDoc.id?.startsWith('imported_') ?? false,
-          };
-        });
-        setMesDocs(mapped);
+      // Filtrer les cours officiels du cache par les IDs débloqués
+      const officielsValides = cachedOfficiels.filter((d: any) =>
+        docsDebloquesIds && docsDebloquesIds.includes(d.id)
+      );
+
+      // Fusion locale : Documents importés locaux + cours officiels débloqués
+      const localCombines = [...(imported || []), ...officielsValides];
+
+      if (localCombines.length > 0) {
+        const formates = formaterDocsPourAffichage(localCombines);
+        setMesDocs(formates);
+        setDocumentsImportes(formates.filter((d) => d.estImporte));
+        setAcquisitions(formates.filter((d) => !d.estImporte));
+        setAcquisitionsContexte(formates.filter((d) => !d.estImporte));
+        setDocumentsImportesContexte(formates.filter((d) => d.estImporte));
+        setLoading(false);
       } else {
         setMesDocs([]);
+        setDocumentsImportes([]);
+        setAcquisitions([]);
+        setAcquisitionsContexte([]);
+        setDocumentsImportesContexte([]);
+      }
+
+      // 2. Si hors-ligne, s'arrêter immédiatement sans attendre de requêtes distantes
+      if (estEnLigne === false) {
+        setLoading(false);
+        return;
+      }
+
+      // 3. Si en ligne, rafraîchir en arrière-plan avec la base distante Supabase
+      const data = await fetchMesDocuments();
+      if (data && data.length > 0) {
+        // Toujours re-fusionner avec le stockage local des documents importés pour ne jamais les effacer
+        const importsLocaux = await chargerDocumentsImportes();
+        const serverOfficiels = data.filter(
+          (d: any) => !d.id?.startsWith('imported_') && !d.est_importe && !d.estImporte
+        );
+        const serverValides = serverOfficiels.filter(
+          (d: any) => docsDebloquesIds && docsDebloquesIds.includes(d.id)
+        );
+
+        const fusionFinale = [...(importsLocaux || []), ...serverValides];
+        const formates = formaterDocsPourAffichage(fusionFinale);
+        setMesDocs(formates);
+        setDocumentsImportes(formates.filter((d) => d.estImporte));
+        setAcquisitions(formates.filter((d) => !d.estImporte));
+        setAcquisitionsContexte(formates.filter((d) => !d.estImporte));
+        setDocumentsImportesContexte(formates.filter((d) => d.estImporte));
+      } else if (localCombines.length === 0) {
+        setMesDocs([]);
+        setDocumentsImportes([]);
+        setAcquisitions([]);
+        setAcquisitionsContexte([]);
+        setDocumentsImportesContexte([]);
       }
     } catch (error) {
       console.error('Erreur lors du chargement de la bibliothèque réelle :', error);
-      setMesDocs([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleImportSuccess = async (nouveauDoc?: DocumentCourse) => {
+    // 📁 Basculer immédiatement vers l'onglet Permanent
+    setDossierActif('permanent');
+    setSearchQuery('');
+
+    if (nouveauDoc) {
+      if (debloquerDocument) {
+        debloquerDocument(nouveauDoc.id);
+      }
+      const formates = formaterDocsPourAffichage([nouveauDoc]);
+      const docFormate = formates[0];
+      setMesDocs((prev) => [docFormate, ...prev.filter((d) => d.id !== nouveauDoc.id)]);
+      setDocumentsImportes((prev) => [docFormate, ...prev.filter((d) => d.id !== nouveauDoc.id)]);
+      if (setDocumentsImportesContexte) {
+        setDocumentsImportesContexte((prev) => [docFormate, ...prev.filter((d: any) => d.id !== nouveauDoc.id)]);
+      }
+      // 📂 Ouvrir directement le dossier de destination du document importé
+      // afin que l'utilisateur voie son document immédiatement dans le bon dossier.
+      if (nouveauDoc.categorie) {
+        setSelectedCategory(nouveauDoc.categorie);
+      } else {
+        setSelectedCategory(null);
+      }
+    } else {
+      setSelectedCategory(null);
+    }
+    // Synchronisation en tâche de fond
+    await loadLibrary();
   };
 
 
@@ -224,11 +309,11 @@ export default function EcranBibliotheque() {
 
   const exporterDocument = async (doc: Document) => {
     const res = await exporterDocumentVersAppareil(doc);
-    if (Platform.OS === 'web') {
-      window.alert(res.message);
-    } else {
-      Alert.alert("Exportation 💾", res.message);
-    }
+    afficherToast(
+      res.message,
+      "Exportation 💾",
+      res.success ? "succes" : "erreur"
+    );
   };
 
   const ouvrirDossier = (categorie: string) => {
@@ -246,10 +331,21 @@ export default function EcranBibliotheque() {
             <Text style={styles.subtitle}>Gérez vos espaces d'apprentissage</Text>
           </View>
 
-          {/* 📥 Bouton Importer un Document */}
+          {/* 📥 Bouton Importer un Document (Réservé aux VIP) */}
           <TouchableOpacity
             style={styles.boutonImporterHeader}
-            onPress={() => setImportModalVisible(true)}
+            onPress={() => {
+              if (!isVipActive) {
+                afficherToast(
+                  "L'importation de documents personnels (PDF) est réservée aux abonnés VIP. Passez VIP pour débloquer le stockage illimité !",
+                  "Pass VIP Requis 👑",
+                  "info"
+                );
+                setVipModalVisible(true);
+                return;
+              }
+              setImportModalVisible(true);
+            }}
             activeOpacity={0.8}
           >
             <Ionicons name="cloud-upload" size={15} color="#FFFFFF" />
@@ -445,8 +541,8 @@ export default function EcranBibliotheque() {
                             </Text>
                             {doc.estImporte && (
                               <View style={styles.badgeImporte}>
-                                <Ionicons name="cloud-download-outline" size={11} color="#059669" />
-                                <Text style={styles.texteBadgeImporte}>Importé</Text>
+                                <Ionicons name="document-attach" size={12} color="#7F011F" />
+                                <Text style={styles.texteBadgeImporte}>Document Importé</Text>
                               </View>
                             )}
                           </View>
@@ -494,6 +590,7 @@ export default function EcranBibliotheque() {
                                 style={[styles.actionBtn, styles.buyTransferBtn]}
                                 onPress={() => {
                                   setDocumentPourAchat(doc);
+                                  setForcerAchatPermanent(true);
                                   setAchatModalVisible(true);
                                 }}
                               >
@@ -516,6 +613,7 @@ export default function EcranBibliotheque() {
                               style={[styles.actionBtn, styles.buyNowLockedBtn]}
                               onPress={() => {
                                 setDocumentPourAchat(doc);
+                                setForcerAchatPermanent(true);
                                 setAchatModalVisible(true);
                               }}
                             >
@@ -549,15 +647,19 @@ export default function EcranBibliotheque() {
           onClose={() => {
             setAchatModalVisible(false);
             setDocumentPourAchat(null);
+            setForcerAchatPermanent(false);
           }}
           onSuccess={() => {
             setAchatModalVisible(false);
             setDocumentPourAchat(null);
+            setForcerAchatPermanent(false);
+            setDossierActif('permanent'); // Bascule immédiatement vers l'espace Permanent
             loadLibrary();
           }}
           documentId={documentPourAchat.id}
           documentTitle={documentPourAchat.titre}
           documentPrix={documentPourAchat.prix ?? 100}
+          forcerAchatPermanent={forcerAchatPermanent}
         />
       )}
 
@@ -585,8 +687,35 @@ export default function EcranBibliotheque() {
       <ModaleImportDocument
         visible={importModalVisible}
         onClose={() => setImportModalVisible(false)}
-        onSuccess={loadLibrary}
+        onSuccess={handleImportSuccess}
         categoriesExistantes={Array.from(new Set(mesDocs.map(d => d.categorie).filter(Boolean)))}
+      />
+
+      {/* Modale de Confirmation de Suppression Personnalisée CauZon */}
+      <ModaleConfirmationCauzon
+        visible={modaleSuppressionVisible}
+        titre={docASupprimer?.estImporte ? "Supprimer le document ? 🗑️" : "Retirer le cours ? ⚠️"}
+        message={
+          docASupprimer?.estImporte
+            ? `Êtes-vous sûr de vouloir supprimer définitivement le document "${docASupprimer?.titre}" de votre appareil ?`
+            : `Êtes-vous sûr de vouloir retirer "${docASupprimer?.titre}" de votre bibliothèque ?`
+        }
+        texteConfirmer="Oui, supprimer"
+        texteAnnuler="Annuler"
+        type="danger"
+        icone="trash-outline"
+        onConfirmer={() => {
+          if (docASupprimer) {
+            const { id, estImporte } = docASupprimer;
+            setModaleSuppressionVisible(false);
+            setDocASupprimer(null);
+            executerSuppression(id, estImporte);
+          }
+        }}
+        onAnnuler={() => {
+          setModaleSuppressionVisible(false);
+          setDocASupprimer(null);
+        }}
       />
     </SafeAreaView>
   );
@@ -627,18 +756,19 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   badgeImporte: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    gap: 4,
+    backgroundColor: '#FAF6EB',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderColor: '#D4AF37',
   },
   texteBadgeImporte: {
     fontSize: 10,
-    color: '#059669',
+    color: '#7F011F',
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
   // Double Dossier Switch & Bannières
 

@@ -62,10 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // URL officielle de production de l'application Web CauZon
+  const OFFICIAL_APP_URL = 'https://app.cauzon.ci';
+
+  // 📞 Configuration Support WhatsApp Officiel CauZon
+  const WHATSAPP_PHONE_NUMBER = '22501XXXXXXXX'; // Remplacer par le vrai numéro ivoirien (format international sans + ni espaces)
+  const WHATSAPP_DEFAULT_TEXT = "Bonjour l'équipe CauZon, j'ai une question concernant les cours";
+  const WHATSAPP_URL = `https://wa.me/${WHATSAPP_PHONE_NUMBER}?text=${encodeURIComponent(WHATSAPP_DEFAULT_TEXT)}`;
+
   // Détection URL de l'application Web (Dev Local / Production PWA)
   const defaultAppUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:8081'
-    : 'https://cauzon.ci';
+    : OFFICIAL_APP_URL;
 
   async function lancerTunnelAuthOuApp() {
     // Si Supabase est chargé, on vérifie la session actuelle
@@ -76,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Si l'utilisateur n'est pas encore connecté, on initie le tunnel Google OAuth
         if (!session) {
           console.log('Utilisateur non connecté -> Déclenchement du tunnel Google OAuth');
-          const redirectUrl = window.location.origin;
+          const redirectUrl = window.location.href;
           const { data, error } = await supabaseClient.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -242,5 +250,10 @@ document.addEventListener('DOMContentLoaded', () => {
         phoneTabLabel.textContent = label;
       }
     });
+  });
+
+  // Synchronisation dynamique de tous les liens WhatsApp du site
+  document.querySelectorAll('a[href*="wa.me"]').forEach(link => {
+    link.href = WHATSAPP_URL;
   });
 });

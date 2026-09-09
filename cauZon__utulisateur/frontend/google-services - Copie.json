@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "700180561236",
+    "project_id": "cauzon-41540",
+    "storage_bucket": "cauzon-41540.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:700180561236:android:34966a12e8c104bbf35cc1",
+        "android_client_info": {
+          "package_name": "com.cauzon.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDSBL3bIurO_2PUXPj5dlfJ742BqvWlAto"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

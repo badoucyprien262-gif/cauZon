@@ -13,6 +13,7 @@ export const fetchFeedbacks = async (): Promise<FeedbackRow[]> => {
   return (data ?? []).map((row: any) => ({
     id: row.id,
     device_id: row.device_id || 'Inconnu',
+    user_id: row.user_id || null,
     username: row.username || 'Étudiant cauZon',
     message: row.message,
     reponse_admin: row.reponse || null,

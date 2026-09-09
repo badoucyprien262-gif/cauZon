@@ -265,8 +265,12 @@ export default function AvatarDynamique({
         <View
           pointerEvents="none"
           style={[
-            StyleSheet.absoluteFillObject,
             {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               borderRadius,
               borderWidth: 2,
               borderColor: '#6B1124',

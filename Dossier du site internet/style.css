@@ -1,10 +1,10 @@
-/* ==============================================================================
-   cauZon.ci — Site Officiel & Portail Web (PWA)
-   Identité Visuelle Officielle :
-   - Bordeaux Signature : #6B1124 (profond: #520B1B, nocturne: #3D0613)
-   - Blanc Crème : #FAF6EB (ivoire: #FFFFFF, crème doux: #F5EBD0)
-   - Or / Ambre Prestige : #D97706, #F59E0B, #FBBF24 (touches dorées)
-   - Émeraude Succès : #10B981, #059669
+﻿/* ==============================================================================
+   cauZon.ci — Site Vitrine Officiel
+   Palette Officielle :
+   - Bordeaux CauZon : #6B1124, Foncé : #520B1B, Nocturne : #3D0613
+   - Blanc Crème Ivoire : #FAF6EB, Crème doux : #F5EBD0
+   - Or / Ambre Prestige : #F59E0B, #D97706, #FBBF24
+   - Vert Succès : #10B981, #059669
 ============================================================================== */
 
 :root {
@@ -25,7 +25,7 @@
   --color-dark-sub: #4B5563;
 
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Outfit', 'Playfair Display', Georgia, serif;
+  --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
 }
 
 * {
@@ -37,13 +37,14 @@
 html {
   scroll-behavior: smooth;
   font-family: var(--font-sans);
-  background-color: var(--color-bordeaux-700);
+  background-color: var(--color-creme-100);
   color: var(--color-dark);
 }
 
 body {
   overflow-x: hidden;
   line-height: 1.6;
+  background-color: var(--color-creme-100);
 }
 
 ::selection {
@@ -55,9 +56,9 @@ body {
   font-family: var(--font-display);
 }
 
-/* Gradients et Effets Visuels Haut de Gamme */
+/* Arrière-plans et dégradés */
 .bg-hero-header {
-  background: linear-gradient(180deg, #520B1B 0%, #6B1124 60%, #5E0E1F 100%);
+  background: linear-gradient(180deg, #520B1B 0%, #6B1124 55%, #580E1D 100%);
 }
 
 .bg-bordeaux-card {
@@ -74,34 +75,40 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
-.gold-border {
-  border-color: rgba(245, 158, 11, 0.4);
-}
-
 .glow-gold {
-  box-shadow: 0 10px 30px -5px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 10px 30px -5px rgba(245, 158, 11, 0.4);
 }
 
 .glow-bordeaux {
-  box-shadow: 0 16px 40px -8px rgba(107, 17, 36, 0.45);
+  box-shadow: 0 16px 40px -8px rgba(107, 17, 36, 0.4);
 }
 
 .glow-emerald {
   box-shadow: 0 10px 30px -5px rgba(16, 185, 129, 0.35);
 }
 
-/* Simulateur Mobile iPhone/Android */
+/* Smartphone Mockup */
+.phone-mockup-container {
+  perspective: 1200px;
+}
+
 .phone-mockup {
   position: relative;
-  width: 325px;
-  height: 660px;
+  width: 320px;
+  height: 640px;
   background-color: #111827;
   border-radius: 46px;
   border: 10px solid #1F2937;
-  box-shadow: 0 25px 65px -15px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 25px 65px -15px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.15);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+
+.phone-mockup:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 35px 80px -15px rgba(0, 0, 0, 0.75), 0 0 30px rgba(245, 158, 11, 0.2);
 }
 
 .phone-notch {
@@ -134,6 +141,46 @@ body {
   display: block;
 }
 
+/* Badges et cartes */
+.feature-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 35px -10px rgba(107, 17, 36, 0.12);
+  border-color: rgba(107, 17, 36, 0.25);
+}
+
+.pricing-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.pricing-card:hover {
+  transform: translateY(-8px);
+}
+
+/* Modales Légales */
+.legal-modal-backdrop {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.legal-modal-backdrop.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.legal-modal-content {
+  transform: scale(0.95) translateY(15px);
+  transition: transform 0.25s ease;
+}
+
+.legal-modal-backdrop.active .legal-modal-content {
+  transform: scale(1) translateY(0);
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
@@ -151,54 +198,4 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #6B1124;
-}
-
-/* Modal Live PWA */
-.modal-backdrop {
-  opacity: 0;
-  visibility: hidden;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.modal-backdrop.active {
-  opacity: 1;
-  visibility: visible;
-}
-
-.modal-content {
-  transform: scale(0.95) translateY(20px);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.modal-backdrop.active .modal-content {
-  transform: scale(1) translateY(0);
-}
-
-/* Accordéon FAQ */
-.faq-content {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.35s ease-in-out, opacity 0.35s ease-in-out;
-  opacity: 0;
-}
-
-.faq-item.active .faq-content {
-  max-height: 500px;
-  opacity: 1;
-}
-
-.faq-item.active .faq-icon {
-  transform: rotate(180deg);
-}
-
-/* Modale Mentions Légales */
-.legal-modal-backdrop {
-  opacity: 0;
-  visibility: hidden;
-  transition: all 0.25s ease-in-out;
-}
-
-.legal-modal-backdrop.active {
-  opacity: 1;
-  visibility: visible;
 }

@@ -6,14 +6,14 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   ScrollView,
   Platform,
   TextInput,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from './AppIcon';
 import { WebView } from 'react-native-webview';
 import { useApp } from '../store/ContexteApp';
+import ModaleConnexionRequise from './ModaleConnexionRequise';
 import {
   generateFeexPayHtml,
   generateFeexPayTransactionId,
@@ -39,11 +39,14 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
     sAbonnerVIPCinetPay,
     nomUtilisateur,
     telephoneFacturation,
+    estConnecteGoogle,
+    afficherToast,
   } = useApp();
   const styles = getStyles(couleurs);
 
   const [chargementEnCours, setChargementEnCours] = useState<boolean>(false);
   const [emailUtilisateur, setEmailUtilisateur] = useState<string>('');
+  const [modaleGatingVisible, setModaleGatingVisible] = useState<boolean>(false);
 
   // FeexPay states
   const [showFeexPay, setShowFeexPay] = useState<boolean>(false);
@@ -115,6 +118,11 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
 
   /** Étape 1 : afficher le sélecteur d'opérateur */
   const demarrerPaiementVIP = () => {
+    if (!estConnecteGoogle) {
+      setModaleGatingVisible(true);
+      return;
+    }
+
     const newTransId = generateFeexPayTransactionId();
     setTransId(newTransId);
     setShowOperateurSelector(true);
@@ -146,15 +154,18 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
       // Mettre à jour l'état global du contexte (affichage immédiat)
       sAbonnerVIPCinetPay(vipResult.dateAffichage);
 
-      Alert.alert(
-        'Formule Location Activée 👑',
+      afficherToast(
         `Félicitations ! Votre formule de location est active jusqu'au ${vipResult.dateAffichage}. Accès illimité à tous les cours et import personnel débloqués.`,
-        [{ text: 'Super !', onPress: () => { onSuccess(); onClose(); } }]
+        'Formule Location Activée 👑',
+        'succes'
       );
+      onSuccess();
+      onClose();
     } else {
-      Alert.alert(
+      afficherToast(
+        data.message || 'La transaction FeexPay a été annulée ou a échoué.',
         'Annulé ❌',
-        data.message || 'La transaction FeexPay a été annulée ou a échoué.'
+        'erreur'
       );
     }
   };
@@ -189,6 +200,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
   ];
 
   return (
+    <>
     <Modal
       animationType="slide"
       transparent={true}
@@ -458,6 +470,18 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
         </View>
       </View>
     </Modal>
+
+    {/* Pop-up de verrouillage (Gating) pour le Pass VIP */}
+    <ModaleConnexionRequise
+      visible={modaleGatingVisible}
+      onClose={() => setModaleGatingVisible(false)}
+      motif="vip"
+      onConnexionReussie={() => {
+        setModaleGatingVisible(false);
+        demarrerPaiementVIP();
+      }}
+    />
+    </>
   );
 }
 

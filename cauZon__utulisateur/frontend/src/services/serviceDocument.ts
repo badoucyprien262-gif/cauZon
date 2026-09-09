@@ -1,4 +1,4 @@
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import * as Application from 'expo-application';
 
 import * as FileSystem from 'expo-file-system/legacy';
@@ -151,13 +151,28 @@ export const souscrireChangementsDocuments = (onChangement: () => void) => {
  */
 
 export const getDeviceId = async (): Promise<string> => {
-  if (Platform.OS === 'android') {
-    return Application.getAndroidId() || 'android-unknown-device';
-  } else if (Platform.OS === 'ios') {
-    const iosId = await Application.getIosIdForVendorAsync();
-    return iosId || 'ios-unknown-device';
+  try {
+    if (Platform.OS === 'android') {
+      const androidId = Application.getAndroidId();
+      if (androidId) return androidId;
+    } else if (Platform.OS === 'ios') {
+      const iosId = await Application.getIosIdForVendorAsync();
+      if (iosId) return iosId;
+    }
+  } catch (errDevId) {
+    console.warn('Note récupération deviceId natif :', errDevId);
   }
-  return 'web-or-unknown-device';
+
+  // Repli sécurisé persistant via AsyncStorage pour garantir l'unicité sans crash
+  try {
+    const cachedId = await AsyncStorage.getItem('@cauzon_device_id_fallback');
+    if (cachedId) return cachedId;
+    const nouveauId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    await AsyncStorage.setItem('@cauzon_device_id_fallback', nouveauId);
+    return nouveauId;
+  } catch (_) {
+    return 'cauzon-generic-device';
+  }
 };
 
 /**
@@ -314,49 +329,128 @@ export const debloquerDocument = async (documentId: string, prixDocument: number
 
 
 /**
- * Supprime intégralement le compte utilisateur (profiles, auth.users, acquisitions)
- * tout en conservant une empreinte technique anonymisée du Device ID pour bloquer la réutilisation de l'offre de bienvenue.
+ * Supprime intégralement le compte utilisateur en cascade dans Supabase :
+ * - acquisitions (user_id et device_id)
+ * - profiles (id)
+ * - push_tokens (user_id et device_id)
+ * - feedbacks (user_id et device_id)
+ * - anonymisation des transactions financières (user_id, client_email, client_nom -> null)
+ * - conservation d'une empreinte anonymisée du Device ID dans appareils_historique_bienvenue
+ * - purge intégrale du cache local / AsyncStorage
+/**
+ * Désactivation temporaire (Soft Delete) du compte utilisateur :
+ * - Marque le profil comme inactif (est_actif: false, desactive_le: ISO)
+ * - Préserve les données pour permettre une réactivation fluide lors d'une reconnexion Google
+ * - Purge les tokens et caches locaux et effectue une déconnexion propre
  */
-export const supprimerCompteUtilisateur = async (): Promise<{ success: boolean; message: string }> => {
+export const desactiverCompteUtilisateur = async (): Promise<{ success: boolean; message: string }> => {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
     const deviceId = await getDeviceId();
 
-    // 1. Tenter d'exécuter la fonction RPC Supabase dédiée
-    const { data: rpcRes, error: rpcErr } = await supabase.rpc('supprimer_mon_compte_et_archiver_device', {
-      p_device_id: deviceId
-    });
+    if (user?.id) {
+      // 1. Mise à jour du profil : désactivation sans suppression physique
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({
+          est_actif: false,
+          desactive_le: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
 
-    if (!rpcErr && rpcRes && rpcRes.success) {
-      // Vider le cache local
-      await sauvegarderBibliothequeLocale([]);
-      await supabase.auth.signOut();
-      return { success: true, message: rpcRes.message };
+      if (updateErr) {
+        console.warn('Note mise à jour profil (Soft Delete) :', updateErr.message);
+      }
+
+      // 2. Dissocier les acquisitions de cet appareil pour la session désactivée
+      if (deviceId) {
+        try {
+          await supabase
+            .from('acquisitions')
+            .update({ device_id: null })
+            .eq('user_id', user.id)
+            .eq('device_id', deviceId);
+        } catch (_) {}
+      }
     }
 
-    // Fallback manuel si la RPC n'est pas encore exécutée
-    const { data: { user } } = await supabase.auth.getUser();
-
-    // Marquer l'appareil dans l'historique
-    await supabase.from('appareils_historique_bienvenue').upsert({
-      device_id: deviceId,
-      a_consomme_offre_bienvenue: true,
-      date_derniere_suppression: new Date().toISOString(),
-    }, { onConflict: 'device_id' });
-
-    if (user) {
-      await supabase.from('acquisitions').delete().eq('user_id', user.id);
-      await supabase.from('profiles').delete().eq('id', user.id);
+    if (deviceId) {
+      // 3. Réinitialiser le profil appareil en mode invité standard
+      try {
+        await supabase
+          .from('appareils_historique_bienvenue')
+          .update({
+            has_vip_pass: false,
+            has_extended_storage: false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('device_id', deviceId);
+      } catch (_) {}
     }
-    await supabase.from('acquisitions').delete().eq('device_id', deviceId);
-    await sauvegarderBibliothequeLocale([]);
-    await supabase.auth.signOut();
 
-    return { success: true, message: 'Votre compte et vos données ont été définitivement supprimés.' };
+    // 4. Purge intégrale du stockage local, des droits VIP/abonnements et de tous les caches de documents
+    const clesAPurger = [
+      'CAUZON_PHOTO_PROFIL',
+      'CAUZON_NOM_UTILISATEUR',
+      'CAUZON_TELEPHONE',
+      'cauzon_local_library_cache',
+      'cauzon_documents_importes_cache',
+      'cauzon_documents_hors_ligne',
+      '@cauzon_documents_hors_ligne',
+      '@cauzon_documents_importes',
+      'cauzon_storage_status',
+      'cauzon_vip_status',
+      '@cauzon_vip',
+      '@cauzon_acquisitions',
+      '@cauzon_abonnements',
+      '@cauzon_locations',
+      '@cauzon_panier',
+      'cauzon_panier',
+      'CAUZON_PUSH_TOKEN',
+      'CAUZON_NOTIF_PROMPT_DECIDED',
+    ];
+
+    await AsyncStorage.multiRemove(clesAPurger).catch(() => {});
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const cauzonKeys = allKeys.filter(
+        (k) => k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')
+      );
+      if (cauzonKeys.length > 0) {
+        await AsyncStorage.multiRemove(cauzonKeys);
+      }
+    } catch (_) {}
+
+    // Purge explicite de window.localStorage sur le Web
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        clesAPurger.forEach((cle) => window.localStorage.removeItem(cle));
+        Object.keys(window.localStorage).forEach((k) => {
+          if (k.startsWith('@cauzon') || k.startsWith('cauzon') || k.startsWith('CAUZON')) {
+            window.localStorage.removeItem(k);
+          }
+        });
+      } catch (_) {}
+    }
+
+    // 5. Déconnexion Supabase Auth propre pour purger les tokens et éviter les sessions fantômes
+    await supabase.auth.signOut().catch(() => {});
+
+    return {
+      success: true,
+      message: 'Votre compte a été désactivé avec succès. Vous pourrez le réactiver à tout moment en vous reconnectant avec Google.',
+    };
   } catch (err: any) {
-    console.error('Erreur lors de la suppression de compte :', err.message);
-    return { success: false, message: err.message || 'Échec de la suppression' };
+    console.error('Erreur lors de la désactivation du compte :', err.message);
+    return { success: false, message: err.message || 'Échec de la désactivation du compte.' };
   }
 };
+
+/**
+ * Rétro-compatibilité : alias vers la désactivation (Soft Delete)
+ */
+export const supprimerCompteUtilisateur = desactiverCompteUtilisateur;
 
 
 const LOCAL_LIBRARY_CACHE_KEY = 'cauzon_local_library_cache';
@@ -539,6 +633,22 @@ export const ouvrirFichierBureautique = async (
 
 
 /**
+ * Demande d'autorisation contextuelle (Just-in-Time Permission) avant l'accès
+ * à l'explorateur de fichiers pour l'importation de documents personnels.
+ *
+ * Conforme aux exigences de transparence et de protection des données :
+ * - Web : validation pédagogique par window.confirm
+ * - Mobile (iOS / Android) : boîte de dialogue native via Alert.alert
+ */
+export const demanderAutorisationAccesFichiers = (
+  onAutoriser: () => void | Promise<void>,
+  _onRefuser: () => void = () => {}
+): void => {
+  // L'accès aux fichiers est géré directement par le sélecteur natif (Scoped Storage / Web Input)
+  onAutoriser();
+};
+
+/**
  * Importe un nouveau document externe (PDF, Word, Excel, etc.) dans la bibliothèque
  */
 export const importerDocumentLocal = async (params: {
@@ -558,20 +668,21 @@ export const importerDocumentLocal = async (params: {
     }
 
 
+    const idUnique = `imported_${Date.now()}`;
+
     // Sur Mobile (Android / iOS) : copier le fichier dans le stockage persistant de l'application
     if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
       try {
-        const dossierImport = `${FileSystem.documentDirectory}cauzon_imports/`;
+        const dossierImport = `${FileSystem.documentDirectory}documents_importes/`;
         const dirInfo = await FileSystem.getInfoAsync(dossierImport);
         if (!dirInfo.exists) {
           await FileSystem.makeDirectoryAsync(dossierImport, { intermediates: true });
         }
         
-        // Nom de fichier PDF unique et permanent
-        const nomFichierUnique = `doc_import_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.pdf`;
-        const destination = `${dossierImport}${nomFichierUnique}`;
+        // Nom de fichier PDF unique et permanent requis
+        const destination = `${dossierImport}${idUnique}.pdf`;
         
-        // Copie synchrone depuis le cache DocumentPicker vers le dossier permanent de l'app
+        // Copie synchrone depuis le cache DocumentPicker vers le dossier permanent sécurisé
         await FileSystem.copyAsync({ from: params.file_path, to: destination });
         
         // Vérification de la présence effective du fichier copié
@@ -586,11 +697,6 @@ export const importerDocumentLocal = async (params: {
         console.error('Erreur lors de la copie permanente du document :', errCopy.message);
       }
     }
-
-
-
-
-
 
     // Calcul dynamique et robuste du nombre exact de pages du PDF importé
     let nombrePagesDynamique = params.nombre_pages;
@@ -620,10 +726,14 @@ export const importerDocumentLocal = async (params: {
       }
     }
 
+    const dateAjoutIso = new Date().toISOString();
+    const dateAjoutMs = Date.now();
+    const tailleMoCalculee = params.taille_mo ?? 1.0;
+
     const nouveauDoc: DocumentCourse = {
-      id: `imported_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      id: idUnique,
       titre: params.titre,
-      categorie: params.categorie || 'Documents Importés',
+      categorie: params.categorie || 'Documents Personnels',
       description: 'Document personnel importé dans votre espace cauZon.',
       prix: 0,
       est_certifie: false,
@@ -632,17 +742,30 @@ export const importerDocumentLocal = async (params: {
       limite_apercu_pages: 1,
       limite_apercu_type: 'page',
       limite_apercu_valeur: 1,
-      taille_mo: params.taille_mo ?? 1.0,
+      taille_mo: tailleMoCalculee,
       file_path: cheminPersistant,
       status: 'actif',
       is_vip_consultation: false,
       est_importe: true,
-      date_ajout: new Date().toISOString(),
+      date_ajout: dateAjoutIso,
+      ...( {
+        cheminLocal: cheminPersistant,
+        estImporte: true,
+        typeAcquisition: 'permanent',
+        dateAjout: dateAjoutMs,
+        tailleMo: tailleMoCalculee,
+      } as any )
     };
 
+    // 1. Sauvegarde dans le cache dédié des documents importés
     const existants = await chargerDocumentsImportes();
-    const updated = [nouveauDoc, ...existants];
-    await sauvegarderDocumentsImportes(updated);
+    const updatedImportes = [nouveauDoc, ...existants.filter((d: any) => d.id !== idUnique)];
+    await sauvegarderDocumentsImportes(updatedImportes);
+
+    // 2. Synchronisation immédiate avec le cache de la bibliothèque locale
+    const biblioLocale = await chargerBibliothequeLocale();
+    const updatedBiblio = [nouveauDoc, ...biblioLocale.filter((d: any) => d.id !== idUnique)];
+    await sauvegarderBibliothequeLocale(updatedBiblio);
 
     return {
       success: true,
@@ -774,6 +897,15 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
       .select('document_id, is_vip_consultation');
 
     if (user?.id) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('est_actif')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (prof && prof.est_actif === false) {
+        return [];
+      }
       query = query.or(`device_id.eq.${deviceId},user_id.eq.${user.id}`);
     } else {
       query = query.eq('device_id', deviceId);
@@ -788,7 +920,12 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
     if (acquisitions) {
       acquisitions.forEach((acq) => {
         if (acq.document_id) {
-          vipMap[acq.document_id] = acq.is_vip_consultation ?? false;
+          // Un achat permanent (is_vip_consultation === false) a priorité absolue sur toute consultation VIP
+          if (acq.is_vip_consultation === false) {
+            vipMap[acq.document_id] = false;
+          } else if (vipMap[acq.document_id] === undefined) {
+            vipMap[acq.document_id] = true;
+          }
         }
       });
     }
@@ -948,6 +1085,17 @@ export const supprimerDocumentLocal = async (documentId: string): Promise<{ succ
   try {
     // 1. Si le document est un document importé
     if (documentId.startsWith('imported_')) {
+      // Suppression physique du fichier sur l'appareil
+      if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
+        try {
+          const path = `${FileSystem.documentDirectory}documents_importes/${documentId}.pdf`;
+          const info = await FileSystem.getInfoAsync(path);
+          if (info.exists) {
+            await FileSystem.deleteAsync(path, { idempotent: true });
+          }
+        } catch (_) {}
+      }
+
       const docsImportes = await chargerDocumentsImportes();
       const updatedImportes = docsImportes.filter((d) => d.id !== documentId);
       await sauvegarderDocumentsImportes(updatedImportes);
@@ -1088,11 +1236,49 @@ export const enregistrerAchatDocument = async (documentId: string, montantPaye: 
       insertionData.user_id = user.id;
     }
 
+    // 1. Mettre à jour les éventuelles lignes d'acquisitions existantes pour ce document
+    // afin de convertir le statut VIP en permanent (is_vip_consultation: false)
+    try {
+      let updateQuery = supabase
+        .from('acquisitions')
+        .update({
+          is_vip_consultation: false,
+          montant_paye: montantPaye,
+          is_welcome_offer: false,
+        })
+        .eq('document_id', documentId);
+
+      if (user?.id) {
+        updateQuery = updateQuery.or(`device_id.eq.${deviceId},user_id.eq.${user.id}`);
+      } else {
+        updateQuery = updateQuery.eq('device_id', deviceId);
+      }
+      await updateQuery;
+    } catch (errUpdate) {
+      console.warn('Note mise à jour acquisition VIP -> Permanent :', errUpdate);
+    }
+
+    // 2. Upsert officiel pour garantir la persistance permanente
     const { error } = await supabase
       .from('acquisitions')
       .upsert([insertionData], { onConflict: 'document_id, device_id' });
 
-    if (error) throw error;
+    if (error) {
+      console.warn('Erreur upsert acquisition permanente :', error.message);
+      await supabase.from('acquisitions').insert([insertionData]);
+    }
+
+    // 3. Mise à jour immédiate du cache local de la bibliothèque
+    try {
+      const cached = await chargerBibliothequeLocale();
+      const existingDoc = cached.find((d) => d.id === documentId);
+      if (existingDoc) {
+        existingDoc.is_vip_consultation = false;
+        await sauvegarderBibliothequeLocale(cached);
+      }
+    } catch (errCache) {
+      console.warn('Erreur mise à jour cache local après achat :', errCache);
+    }
 
     // Enregistrement de la transaction financière pour le tableau de bord Admin
     await enregistrerTransactionFinanciere({

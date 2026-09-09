@@ -22,7 +22,6 @@ import {
   Animated,
   Easing,
   PanResponder,
-  Alert,
 } from 'react-native';
 
 
@@ -31,7 +30,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../components/AppIcon';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Document } from '../types';
@@ -41,7 +40,10 @@ import CarteDocument from '../components/CarteDocument';
 import SkeletonCarte from '../components/SkeletonCarte';
 import AvatarDynamique from '../components/AvatarDynamique';
 import ModaleParametres from '../components/ModaleParametres';
+import ModaleDemandeNotification from '../components/ModaleDemandeNotification';
+import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexionRequise';
 import { fetchCatalogueDocuments, souscrireChangementsDocuments } from '../services/serviceDocument';
+import { aDejaReponduInviteNotification } from '../services/serviceNotifications';
 import { supabase } from '../lib/supabase';
 
 
@@ -60,12 +62,22 @@ export default function EcranAccueil() {
     photoProfil, 
     aReponseNonLue, 
     estVip,
+    estConnecteGoogle,
+    estEligibleOffreBienvenue,
     estSuspendu,
     dateFinSuspension,
-    motifSuspension
+    motifSuspension,
+    estEnLigne,
+    afficherToast,
   } = useApp();
 
+  // Gating authentification pour nouveaux utilisateurs / utilisateurs anonymes
+  const [modaleGatingVisible, setModaleGatingVisible] = useState<boolean>(false);
+  const [motifGating, setMotifGating] = useState<MotifGating>('bienvenue');
+  const [cibleGating, setCibleGating] = useState<{ id: string; prix: number; titre?: string } | null>(null);
+
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [notifInviteVisible, setNotifInviteVisible] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [categories, setCategories] = useState<string[]>(['Tout']);
   const [loading, setLoading] = useState<boolean>(true);
@@ -280,6 +292,7 @@ export default function EcranAccueil() {
 
 
   const loadPromoConfig = async () => {
+    if (estEnLigne === false) return;
     try {
       const { data, error } = await supabase
         .from('settings')
@@ -296,6 +309,10 @@ export default function EcranAccueil() {
   };
 
   const loadAnnonces = async () => {
+    if (estEnLigne === false) {
+      setAnnonces([]);
+      return;
+    }
     try {
       const { fetchAnnoncesActives } = require('../services/serviceDocument');
       const data = await fetchAnnoncesActives();
@@ -310,15 +327,24 @@ export default function EcranAccueil() {
       setLoading(true);
       setError(null);
 
-      // Timeout de 5 secondes pour les réseaux instables
+      // Si hors-ligne : fin immédiate sans attente inutile de réseau
+      if (estEnLigne === false) {
+        setDocuments([]);
+        setCategories(['Tout']);
+        setError("Mode Hors-ligne actif. Consultez vos cours dans la Bibliothèque.");
+        setLoading(false);
+        return;
+      }
+
+      // Timeout de 2.5 secondes pour les réseaux instables (remplace le timeout trop long de 5s)
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 5000);
+        setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 2500);
       });
 
       // Chargement réel
       const fetchPromise = fetchCatalogueDocuments();
 
-      // Course contre la montre (timeout de 5 secondes)
+      // Course contre la montre (timeout de 2.5 secondes)
       const data = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (data && data.length > 0) {
@@ -381,7 +407,7 @@ export default function EcranAccueil() {
     }
   };
 
-  // 📚 Système de Pile de Notifications : Tri par urgence + expiration + rôle
+  // 📚 Système de Pile de Notifications : Tri par urgence + expiration + rôle + filtrage intelligent document
   const IMPORTANCE_WEIGHT: Record<string, number> = { urgent: 3, promo: 2, info: 1 };
   const annoncesFiltrees = useMemo(() => {
     const now = Date.now();
@@ -394,6 +420,18 @@ export default function EcranAccueil() {
         }
         if (annonce.ciblage_role === 'non_abonnes' && estVip) return false;
         if (annonce.ciblage_role === 'abonnes' && !estVip) return false;
+
+        // 🎯 Règle de filtrage intelligent des bannières liées à un document PDF :
+        // 1. Si la bannière promeut un document PDF spécifique (document_id_associe ou document_id non nul) :
+        //    Ne l'afficher QUE SI le document correspondant N'EST PAS possédé/débloqué par l'utilisateur (achat permanent ou dossier VIP).
+        // 2. Si le document a été supprimé de la bibliothèque, son ID n'est plus dans docsDebloquesIds,
+        //    la bannière réapparaît automatiquement dans le fil si elle est toujours active et non expirée.
+        // 3. Les bannières générales (vidéos, images, annonces informatives sans PDF lié) restent toujours visibles.
+        const docAssocieId = annonce.document_id_associe || annonce.document_id;
+        if (docAssocieId && docsDebloquesIds && docsDebloquesIds.includes(docAssocieId)) {
+          return false;
+        }
+
         return true;
       })
       .sort((a, b) => {
@@ -402,7 +440,7 @@ export default function EcranAccueil() {
         if (weightA !== weightB) return weightB - weightA;
         return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
-  }, [annonces, estVip]);
+  }, [annonces, estVip, docsDebloquesIds]);
 
   const totalBanners = annoncesFiltrees.length;
   const currBannerIdx = totalBanners > 0 ? ((activeBannerIndex % totalBanners) + totalBanners) % totalBanners : 0;
@@ -512,23 +550,28 @@ export default function EcranAccueil() {
 
 
   const handleUnlock = async (docId: string, docPrix: number) => {
+    // 🛡️ GATING AUTHENTIFICATION : Si l'utilisateur n'est pas connecté, interdire et afficher le pop-up
+    if (!estConnecteGoogle) {
+      const docCible = documents.find((d) => d.id === docId);
+      setCibleGating({ id: docId, prix: docPrix, titre: docCible?.titre });
+      setMotifGating(estEligibleOffreBienvenue ? 'bienvenue' : 'achat');
+      setModaleGatingVisible(true);
+      return;
+    }
+
     // Si l'utilisateur est abonné VIP : acquisition gratuite directe dans l'espace VIP
     if (estVip) {
       const { acquerirDocumentVIP } = require('../services/serviceDocument');
       const result = await acquerirDocumentVIP(docId);
       if (result.success) {
         debloquerDocument(docId);
-        if (Platform.OS === 'web') {
-          window.alert(result.message || 'Cours ajouté avec succès à votre dossier VIP 👑 !');
-        } else {
-          Alert.alert('Accès VIP 👑', result.message || 'Cours ajouté avec succès à votre dossier VIP !');
-        }
+        afficherToast(
+          result.message || 'Cours ajouté avec succès à votre dossier VIP 👑 !',
+          'Accès VIP 👑',
+          'succes'
+        );
       } else {
-        if (Platform.OS === 'web') {
-          window.alert(result.message);
-        } else {
-          Alert.alert('Erreur ❌', result.message);
-        }
+        afficherToast(result.message || 'Impossible d\'acquérir le cours.', 'Erreur ❌', 'erreur');
       }
       return;
     }
@@ -538,20 +581,25 @@ export default function EcranAccueil() {
     if (result.success) {
       consommerOffreBienvenueLocal();
       debloquerDocument(docId);
-      if (Platform.OS === 'web') {
-        window.alert(result.message);
-      } else {
-        alert(result.message);
-      }
+      afficherToast(result.message || 'Document débloqué avec succès !', 'Déblocage Réussi 🎉', 'succes');
     } else {
-      if (Platform.OS === 'web') {
-        window.alert(result.message);
-      } else {
-        alert(result.message);
-      }
+      afficherToast(result.message || 'Échec du déblocage.', 'Erreur ❌', 'erreur');
     }
   };
 
+  // 🔔 Invite contextuelle pour les notifications après connexion Google
+  useEffect(() => {
+    if (estConnecteGoogle) {
+      aDejaReponduInviteNotification().then((fait) => {
+        if (!fait) {
+          const timer = setTimeout(() => {
+            setNotifInviteVisible(true);
+          }, 1500);
+          return () => clearTimeout(timer);
+        }
+      }).catch(() => {});
+    }
+  }, [estConnecteGoogle]);
 
   const renderDocumentCard = ({ item }: { item: Document }) => (
     <CarteDocument
@@ -569,8 +617,9 @@ export default function EcranAccueil() {
     />
   );
 
-  const docAssocie = selectedAnnonce?.document_id_associe
-    ? documents.find((d) => d.id === selectedAnnonce.document_id_associe)
+  const docAssocieId = selectedAnnonce?.document_id_associe || selectedAnnonce?.document_id;
+  const docAssocie = docAssocieId
+    ? documents.find((d) => d.id === docAssocieId)
     : null;
 
   const naviguerVersDocAssocie = () => {
@@ -623,7 +672,7 @@ export default function EcranAccueil() {
       </View>
 
       {/* 2. Zone principale avec Header Flottant One UI et ScrollView stable */}
-      <View style={{ flex: 1, position: 'relative' }}>
+      <View style={{ flex: 1, position: 'relative', ...(Platform.OS === 'web' ? { minHeight: 0 } : {}) }}>
         {/* Barre de Recherche et Matières Flottante One UI (Superposition absolue sans Layout Shift) */}
         <Animated.View
           style={{
@@ -697,8 +746,9 @@ export default function EcranAccueil() {
 
         {/* 3. Liste Défilante 100% Native & Fluide (Zéro Layout Shift, paddingTop calibré) */}
         <ScrollView 
+          style={{ flex: 1 }}
           showsVerticalScrollIndicator={false} 
-          contentContainerStyle={[styles.scrollContent, { paddingTop: 96 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingTop: 96, flexGrow: 1 }]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           bounces={true}
@@ -929,6 +979,12 @@ export default function EcranAccueil() {
         onClose={() => setSettingsVisible(false)}
       />
 
+      {/* 🔔 Modale d'invite contextuelle pour les notifications push */}
+      <ModaleDemandeNotification
+        visible={notifInviteVisible}
+        onClose={() => setNotifInviteVisible(false)}
+      />
+
       {/* Modale Lecteur de Notification (Annonce Signature cauZon) */}
       <Modal
         visible={annonceModalVisible}
@@ -1061,6 +1117,25 @@ export default function EcranAccueil() {
           </View>
         </View>
       </Modal>
+
+      {/* Pop-up de verrouillage (Gating) pour les utilisateurs non connectés */}
+      <ModaleConnexionRequise
+        visible={modaleGatingVisible}
+        onClose={() => {
+          setModaleGatingVisible(false);
+          setCibleGating(null);
+        }}
+        motif={motifGating}
+        titreDocument={cibleGating?.titre}
+        onConnexionReussie={() => {
+          setModaleGatingVisible(false);
+          if (cibleGating) {
+            const cible = cibleGating;
+            setCibleGating(null);
+            handleUnlock(cible.id, cible.prix);
+          }
+        }}
+      />
     </View>
   );
 }
@@ -1070,6 +1145,7 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: couleurs.fond,
     width: '100%',
+    ...(Platform.OS === 'web' ? { height: '100%', overflowY: 'auto' as any } : {}),
   },
   header: {
     backgroundColor: couleurs.fondEntete,
@@ -1148,6 +1224,7 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 10,
+    flexGrow: 1,
   },
   categoriesContainer: {
     marginBottom: 4,
@@ -1482,7 +1559,7 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   promotedLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#6B1124',
+    color: couleurs.primaire,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 12,

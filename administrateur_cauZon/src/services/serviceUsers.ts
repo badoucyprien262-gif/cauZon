@@ -24,23 +24,53 @@ export const fetchProfiles = async (): Promise<ProfileRow[]> => {
   const list: ProfileRow[] = [];
   const knownIds = new Set<string>();
 
+  // Récupération des emails associés aux utilisateurs (via feedbacks récents)
+  const emailParUserId = new Map<string, string>();
   try {
-    // 1. Profils enregistrés (Utilisateurs Google/Email/Compte)
+    const { data: fbs } = await supabase
+      .from('feedbacks')
+      .select('user_id, email')
+      .not('email', 'is', null);
+    if (fbs) {
+      fbs.forEach((f: any) => {
+        if (f.user_id && f.email) emailParUserId.set(f.user_id, f.email);
+      });
+    }
+  } catch (_) {}
+
+  try {
+    // 1. Profils enregistrés (Utilisateurs Google/Email/Compte) ordonnés par dernière activité
     const { data: profs, error: errProf } = await supabase
       .from('profiles')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('updated_at', { ascending: false });
 
     if (!errProf && profs) {
-      profs.forEach((p) => {
+      profs.forEach((p: any) => {
         knownIds.add(p.id);
-        const nomPropre = p.username?.trim() || p.phone_number || 'Étudiant cauZon';
+        if (p.device_id) {
+          knownIds.add(p.device_id);
+        }
+
+        const nomPropre =
+          p.nom_complet?.trim() ||
+          p.username?.trim() ||
+          (p.email ? p.email.split('@')[0] : (p.phone_number || 'Étudiant cauZon'));
+
+        const emailTrouve = p.email || emailParUserId.get(p.id) || null;
+
         list.push({
           ...(p as ProfileRow),
           username: nomPropre,
+          nom_complet: nomPropre,
+          email: emailTrouve,
           avatar_url: p.avatar_url || null,
           phone_number: p.phone_number || null,
           storage_limit: p.storage_limit || (p.has_extended_storage ? 150 : 75),
+          est_actif: p.est_actif !== false,
+          desactive_le: p.desactive_le || null,
+          created_at: p.updated_at || null,
+          updated_at: p.updated_at || null,
         });
       });
     } else if (errProf) {
@@ -51,21 +81,25 @@ export const fetchProfiles = async (): Promise<ProfileRow[]> => {
   }
 
   try {
-    // 2. Appareils uniques enregistrés (Utilisateurs mobiles et visiteurs)
+    // 2. Appareils uniques enregistrés (Utilisateurs mobiles et visiteurs non connectés)
     const { data: apps, error: errApp } = await supabase
       .from('appareils_historique_bienvenue')
       .select('*')
       .order('created_at', { ascending: false });
 
     if (!errApp && apps) {
-      apps.forEach((app) => {
+      apps.forEach((app: any) => {
         const devId = app.device_id;
         if (devId && !knownIds.has(devId)) {
           knownIds.add(devId);
-          const nomApp = app.username?.trim() || (app.phone_number ? `Étudiant (${app.phone_number})` : `Étudiant Invité (${devId.substring(0, 6)})`);
+          const nomApp =
+            app.username?.trim() ||
+            (app.phone_number ? `Étudiant (${app.phone_number})` : `Visiteur (${devId.substring(0, 8)})`);
           list.push({
             id: devId,
             username: nomApp,
+            nom_complet: nomApp,
+            email: app.email || null,
             avatar_url: app.avatar_url || null,
             phone_number: app.phone_number || null,
             has_extended_storage: Boolean(app.has_extended_storage),
@@ -75,7 +109,9 @@ export const fetchProfiles = async (): Promise<ProfileRow[]> => {
             ban_reason: app.ban_reason || null,
             has_vip_pass: Boolean(app.has_vip_pass),
             vip_expiration_date: app.vip_expiration_date || null,
+            est_actif: true,
             created_at: app.created_at || new Date().toISOString(),
+            updated_at: app.updated_at || app.created_at || null,
           });
         }
       });
