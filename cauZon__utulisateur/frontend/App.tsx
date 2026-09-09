@@ -128,7 +128,16 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider
+      style={[
+        { flex: 1 },
+        Platform.OS === 'web' && ({
+          // @ts-ignore
+          touchAction: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        } as any),
+      ]}
+    >
       <FournisseurApp>
         <NavigationContainer ref={navigationRef}>
           <NavigateurApp />

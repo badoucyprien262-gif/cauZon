@@ -488,9 +488,17 @@ export default function EcranAccueil() {
   const bannerPanResponder = useMemo(
     () =>
       PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, gestureState) => {
-          return annoncesFiltrees.length > 1 && Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+          return (
+            annoncesFiltrees.length > 1 &&
+            Math.abs(gestureState.dx) > 10 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) + 10
+          );
         },
+        onPanResponderTerminationRequest: () => true,
         onPanResponderMove: (_, gestureState) => {
           bannerPanX.setValue(gestureState.dx);
         },
@@ -754,13 +762,22 @@ export default function EcranAccueil() {
 
         {/* 3. Liste Défilante 100% Native & Fluide (Zéro Layout Shift, paddingTop calibré) */}
         <ScrollView 
-          style={{ flex: 1 }}
+          style={[
+            { flex: 1 },
+            Platform.OS === 'web' && ({
+              // @ts-ignore
+              touchAction: 'pan-y',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehaviorY: 'contain',
+            } as any),
+          ]}
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={[styles.scrollContent, { paddingTop: 96, flexGrow: 1 }]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           bounces={true}
           overScrollMode="never"
+          nestedScrollEnabled={true}
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 

@@ -70,7 +70,12 @@ if (fs.existsSync(htmlFile)) {
     `html, body, #root {` +
     ` height: 100% !important;` +
     ` overflow-y: auto !important;` +
+    ` touch-action: auto !important;` +
     ` -webkit-overflow-scrolling: touch !important;` +
+    `}` +
+    `/* Empêcher React Native Web de tuer le défilement mobile */` +
+    `div[style*="touch-action: none"] {` +
+    ` touch-action: pan-y !important;` +
     `}` +
     `</style>`;
 
