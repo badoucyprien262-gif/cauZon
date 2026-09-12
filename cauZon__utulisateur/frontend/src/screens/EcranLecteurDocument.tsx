@@ -134,11 +134,13 @@ export default function EcranLecteurDocument() {
             }
 
             // 2. Si toujours introuvable localement mais possède une référence distante (sauvegarde Cloud VIP ou Storage)
+            let urlDistanteSecours = '';
             if (!existe) {
               const remotePath = (document as any).file_path || (document as any).pdf_url || (document as any).url || '';
               if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:') && !remotePath.startsWith('content:')) {
                 const urlDistante = getDocumentPdfUrl(remotePath);
                 if (urlDistante && urlDistante.startsWith('http')) {
+                  urlDistanteSecours = urlDistante;
                   console.log('🔄 [Lecteur] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
                   const cleanName = `${document.id}_${(document.titre || 'doc').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
                   const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
@@ -150,8 +152,18 @@ export default function EcranLecteurDocument() {
               }
             }
 
-            // 3. Si introuvable après TOUTES les tentatives locales et de secours
+            // 3. Si introuvable après TOUTES les tentatives locales
             if (!existe) {
+              // Si une URL Cloud est disponible, l'ouvrir directement en streaming plutôt que de bloquer l'utilisateur
+              if (urlDistanteSecours) {
+                console.log('🌐 [Lecteur] Repli streaming direct Cloud pour document importé :', urlDistanteSecours);
+                if (estMonte) {
+                  setSourcePdfData(urlDistanteSecours);
+                  setChargementLocal(false);
+                }
+                return;
+              }
+
               console.warn('❌ [Lecteur] Statut : Fichier local introuvable après toutes les tentatives :', cheminBrut);
               if (estMonte) {
                 setFichierIntrouvable(true);
@@ -213,34 +225,17 @@ export default function EcranLecteurDocument() {
 
           console.log('[Lecteur] Statut : Chargement document distant...');
 
-          if (Platform.OS === 'web') {
-            // Sur Web, l'URL publique Supabase Storage est chargée directement dans l'iframe PDF.js
-            if (estMonte) {
-              setSourcePdfData(urlPublique);
-            }
-          } else {
-            // Sur Mobile natif : mise en cache locale transparente pour contourner les blocages CORS dans WebView
-            let base64Result = '';
+          // Sur Web comme sur Mobile : Streaming direct via l'URL publique Supabase Storage
+          // Zéro téléchargement bloquant dans le thread JS, zéro conversion Base64 lourde en mémoire.
+          // PDF.js dans la WebView lit directement le flux par morceaux (HTTP Range / stream).
+          if (estMonte) {
+            setSourcePdfData(urlPublique);
+          }
+
+          // Mise en cache hors-ligne transparente en arrière-plan (silencieuse, non-bloquante)
+          if (Platform.OS !== 'web') {
             const cacheFileName = `cache_${document.id}_${(document.titre || 'cours').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cacheFileName);
-
-            if (targetLocalPath) {
-              const base64Raw = await FileSystem.readAsStringAsync(targetLocalPath, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              // Nettoyage défensif : retirer tout préfixe MIME si présent (ne devrait pas l'être ici)
-              base64Result = base64Raw.replace(/^data:application\/pdf;base64,/i, '');
-            }
-
-            if (estMonte) {
-              if (base64Result) {
-                // On passe le base64 RAW (sans préfixe data:) — le HTML PDF.js le décodera via atob → Uint8Array
-                setSourcePdfData(base64Result);
-              } else {
-                // Fallback direct sur l'URL publique si échec de mise en cache
-                setSourcePdfData(urlPublique);
-              }
-            }
+            telechargerFichierVersDossierPersistant(urlPublique, cacheFileName).catch(() => {});
           }
         }
       } catch (err) {
@@ -673,11 +668,11 @@ export default function EcranLecteurDocument() {
 
       notifyPageChange(1, maxPages, realTotalPages);
 
-      // Largeur optimale et densité haute fidélité (Ultra-Crisp Text équivalent natif)
+      // Largeur optimale et densité nette calibrée (Retina 2x standard pour mobile sans surconsommation GPU)
       const containerWidth = Math.min(window.innerWidth - 32, 860);
-      const dpr = Math.max(window.devicePixelRatio || 1, 3.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
 
-      // Rendu asynchrone robuste de chaque page en ultra haute définition
+      // Rendu asynchrone fluide de chaque page (rendu progressif)
       for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
         try {
           const page = await pdf.getPage(pageNum);

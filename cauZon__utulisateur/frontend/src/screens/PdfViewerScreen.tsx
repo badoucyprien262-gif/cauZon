@@ -113,10 +113,12 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               }
             }
 
+            let urlDistanteSecours = '';
             // Si introuvable et a une URL distante de secours
             if (!existe && !filePath.startsWith('file:') && !filePath.startsWith('data:') && !filePath.startsWith('blob:') && !filePath.startsWith('content:')) {
               const urlDistante = getDocumentPdfUrl(filePath);
               if (urlDistante && urlDistante.startsWith('http')) {
+                urlDistanteSecours = urlDistante;
                 console.log('🔄 [Lecteur] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
                 const cleanName = `${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
                 const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
@@ -128,6 +130,15 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             }
 
             if (!existe) {
+              if (urlDistanteSecours) {
+                console.log('🌐 [Lecteur] Repli streaming direct Cloud pour document importé :', urlDistanteSecours);
+                if (estMonte) {
+                  setSourcePdfData(urlDistanteSecours);
+                  setChargementLocal(false);
+                }
+                return;
+              }
+
               console.warn('❌ [Lecteur] Statut : Fichier local introuvable sur l\'appareil :', filePath);
               if (estMonte) {
                 setFichierIntrouvable(true);
@@ -178,32 +189,16 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
 
           console.log('[Lecteur] Statut : Chargement document distant...');
 
-          if (Platform.OS === 'web') {
-            if (estMonte) {
-              setSourcePdfData(urlPublique);
-            }
-          } else {
-            // Sur Mobile natif : mise en cache locale transparente pour contourner les blocages CORS dans WebView
-            let base64Result = '';
+          // Sur Web comme sur Mobile : Streaming direct via l'URL publique Supabase Storage
+          // Zéro téléchargement bloquant dans le thread JS, zéro conversion Base64 lourde en mémoire.
+          if (estMonte) {
+            setSourcePdfData(urlPublique);
+          }
+
+          // Mise en cache hors-ligne transparente en tâche de fond (non-bloquante)
+          if (Platform.OS !== 'web') {
             const cleanName = `cache_${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cleanName);
-
-            if (targetLocalPath) {
-              const base64Raw = await FileSystem.readAsStringAsync(targetLocalPath, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              // Nettoyage défensif du préfixe MIME si présent
-              base64Result = base64Raw.replace(/^data:application\/pdf;base64,/i, '');
-            }
-
-            if (estMonte) {
-              if (base64Result) {
-                // Base64 RAW sans préfixe — décodé via atob→Uint8Array dans le HTML PDF.js
-                setSourcePdfData(base64Result);
-              } else {
-                setSourcePdfData(urlPublique);
-              }
-            }
+            telechargerFichierVersDossierPersistant(urlPublique, cleanName).catch(() => {});
           }
         }
       } catch (err) {
@@ -596,9 +591,9 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
       notifyPageChange(1, maxPages, realTotalPages);
 
       const containerWidth = Math.min(window.innerWidth - 32, 860);
-      const dpr = Math.max(window.devicePixelRatio || 1, 3.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
 
-      // Rendu asynchrone robuste de chaque page en ultra haute définition
+      // Rendu asynchrone fluide de chaque page (rendu progressif)
       for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
         try {
           const page = await pdf.getPage(pageNum);

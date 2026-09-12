@@ -1371,28 +1371,35 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
 
         if (!errUserLib && userLibDocs && userLibDocs.length > 0) {
           cloudUserDocs.push(
-            ...userLibDocs.map((uDoc: any) => ({
-              id: uDoc.id || `imported_${uDoc.created_at ? new Date(uDoc.created_at).getTime() : Date.now()}`,
-              titre: uDoc.title || 'Document Personnel',
-              categorie: uDoc.folder_name || 'Documents Personnels',
-              description: 'Document personnel importé dans votre espace VIP cauZon.',
-              prix: 0,
-              est_certifie: false,
-              est_verrouille: false,
-              nombre_pages: uDoc.page_count || 1,
-              limite_apercu_pages: 1,
-              limite_apercu_type: 'page',
-              limite_apercu_valeur: 1,
-              taille_mo: uDoc.file_size_bytes ? parseFloat((uDoc.file_size_bytes / (1024 * 1024)).toFixed(2)) : 1.5,
-              file_path: uDoc.file_path,
-              status: 'actif',
-              is_vip_consultation: false,
-              est_importe: true,
-              date_ajout: uDoc.created_at || new Date().toISOString(),
-              cheminLocal: uDoc.file_path,
-              estImporte: true,
-              typeAcquisition: 'permanent',
-            } as DocumentCourse))
+            ...userLibDocs.map((uDoc: any) => {
+              const bucketPrefix = uDoc.bucket || 'documents_utilisateurs';
+              const qualifieFilePath = uDoc.file_path?.startsWith('documents_utilisateurs/') || uDoc.file_path?.startsWith('cours-documents/')
+                ? uDoc.file_path
+                : `${bucketPrefix}/${uDoc.file_path}`;
+
+              return {
+                id: uDoc.id || `imported_${uDoc.created_at ? new Date(uDoc.created_at).getTime() : Date.now()}`,
+                titre: uDoc.title || 'Document Personnel',
+                categorie: uDoc.folder_name || 'Documents Personnels',
+                description: 'Document personnel importé dans votre espace VIP cauZon.',
+                prix: 0,
+                est_certifie: false,
+                est_verrouille: false,
+                nombre_pages: uDoc.page_count || 1,
+                limite_apercu_pages: 1,
+                limite_apercu_type: 'page',
+                limite_apercu_valeur: 1,
+                taille_mo: uDoc.file_size_bytes ? parseFloat((uDoc.file_size_bytes / (1024 * 1024)).toFixed(2)) : 1.5,
+                file_path: qualifieFilePath,
+                status: 'actif',
+                is_vip_consultation: false,
+                est_importe: true,
+                date_ajout: uDoc.created_at || new Date().toISOString(),
+                cheminLocal: '', // Laissé vide si pas encore sur cet appareil (sera téléchargé ou pointé vers Cloud)
+                estImporte: true,
+                typeAcquisition: 'permanent',
+              } as DocumentCourse;
+            })
           );
         }
 
@@ -1407,11 +1414,16 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
           const mesFallback = fallbackDocs.filter((fd: any) => userAcqIds.includes(fd.id));
           for (const fb of mesFallback) {
             if (!cloudUserDocs.some((d) => d.id === fb.id)) {
+              const qualifieFbPath = fb.file_path?.startsWith('documents_utilisateurs/') || fb.file_path?.startsWith('cours-documents/')
+                ? fb.file_path
+                : `documents_utilisateurs/${fb.file_path}`;
+
               cloudUserDocs.push({
                 ...fb,
                 is_vip_consultation: false,
                 est_importe: true,
-                cheminLocal: fb.file_path,
+                file_path: qualifieFbPath,
+                cheminLocal: '',
                 estImporte: true,
                 typeAcquisition: 'permanent',
               } as DocumentCourse);
@@ -1429,13 +1441,22 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
     docsImportesLocaux.forEach((d) => tousDocsImportesMap.set(d.id, d));
     cloudUserDocs.forEach((d) => {
       const existantLocal = tousDocsImportesMap.get(d.id);
-      // Préserver le chemin local permanent physique s'il existe déjà sur l'appareil
-      const cheminLocalConserve = existantLocal?.cheminLocal || (existantLocal as any)?.file_path || d.cheminLocal || d.file_path;
+      // Préserver impérativement le chemin local physique réel s'il est déjà présent sur cet appareil
+      const aCheminPhysiqueLocal = Boolean(
+        existantLocal?.cheminLocal &&
+        (existantLocal.cheminLocal.startsWith('file:') ||
+         existantLocal.cheminLocal.startsWith('/data/') ||
+         existantLocal.cheminLocal.startsWith('/storage/'))
+      );
+      const cheminLocalConserve = aCheminPhysiqueLocal
+        ? existantLocal!.cheminLocal
+        : (existantLocal?.cheminLocal || '');
+
       tousDocsImportesMap.set(d.id, {
         ...(existantLocal || {}),
         ...d,
         cheminLocal: cheminLocalConserve,
-        file_path: d.file_path || existantLocal?.file_path || cheminLocalConserve,
+        file_path: d.file_path || existantLocal?.file_path || cheminLocalConserve || '',
       });
     });
     const docsImportes = Array.from(tousDocsImportesMap.values());
@@ -1727,6 +1748,10 @@ export const getDocumentPdfUrl = (filePath: string): string => {
   } else if (cleanPath.startsWith('cours-documents/')) {
     bucketName = 'cours-documents';
     storagePath = cleanPath.replace(/^cours-documents\//, '');
+  } else if (cleanPath.includes('/') && /^[0-9a-fA-F-]{20,}/.test(cleanPath)) {
+    // Si le chemin commence par un UUID utilisateur (ex: "e4a2.../dossier/fichier.pdf")
+    bucketName = 'documents_utilisateurs';
+    storagePath = cleanPath;
   }
 
   const { data } = supabase.storage
