@@ -79,8 +79,26 @@ if (fs.existsSync(htmlFile)) {
     `}` +
     `</style>`;
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Injection PWA et icônes haute résolution (Android & iOS)
+  // ────────────────────────────────────────────────────────────────────────────
+  const pwaMetaTags = `\n    <!-- PWA & Haute Résolution Android & iOS Icons -->\n` +
+    `    <meta name="description" content="Vos cours et ressources académiques partout avec vous. Épreuves, annales corrigées et cours universitaires certifiés.">\n` +
+    `    <link rel="manifest" href="/manifest.json">\n` +
+    `    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">\n` +
+    `    <link rel="icon" type="image/png" sizes="512x512" href="/assets/icon-512.png">\n` +
+    `    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">\n` +
+    `    <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon.png">\n` +
+    `    <meta name="mobile-web-app-capable" content="yes">\n` +
+    `    <meta name="apple-mobile-web-app-capable" content="yes">\n` +
+    `    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n` +
+    `    <meta name="apple-mobile-web-app-title" content="cauZon">\n`;
+
+  // Nettoyer d'éventuelles injections précédentes
+  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<meta name="apple-mobile-web-app-title" content="cauZon">\n?/i, '');
+
   // Injection dans le <head>
-  let headInjections = scrollFixStyle;
+  let headInjections = pwaMetaTags + scrollFixStyle;
   if (fontFaceStyle) {
     headInjections += fontFaceStyle;
     console.log('✅ Police Ionicons injectée en Base64 dans dist/index.html.');
@@ -95,7 +113,44 @@ if (fs.existsSync(htmlFile)) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 2. Copie de vercel.json dans dist/
+// 2. Copie du manifest PWA et des icônes haute résolution dans dist/
+// ────────────────────────────────────────────────────────────────────────────
+const distAssetsDir = path.join(distDir, 'assets');
+if (!fs.existsSync(distAssetsDir)) {
+  fs.mkdirSync(distAssetsDir, { recursive: true });
+}
+
+// Copie du manifest.json
+const sourceManifest = fs.existsSync(path.join(rootDir, 'web', 'manifest.json'))
+  ? path.join(rootDir, 'web', 'manifest.json')
+  : path.join(rootDir, 'manifest.json');
+
+if (fs.existsSync(sourceManifest)) {
+  fs.copyFileSync(sourceManifest, path.join(distDir, 'manifest.json'));
+  console.log('✅ Manifest PWA copié dans dist/manifest.json.');
+}
+
+// Copie des icônes haute résolution dans dist/assets/ et dist/
+const iconFiles = [
+  'icon-192.png',
+  'icon-512.png',
+  'apple-touch-icon.png',
+  'favicon.png',
+  'icon.png',
+];
+
+const sourceAssetsDir = path.join(rootDir, 'assets');
+iconFiles.forEach(iconName => {
+  const src = path.join(sourceAssetsDir, iconName);
+  if (fs.existsSync(src)) {
+    fs.copyFileSync(src, path.join(distAssetsDir, iconName));
+    fs.copyFileSync(src, path.join(distDir, iconName));
+  }
+});
+console.log('✅ Icônes haute résolution PWA (192px, 512px, maskable) synchronisées dans dist/.');
+
+// ────────────────────────────────────────────────────────────────────────────
+// 3. Copie de vercel.json dans dist/
 // ────────────────────────────────────────────────────────────────────────────
 const rootVercelJson = path.join(rootDir, 'vercel.json');
 const distVercelJson = path.join(distDir, 'vercel.json');
@@ -117,11 +172,11 @@ try {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 3. Nettoyage : suppression du script temporaire scan-icons.js si existant
+// 4. Nettoyage : suppression du script temporaire scan-icons.js si existant
 // ────────────────────────────────────────────────────────────────────────────
 const scanScript = path.join(__dirname, 'scan-icons.js');
 if (fs.existsSync(scanScript)) {
   try { fs.unlinkSync(scanScript); } catch (_) {}
 }
 
-console.log('🎉 [CauZon Post-Export Web] Terminé avec succès (Ionicons Base64 injectée) !');
+console.log('🎉 [CauZon Post-Export Web] Terminé avec succès (PWA + Icônes HD + Ionicons) !');

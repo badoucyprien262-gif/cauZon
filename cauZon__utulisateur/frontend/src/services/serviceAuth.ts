@@ -1,6 +1,7 @@
 import { Platform, Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 
 // Complète la session de navigateur si l'authentification s'exécute dans une popup (Web uniquement)
@@ -66,16 +67,16 @@ export const extraireParamsDepuisUrl = (url: string): { [key: string]: string } 
 };
 
 /**
- * Lance la connexion rapide via Google (OAuth) avec Supabase.
+ * Lance la connexion rapide via Google avec Supabase.
  * - Sur Web : Redirection OAuth dynamique capturant l'URL exacte du cours/page en cours.
- * - Sur Mobile (Android / iOS) : Boîte de dialogue Google OAuth avec openAuthSessionAsync
- *   et extraction directe des jetons (access_token, refresh_token).
+ * - Sur Android : Boîte de dialogue native Google Play Services / One Tap (GoogleSignin + signInWithIdToken)
+ * - Sur iOS : Boîte de dialogue Google OAuth avec openAuthSessionAsync
  */
 export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    const redirectUrl = obtenirUrlRedirectionOAuth(customRedirectUrl);
-
+    // 1. Plateforme Web : Conservation du flux OAuth standard
     if (Platform.OS === 'web') {
+      const redirectUrl = obtenirUrlRedirectionOAuth(customRedirectUrl);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -88,78 +89,138 @@ export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{
       });
       if (error) throw error;
       return { success: true };
-    } else {
-      // Sur Mobile (Android / iOS) : flux OAuth avec skipBrowserRedirect
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: true,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'select_account',
-          },
-        },
+    }
+
+    // 2. Plateforme Native Android : Authentification Google Native (Play Services / One Tap)
+    if (Platform.OS === 'android') {
+      const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+      GoogleSignin.configure({
+        webClientId: webClientId || undefined,
+        scopes: ['email', 'profile'],
       });
 
-      if (error) throw error;
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-      if (!data?.url) {
-        return { success: false, error: "Impossible de préparer la session de connexion Google." };
-      }
+      const response = await GoogleSignin.signIn();
 
-      // Ouvre une boîte de dialogue Google OAuth native fluide
-      const authResult = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl, {
-        showInRecents: false,
-        preferEphemeralSession: false,
-        toolbarColor: '#6B1124',
-        secondaryToolbarColor: '#6B1124',
-        enableBarCollapsing: true,
-        showTitle: false,
-      });
-
-      if (authResult.type === 'success' && authResult.url) {
-        // Extraction directe des jetons depuis l'URL de redirection
-        const params = extraireParamsDepuisUrl(authResult.url);
-        if (params.access_token && params.refresh_token) {
-          const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
-            access_token: params.access_token,
-            refresh_token: params.refresh_token,
-          });
-          if (!sessionErr && sessionData?.user) {
-            await synchroniserProfilGoogle(sessionData.user);
-            return { success: true };
-          }
-        } else if (params.code) {
-          const { data: sessionData, error: codeErr } = await supabase.auth.exchangeCodeForSession(params.code);
-          if (!codeErr && sessionData?.user) {
-            await synchroniserProfilGoogle(sessionData.user);
-            return { success: true };
-          }
-        }
-
-        const success = await gererUrlRetourAuth(authResult.url);
-        return { success };
-      } else if (authResult.type === 'dismiss') {
-        // Sur Android, le Custom Tab peut être fermé par l'OS lors du retour par Deep Link
-        // (Intent filter). On attend que l'écouteur Linking consomme les jetons.
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          await synchroniserProfilGoogle(session.user);
-          return { success: true };
-        }
-        return { success: false, error: 'Connexion annulée ou fermée.' };
-      } else if (authResult.type === 'cancel') {
+      if (response.type === 'cancelled') {
+        console.log('ℹ️ Connexion Google annulée par l\'utilisateur.');
         return { success: false, error: 'Connexion annulée' };
       }
 
-      return { success: true };
+      const idToken = response.data?.idToken || (response as any).idToken;
+      if (!idToken) {
+        throw new Error("Jeton Google (idToken) manquant. Vérifiez la configuration de EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
+      }
+
+      // Connexion directe dans Supabase via le jeton d'identité Google ID Token
+      const { data: authData, error: authErr } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (authErr) throw authErr;
+
+      if (authData?.user) {
+        await synchroniserProfilGoogle(authData.user);
+        return { success: true };
+      }
+
+      return { success: false, error: "Échec de l'authentification avec le compte Google." };
     }
+
+    // 3. Fallback iOS / Autres : Flux OAuth avec WebBrowser.openAuthSessionAsync
+    const redirectUrl = obtenirUrlRedirectionOAuth(customRedirectUrl);
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error) throw error;
+
+    if (!data?.url) {
+      return { success: false, error: "Impossible de préparer la session de connexion Google." };
+    }
+
+    const authResult = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl, {
+      showInRecents: false,
+      preferEphemeralSession: false,
+      toolbarColor: '#6B1124',
+      secondaryToolbarColor: '#6B1124',
+      enableBarCollapsing: true,
+      showTitle: false,
+    });
+
+    if (authResult.type === 'success' && authResult.url) {
+      const params = extraireParamsDepuisUrl(authResult.url);
+      if (params.access_token && params.refresh_token) {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (!sessionErr && sessionData?.user) {
+          await synchroniserProfilGoogle(sessionData.user);
+          return { success: true };
+        }
+      } else if (params.code) {
+        const { data: sessionData, error: codeErr } = await supabase.auth.exchangeCodeForSession(params.code);
+        if (!codeErr && sessionData?.user) {
+          await synchroniserProfilGoogle(sessionData.user);
+          return { success: true };
+        }
+      }
+
+      const success = await gererUrlRetourAuth(authResult.url);
+      return { success };
+    } else if (authResult.type === 'dismiss') {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await synchroniserProfilGoogle(session.user);
+        return { success: true };
+      }
+      return { success: false, error: 'Connexion annulée ou fermée.' };
+    } else if (authResult.type === 'cancel') {
+      return { success: false, error: 'Connexion annulée' };
+    }
+
+    return { success: true };
   } catch (error: any) {
+    // Interception propre des annulations et états en cours (sans blocage UI)
+    if (
+      error?.code === statusCodes?.SIGN_IN_CANCELLED ||
+      error?.message?.includes('SIGN_IN_CANCELLED') ||
+      error?.message?.toLowerCase().includes('cancel')
+    ) {
+      console.log('ℹ️ Connexion Google annulée par l\'utilisateur.');
+      return { success: false, error: 'Connexion annulée' };
+    }
+
+    if (error?.code === statusCodes?.IN_PROGRESS) {
+      console.log('ℹ️ Connexion Google déjà en cours.');
+      return { success: false, error: 'Connexion Google déjà en cours...' };
+    }
+
+    if (error?.code === statusCodes?.PLAY_SERVICES_NOT_AVAILABLE) {
+      console.warn('⚠️ Google Play Services non disponibles.');
+      return {
+        success: false,
+        error: 'Les services Google Play sont indisponibles ou obsolètes sur votre appareil.',
+      };
+    }
+
+    console.error('Erreur authentification Google :', error);
     const userMsg = error?.message?.toLowerCase().includes('network')
       ? 'Problème de connexion internet. Veuillez vérifier votre réseau.'
-      : 'Échec de la connexion avec Google. Veuillez réessayer.';
+      : (error?.message || 'Échec de la connexion avec Google. Veuillez réessayer.');
     return { success: false, error: userMsg };
   }
 };
