@@ -5,7 +5,7 @@ import { Ionicons } from '../components/AppIcon';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Accelerometer } from 'expo-sensors';
-import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS } from '../services/serviceDocument';
+import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox } from '../services/serviceDocument';
 
 import { useApp } from '../store/ContexteApp';
 
@@ -54,6 +54,8 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
     limiteApercuValeur: 30,
   };
 
+  const [cleRechargement, setCleRechargement] = useState(0);
+
   const estLocalOuImporte = 
     filePath.startsWith('file:') ||
     filePath.startsWith('blob:') ||
@@ -66,11 +68,14 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
     async function preparerSource() {
       try {
         setChargementLocal(true);
+        setHasError(false);
+        setFichierIntrouvable(false);
 
         if (estLocalOuImporte) {
           if (Platform.OS !== 'web') {
-            let cheminEffectif = filePath;
+            let cheminEffectif = normaliserCheminFichier(filePath);
             let existe = await verifierFichierLocalExiste(cheminEffectif);
+            console.log(`[PdfViewerScreen] Vérification initiale fichier : ${cheminEffectif} | Existe : ${existe}`);
 
             // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
             if (!existe && DOSSIER_DOCS_PERSISTANTS) {
@@ -80,12 +85,21 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               if (existeSandbox) {
                 cheminEffectif = candidatSandbox;
                 existe = true;
-                console.log('✅ Document retrouvé dans cauzon_docs/ :', candidatSandbox);
+                console.log('✅ [PdfViewerScreen] Document retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
+              } else {
+                // Recherche par balayage sandbox
+                const cleRecherche = titre || cleanNom;
+                const cheminTrouve = await retrouverFichierDansSandbox(cleRecherche);
+                if (cheminTrouve) {
+                  cheminEffectif = cheminTrouve;
+                  existe = true;
+                  console.log('✅ [PdfViewerScreen] Document retrouvé par balayage sandbox :', cheminTrouve);
+                }
               }
             }
 
             // Si introuvable et a une URL distante de secours
-            if (!existe && !filePath.startsWith('file:') && !filePath.startsWith('data:') && !filePath.startsWith('blob:')) {
+            if (!existe && !filePath.startsWith('file:') && !filePath.startsWith('data:') && !filePath.startsWith('blob:') && !filePath.startsWith('content:')) {
               const urlDistante = getDocumentPdfUrl(filePath);
               if (urlDistante && urlDistante.startsWith('http')) {
                 const cleanName = `${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
@@ -98,7 +112,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             }
 
             if (!existe) {
-              console.warn('❌ Fichier local introuvable sur l\'appareil :', filePath);
+              console.warn('❌ [PdfViewerScreen] Fichier local introuvable sur l\'appareil :', filePath);
               if (estMonte) {
                 setFichierIntrouvable(true);
                 setChargementLocal(false);
@@ -118,9 +132,32 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             }
           }
         } else {
+          // ☁️ Document distant Cloud Supabase
           const urlPublique = getDocumentPdfUrl(filePath);
-          if (estMonte) {
-            setSourcePdfData(urlPublique);
+
+          if (Platform.OS === 'web') {
+            if (estMonte) {
+              setSourcePdfData(urlPublique);
+            }
+          } else {
+            // Sur Mobile natif : mise en cache locale transparente pour contourner les blocages CORS dans WebView
+            let base64Result = '';
+            const cleanName = `cache_${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cleanName);
+
+            if (targetLocalPath) {
+              base64Result = await FileSystem.readAsStringAsync(targetLocalPath, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            }
+
+            if (estMonte) {
+              if (base64Result) {
+                setSourcePdfData(`data:application/pdf;base64,${base64Result}`);
+              } else {
+                setSourcePdfData(urlPublique);
+              }
+            }
           }
         }
       } catch (err) {
@@ -137,7 +174,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
 
     preparerSource();
     return () => { estMonte = false; };
-  }, [filePath, estLocalOuImporte]);
+  }, [filePath, estLocalOuImporte, cleRechargement]);
 
   // Synchronisation des pages sur Web
   useEffect(() => {
@@ -721,8 +758,17 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           <View style={styles.emptyContainer}>
             <Ionicons name={hasError ? "alert-circle-outline" : "document-text-outline"} size={48} color={hasError ? "#E74C3C" : couleurs.texteSecondaire} />
             <Text style={[styles.emptyText, hasError && { color: '#E74C3C', fontWeight: 'bold' }]}>
-              {hasError ? "Format de document non supporté ou fichier corrompu" : "Aucun fichier PDF disponible"}
+              {hasError ? "Impossible de charger le document" : "Aucun fichier PDF disponible"}
             </Text>
+            {hasError && (
+              <TouchableOpacity
+                style={{ marginTop: 14, paddingHorizontal: 18, paddingVertical: 8, backgroundColor: couleurs.primaire, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                onPress={() => setCleRechargement(prev => prev + 1)}
+              >
+                <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>Réessayer le chargement</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>

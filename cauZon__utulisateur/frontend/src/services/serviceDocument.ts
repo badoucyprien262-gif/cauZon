@@ -482,14 +482,15 @@ export const sauvegarderDocumentsImportes = async (documents: DocumentCourse[]) 
 };
 
 /**
- * Vérifie de manière sécurisée et non-bloquante si un fichier existe sur l'appareil
+ * Vérifie de manière sécurisée et non-bloquante si un fichier existe sur l'appareil et n'est pas vide
  */
 export const verifierFichierLocalExiste = async (uri: string): Promise<boolean> => {
   if (!uri) return false;
   if (Platform.OS === 'web') return true;
   try {
-    const info = await FileSystem.getInfoAsync(uri);
-    return Boolean(info && info.exists);
+    const cheminNormalise = uri.startsWith('/') ? `file://${uri}` : uri;
+    const info = await FileSystem.getInfoAsync(cheminNormalise);
+    return Boolean(info && info.exists && (info.size === undefined || info.size > 0));
   } catch (err) {
     console.warn('Vérification existence fichier :', err);
     return false;
@@ -667,6 +668,63 @@ function base64ToUint8Array(base64: string): Uint8Array {
 export const DOSSIER_DOCS_PERSISTANTS = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}cauzon_docs/` : '';
 
 /**
+ * Normalise un chemin de fichier pour Android/iOS (préfixe file:// nécessaire pour FileSystem)
+ */
+export const normaliserCheminFichier = (chemin: string): string => {
+  if (!chemin || Platform.OS === 'web') return chemin;
+  const c = chemin.trim();
+  if (c.startsWith('content:') || c.startsWith('http:') || c.startsWith('https:') || c.startsWith('data:') || c.startsWith('blob:')) {
+    return c;
+  }
+  if (c.startsWith('/')) {
+    return `file://${c}`;
+  }
+  return c;
+};
+
+/**
+ * Recherche un fichier correspondant dans le dossier sandbox persistant cauzon_docs/
+ * Permet de récupérer les documents dont le chemin initial était temporaire (content:// ou cache)
+ */
+export const retrouverFichierDansSandbox = async (nomOuTitre: string): Promise<string | null> => {
+  if (Platform.OS === 'web' || !DOSSIER_DOCS_PERSISTANTS) return null;
+  try {
+    const dirInfo = await FileSystem.getInfoAsync(DOSSIER_DOCS_PERSISTANTS);
+    if (!dirInfo.exists) return null;
+
+    const fichiers = await FileSystem.readDirectoryAsync(DOSSIER_DOCS_PERSISTANTS);
+    if (!fichiers || fichiers.length === 0) return null;
+
+    // Nettoyage de la clé de recherche
+    const cleanRecherche = nomOuTitre
+      .toLowerCase()
+      .replace(/\.pdf$/, '')
+      .replace(/[^a-z0-9]/g, '');
+
+    if (!cleanRecherche) return null;
+
+    // 1. Recherche par correspondance exacte ou inclusion
+    const match = fichiers.find(f => {
+      const fClean = f.toLowerCase().replace(/\.pdf$/, '').replace(/[^a-z0-9]/g, '');
+      return fClean.includes(cleanRecherche) || cleanRecherche.includes(fClean);
+    });
+
+    if (match) {
+      const cheminTrouve = `${DOSSIER_DOCS_PERSISTANTS}${match}`;
+      const check = await FileSystem.getInfoAsync(cheminTrouve);
+      if (check.exists && check.size && check.size > 0) {
+        console.log('🔍 [Sandbox] Document retrouvé dans cauzon_docs/ :', match);
+        return cheminTrouve;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('⚠️ [Sandbox] Erreur recherche fichier :', err);
+    return null;
+  }
+};
+
+/**
  * Copie un fichier sélectionné vers le dossier persistant sécurisé de l'application (Sandboxing).
  * Permet à l'application d'accéder au document de façon permanente et autonome même si l'utilisateur
  * déplace ou supprime le fichier d'origine de son appareil.
@@ -679,6 +737,10 @@ export const copierFichierVersDossierPersistant = async (
     return sourceUri;
   }
 
+  if (!sourceUri) {
+    throw new Error('URI source manquante pour la persistance locale.');
+  }
+
   try {
     const docsDir = DOSSIER_DOCS_PERSISTANTS;
     const dirInfo = await FileSystem.getInfoAsync(docsDir);
@@ -686,25 +748,64 @@ export const copierFichierVersDossierPersistant = async (
       await FileSystem.makeDirectoryAsync(docsDir, { intermediates: true });
     }
 
+    // Si le fichier est DÉJÀ situé dans cauzon_docs/, on vérifie son intégrité et on le retourne directement
+    if (sourceUri.startsWith(docsDir)) {
+      const check = await FileSystem.getInfoAsync(sourceUri);
+      if (check.exists && check.size && check.size > 0) {
+        console.log('✅ Fichier déjà présent et valide dans cauzon_docs/ :', sourceUri);
+        return sourceUri;
+      }
+    }
+
     const cleanName = (idUniqueOuNom || `imported_${Date.now()}`)
       .replace(/[^a-zA-Z0-9._-]/g, '_');
     const nomFinal = cleanName.endsWith('.pdf') ? cleanName : `${cleanName}.pdf`;
     const targetPath = `${docsDir}${nomFinal}`;
 
-    // Copie physique vers le dossier sandbox permanent de l'application
-    await FileSystem.copyAsync({ from: sourceUri, to: targetPath });
+    console.log(`📦 [Sandboxing] Copie physique : ${sourceUri} -> ${targetPath}`);
 
-    const checkCopy = await FileSystem.getInfoAsync(targetPath);
-    if (checkCopy.exists && checkCopy.size && checkCopy.size > 0) {
-      console.log('✅ Fichier copié dans le stockage sandbox persistant :', targetPath);
+    // Tentative 1 : Copie native via FileSystem.copyAsync
+    let copySuccess = false;
+    try {
+      await FileSystem.copyAsync({ from: sourceUri, to: targetPath });
+      const checkCopy = await FileSystem.getInfoAsync(targetPath);
+      if (checkCopy.exists && checkCopy.size && checkCopy.size > 0) {
+        copySuccess = true;
+      }
+    } catch (errCopy: any) {
+      console.warn('⚠️ copyAsync direct échoué, tentative fallback base64 :', errCopy.message);
+    }
+
+    // Tentative 2 : Fallback de lecture/écriture Base64 si copyAsync échoue (notamment sur certains content:// Android)
+    if (!copySuccess) {
+      try {
+        const base64Data = await FileSystem.readAsStringAsync(sourceUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (base64Data && base64Data.length > 0) {
+          await FileSystem.writeAsStringAsync(targetPath, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const checkWrite = await FileSystem.getInfoAsync(targetPath);
+          if (checkWrite.exists && checkWrite.size && checkWrite.size > 0) {
+            copySuccess = true;
+          }
+        }
+      } catch (errBase64: any) {
+        console.warn('⚠️ Fallback Base64 échoué :', errBase64.message);
+      }
+    }
+
+    if (copySuccess) {
+      console.log('✅ Fichier copié avec succès dans le stockage sandbox persistant :', targetPath);
       return targetPath;
     } else {
-      console.warn('⚠️ Échec vérification copie, repli sur sourceUri');
-      return sourceUri;
+      // Rejeter explicitement pour empêcher l'enregistrement d'un document fantôme avec URI éphémère
+      throw new Error(`Échec de la copie physique vers le stockage persistant : le fichier copié est introuvable ou vide (${targetPath}).`);
     }
   } catch (err: any) {
-    console.error('Erreur lors de la copie vers le stockage persistant :', err.message);
-    return sourceUri;
+    console.error('❌ Erreur critique lors de la copie vers le stockage persistant :', err.message);
+    throw err;
   }
 };
 

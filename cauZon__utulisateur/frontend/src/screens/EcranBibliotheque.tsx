@@ -298,14 +298,23 @@ export default function EcranBibliotheque() {
     }
 
     const cheminFichier = doc.cheminLocal || (doc as any).file_path || '';
+    const estDocImporte = Boolean(
+      (doc as any).estImporte ||
+      (doc as any).est_importe ||
+      doc.id.startsWith('imported_') ||
+      cheminFichier.startsWith('file:') ||
+      cheminFichier.startsWith('content:') ||
+      cheminFichier.startsWith('blob:') ||
+      cheminFichier.startsWith('data:')
+    );
 
     // Ouverture directe et garantie dans le lecteur PDF intégré
     navigation.navigate('DocumentViewer', { 
       document: { 
         ...doc, 
         estVerrouille: false,
-        cheminLocal: cheminFichier,
-        estImporte: (doc as any).estImporte ?? doc.id.startsWith('imported_') ?? false
+        cheminLocal: estDocImporte ? cheminFichier : undefined,
+        estImporte: estDocImporte
       } 
     });
   };

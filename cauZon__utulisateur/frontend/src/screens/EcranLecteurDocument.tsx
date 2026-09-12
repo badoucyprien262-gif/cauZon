@@ -19,7 +19,7 @@ import { Accelerometer } from 'expo-sensors';
 import { useApp } from '../store/ContexteApp';
 
 import { RootStackParamList } from '../navigation/NavigateurApp';
-import { getDocumentPdfUrl, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS } from '../services/serviceDocument';
+import { getDocumentPdfUrl, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox } from '../services/serviceDocument';
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
@@ -36,14 +36,15 @@ export default function EcranLecteurDocument() {
 
   // Détection stricte d'un document personnel importé (Stockage 100% local)
   const cheminBrut = document.cheminLocal || (document as any).file_path || '';
-  const estDocumentImporte = 
-    Boolean((document as any).est_importe) ||
-    Boolean((document as any).estImporte) ||
+  const estDocumentImporte = Boolean(
+    (document as any).est_importe ||
+    (document as any).estImporte ||
     document.id.startsWith('imported_') ||
     cheminBrut.startsWith('file:') ||
     cheminBrut.startsWith('blob:') ||
     cheminBrut.startsWith('data:') ||
-    cheminBrut.startsWith('content:');
+    cheminBrut.startsWith('content:')
+  );
 
   // Les documents importés sont toujours 100% débloqués et ne nécessitent aucun calcul de paywall
   const estDebloqueGlobalement = estDocumentImporte || docsDebloquesIds.includes(document.id) || estAbonneVIP;
@@ -58,6 +59,7 @@ export default function EcranLecteurDocument() {
   const [chargementLocal, setChargementLocal] = useState(true);
   const [sourcePdfData, setSourcePdfData] = useState<string>('');
   const [modePaysageActif, setModePaysageActif] = useState(false);
+  const [cleRechargement, setCleRechargement] = useState(0);
 
   // Détection dynamique et fluide du mode Paysage (asservie au bouton)
   const estPaysage = Platform.OS === 'web' ? (modePaysageActif || screenWidth > screenHeight) : modePaysageActif;
@@ -73,11 +75,14 @@ export default function EcranLecteurDocument() {
     async function preparerSource() {
       try {
         setChargementLocal(true);
+        setHasError(false);
+        setFichierIntrouvable(false);
 
         if (estDocumentImporte) {
           if (Platform.OS !== 'web') {
-            let cheminEffectif = cheminBrut;
+            let cheminEffectif = normaliserCheminFichier(cheminBrut);
             let existe = await verifierFichierLocalExiste(cheminEffectif);
+            console.log(`[LecteurDocument] Vérification initiale fichier : ${cheminEffectif} | Existe : ${existe}`);
 
             // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
             if (!existe && DOSSIER_DOCS_PERSISTANTS) {
@@ -88,17 +93,26 @@ export default function EcranLecteurDocument() {
               if (existeSandbox) {
                 cheminEffectif = candidatSandbox;
                 existe = true;
-                console.log('✅ Document retrouvé dans cauzon_docs/ :', candidatSandbox);
+                console.log('✅ [LecteurDocument] Document importé retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
+              } else {
+                // Recherche par correspondance flexible dans tout le dossier cauzon_docs/
+                const cleRecherche = document.id || (document as any).titre || cleanNom;
+                const cheminTrouve = await retrouverFichierDansSandbox(cleRecherche);
+                if (cheminTrouve) {
+                  cheminEffectif = cheminTrouve;
+                  existe = true;
+                  console.log('✅ [LecteurDocument] Document importé retrouvé par balayage sandbox :', cheminTrouve);
+                }
               }
             }
 
-            // Si toujours introuvable localement mais possède une référence distante (Supabase Cloud)
+            // Si toujours introuvable localement mais possède une référence distante (sauvegarde Cloud VIP)
             if (!existe) {
               const remotePath = (document as any).file_path || '';
-              if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:')) {
+              if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:') && !remotePath.startsWith('content:')) {
                 const urlDistante = getDocumentPdfUrl(remotePath);
                 if (urlDistante && urlDistante.startsWith('http')) {
-                  console.log('🔄 Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
+                  console.log('🔄 [LecteurDocument] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
                   const cleanName = `${document.id}_${(document.titre || 'doc').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
                   const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
                   if (downloadedPath) {
@@ -110,7 +124,7 @@ export default function EcranLecteurDocument() {
             }
 
             if (!existe) {
-              console.warn('❌ Fichier local introuvable sur l\'appareil :', cheminBrut);
+              console.warn('❌ [LecteurDocument] Document personnel local introuvable :', cheminBrut);
               if (estMonte) {
                 setFichierIntrouvable(true);
                 setChargementLocal(false);
@@ -132,10 +146,35 @@ export default function EcranLecteurDocument() {
             }
           }
         } else {
-          // Document Supabase distant
-          const urlPublique = getDocumentPdfUrl(cheminBrut);
-          if (estMonte) {
-            setSourcePdfData(urlPublique);
+          // ☁️ Document Public / Catalogue Cloud Supabase
+          const remoteFilePath = (document as any).file_path || document.cheminLocal || '';
+          const urlPublique = getDocumentPdfUrl(remoteFilePath);
+
+          if (Platform.OS === 'web') {
+            // Sur Web, l'URL publique Supabase Storage est chargée directement dans l'iframe PDF.js
+            if (estMonte) {
+              setSourcePdfData(urlPublique);
+            }
+          } else {
+            // Sur Mobile natif : mise en cache locale transparente pour contourner les blocages CORS dans WebView
+            let base64Result = '';
+            const cacheFileName = `cache_${document.id}_${(document.titre || 'cours').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cacheFileName);
+
+            if (targetLocalPath) {
+              base64Result = await FileSystem.readAsStringAsync(targetLocalPath, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            }
+
+            if (estMonte) {
+              if (base64Result) {
+                setSourcePdfData(`data:application/pdf;base64,${base64Result}`);
+              } else {
+                // Fallback direct sur l'URL publique si échec de mise en cache
+                setSourcePdfData(urlPublique);
+              }
+            }
           }
         }
       } catch (err) {
@@ -152,7 +191,7 @@ export default function EcranLecteurDocument() {
 
     preparerSource();
     return () => { estMonte = false; };
-  }, [cheminBrut, estDocumentImporte]);
+  }, [cheminBrut, estDocumentImporte, cleRechargement]);
 
   // Synchronisation du nombre réel de pages et réceptions des messages sur Web
   useEffect(() => {
@@ -805,8 +844,17 @@ export default function EcranLecteurDocument() {
           <View style={styles.emptyContainer}>
             <Ionicons name={hasError ? "alert-circle-outline" : "document-text-outline"} size={48} color={hasError ? "#E74C3C" : couleurs.texteSecondaire} />
             <Text style={[styles.emptyText, hasError && { color: '#E74C3C', fontWeight: 'bold' }]}>
-              {hasError ? "Format de document non supporté ou fichier corrompu" : "Aucun fichier PDF disponible"}
+              {hasError ? "Impossible de charger le document" : "Aucun fichier PDF disponible"}
             </Text>
+            {hasError && (
+              <TouchableOpacity
+                style={[styles.buyBtn, { marginTop: 14, paddingHorizontal: 18, paddingVertical: 8, backgroundColor: couleurs.primaire }]}
+                onPress={() => setCleRechargement(prev => prev + 1)}
+              >
+                <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.buyBtnText}>Réessayer le chargement</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
