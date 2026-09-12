@@ -380,6 +380,7 @@ export default function EcranAccueil() {
             description: dbDoc.description ?? '',
             tags: dbDoc.tags ?? '',
             cheminLocal: dbDoc.file_path ?? '',
+            file_path: dbDoc.file_path ?? '',
             coverUrl: dbDoc.cover_url ?? '',
             statut: dbDoc.status === 'inactif' || dbDoc.status === 'archived' ? 'inactif' : 'actif',
           };

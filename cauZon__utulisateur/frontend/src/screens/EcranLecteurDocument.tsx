@@ -34,16 +34,42 @@ export default function EcranLecteurDocument() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
-  // Détection stricte d'un document personnel importé (Stockage 100% local)
-  const cheminBrut = document.cheminLocal || (document as any).file_path || '';
+  // Extraction exhaustive et ultra-robuste de la source PDF depuis tous les alias possibles
+  const docParams = (route.params as any)?.document || (route.params as any) || {};
+  const rawSource =
+    (route.params as any)?.cheminLocal ||
+    (route.params as any)?.file_path ||
+    (route.params as any)?.pdf_url ||
+    (route.params as any)?.url ||
+    (route.params as any)?.filePath ||
+    (route.params as any)?.document?.file_path ||
+    (route.params as any)?.document?.pdf_url ||
+    (route.params as any)?.document?.url ||
+    (route.params as any)?.document?.cheminLocal ||
+    document.cheminLocal ||
+    (document as any).file_path ||
+    (document as any).pdf_url ||
+    (document as any).url ||
+    docParams.cheminLocal ||
+    docParams.file_path ||
+    docParams.pdf_url ||
+    docParams.url ||
+    '';
+  const cheminBrut = rawSource;
+
+  // Détection stricte d'un document personnel importé (Stockage local sur l'appareil)
   const estDocumentImporte = Boolean(
     (document as any).est_importe ||
     (document as any).estImporte ||
-    document.id.startsWith('imported_') ||
+    docParams.est_importe ||
+    docParams.estImporte ||
+    document.id?.startsWith('imported_') ||
     cheminBrut.startsWith('file:') ||
     cheminBrut.startsWith('blob:') ||
     cheminBrut.startsWith('data:') ||
-    cheminBrut.startsWith('content:')
+    cheminBrut.startsWith('content:') ||
+    cheminBrut.startsWith('/data/') ||
+    cheminBrut.startsWith('/storage/')
   );
 
   // Les documents importés sont toujours 100% débloqués et ne nécessitent aucun calcul de paywall
@@ -77,14 +103,15 @@ export default function EcranLecteurDocument() {
         setChargementLocal(true);
         setHasError(false);
         setFichierIntrouvable(false);
+        console.log('[Lecteur] Source brute :', cheminBrut);
 
         if (estDocumentImporte) {
           if (Platform.OS !== 'web') {
             let cheminEffectif = normaliserCheminFichier(cheminBrut);
             let existe = await verifierFichierLocalExiste(cheminEffectif);
-            console.log(`[LecteurDocument] Vérification initiale fichier : ${cheminEffectif} | Existe : ${existe}`);
+            console.log(`[Lecteur] Vérification initiale fichier local : ${cheminEffectif} | Existe : ${existe}`);
 
-            // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
+            // 1. Si le chemin enregistré n'existe pas directement, chercher dans le sandbox cauzon_docs/
             if (!existe && DOSSIER_DOCS_PERSISTANTS) {
               const nomFichier = (document as any).file_path || (document as any).titre || '';
               const cleanNom = nomFichier.split('/').pop() || `${document.id}.pdf`;
@@ -93,26 +120,26 @@ export default function EcranLecteurDocument() {
               if (existeSandbox) {
                 cheminEffectif = candidatSandbox;
                 existe = true;
-                console.log('✅ [LecteurDocument] Document importé retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
+                console.log('✅ [Lecteur] Document importé retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
               } else {
-                // Recherche par correspondance flexible dans tout le dossier cauzon_docs/
+                // Recherche par correspondance flexible (ID, titre, nom) dans tout le dossier cauzon_docs/
                 const cleRecherche = document.id || (document as any).titre || cleanNom;
                 const cheminTrouve = await retrouverFichierDansSandbox(cleRecherche);
                 if (cheminTrouve) {
                   cheminEffectif = cheminTrouve;
                   existe = true;
-                  console.log('✅ [LecteurDocument] Document importé retrouvé par balayage sandbox :', cheminTrouve);
+                  console.log('✅ [Lecteur] Document importé retrouvé par balayage sandbox :', cheminTrouve);
                 }
               }
             }
 
-            // Si toujours introuvable localement mais possède une référence distante (sauvegarde Cloud VIP)
+            // 2. Si toujours introuvable localement mais possède une référence distante (sauvegarde Cloud VIP ou Storage)
             if (!existe) {
-              const remotePath = (document as any).file_path || '';
+              const remotePath = (document as any).file_path || (document as any).pdf_url || (document as any).url || '';
               if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:') && !remotePath.startsWith('content:')) {
                 const urlDistante = getDocumentPdfUrl(remotePath);
                 if (urlDistante && urlDistante.startsWith('http')) {
-                  console.log('🔄 [LecteurDocument] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
+                  console.log('🔄 [Lecteur] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
                   const cleanName = `${document.id}_${(document.titre || 'doc').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
                   const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
                   if (downloadedPath) {
@@ -123,8 +150,9 @@ export default function EcranLecteurDocument() {
               }
             }
 
+            // 3. Si introuvable après TOUTES les tentatives locales et de secours
             if (!existe) {
-              console.warn('❌ [LecteurDocument] Document personnel local introuvable :', cheminBrut);
+              console.warn('❌ [Lecteur] Statut : Fichier local introuvable après toutes les tentatives :', cheminBrut);
               if (estMonte) {
                 setFichierIntrouvable(true);
                 setChargementLocal(false);
@@ -132,7 +160,10 @@ export default function EcranLecteurDocument() {
               return;
             }
 
-            // Lecture en Base64 pour injecter directement dans PDF.js sans requête réseau
+            console.log('[Lecteur] Source résolue (Local Natif) :', cheminEffectif);
+            console.log('[Lecteur] Statut : Prêt pour conversion Base64');
+
+            // Lecture en Base64 pour injecter directement dans PDF.js sans restriction CORS WebView
             const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
             });
@@ -141,14 +172,39 @@ export default function EcranLecteurDocument() {
             }
           } else {
             // Sur Web, l'URL blob ou data est directement utilisable
+            console.log('[Lecteur] Source résolue (Web Local/Blob) :', cheminBrut);
+            console.log('[Lecteur] Statut : Chargement direct Web');
             if (estMonte) {
               setSourcePdfData(cheminBrut);
             }
           }
         } else {
           // ☁️ Document Public / Catalogue Cloud Supabase
-          const remoteFilePath = (document as any).file_path || document.cheminLocal || '';
-          const urlPublique = getDocumentPdfUrl(remoteFilePath);
+          const remoteFilePath =
+            (document as any).file_path ||
+            (document as any).pdf_url ||
+            (document as any).url ||
+            (document as any).filePath ||
+            document.cheminLocal ||
+            cheminBrut;
+
+          let urlPublique = '';
+          if (remoteFilePath) {
+            urlPublique = getDocumentPdfUrl(remoteFilePath);
+          }
+
+          console.log('[Lecteur] Source résolue (Cloud Supabase) :', urlPublique);
+
+          if (!urlPublique) {
+            console.warn('❌ [Lecteur] Statut : Aucun chemin PDF disponible');
+            if (estMonte) {
+              setHasError(false);
+              setChargementLocal(false);
+            }
+            return;
+          }
+
+          console.log('[Lecteur] Statut : Chargement document distant...');
 
           if (Platform.OS === 'web') {
             // Sur Web, l'URL publique Supabase Storage est chargée directement dans l'iframe PDF.js

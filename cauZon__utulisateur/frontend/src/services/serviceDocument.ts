@@ -686,7 +686,7 @@ export const normaliserCheminFichier = (chemin: string): string => {
  * Recherche un fichier correspondant dans le dossier sandbox persistant cauzon_docs/
  * Permet de récupérer les documents dont le chemin initial était temporaire (content:// ou cache)
  */
-export const retrouverFichierDansSandbox = async (nomOuTitre: string): Promise<string | null> => {
+export const retrouverFichierDansSandbox = async (nomOuTitreOuId: string): Promise<string | null> => {
   if (Platform.OS === 'web' || !DOSSIER_DOCS_PERSISTANTS) return null;
   try {
     const dirInfo = await FileSystem.getInfoAsync(DOSSIER_DOCS_PERSISTANTS);
@@ -696,23 +696,26 @@ export const retrouverFichierDansSandbox = async (nomOuTitre: string): Promise<s
     if (!fichiers || fichiers.length === 0) return null;
 
     // Nettoyage de la clé de recherche
-    const cleanRecherche = nomOuTitre
+    const cleanRecherche = (nomOuTitreOuId || '')
       .toLowerCase()
       .replace(/\.pdf$/, '')
       .replace(/[^a-z0-9]/g, '');
 
     if (!cleanRecherche) return null;
 
-    // 1. Recherche par correspondance exacte ou inclusion
+    // 1. Recherche par correspondance exacte ou inclusion réciproque
     const match = fichiers.find(f => {
       const fClean = f.toLowerCase().replace(/\.pdf$/, '').replace(/[^a-z0-9]/g, '');
       return fClean.includes(cleanRecherche) || cleanRecherche.includes(fClean);
     });
 
     if (match) {
-      const cheminTrouve = `${DOSSIER_DOCS_PERSISTANTS}${match}`;
+      let cheminTrouve = `${DOSSIER_DOCS_PERSISTANTS}${match}`;
+      if (!cheminTrouve.startsWith('file://') && cheminTrouve.startsWith('/')) {
+        cheminTrouve = `file://${cheminTrouve}`;
+      }
       const check = await FileSystem.getInfoAsync(cheminTrouve);
-      if (check.exists && check.size && check.size > 0) {
+      if (check.exists && (check.size === undefined || check.size > 0)) {
         console.log('🔍 [Sandbox] Document retrouvé dans cauzon_docs/ :', match);
         return cheminTrouve;
       }
@@ -1409,8 +1412,15 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
     const tousDocsImportesMap = new Map<string, DocumentCourse>();
     docsImportesLocaux.forEach((d) => tousDocsImportesMap.set(d.id, d));
     cloudUserDocs.forEach((d) => {
-      // Le cloud prend la priorité ou enrichit le cache
-      tousDocsImportesMap.set(d.id, { ...(tousDocsImportesMap.get(d.id) || {}), ...d });
+      const existantLocal = tousDocsImportesMap.get(d.id);
+      // Préserver le chemin local permanent physique s'il existe déjà sur l'appareil
+      const cheminLocalConserve = existantLocal?.cheminLocal || (existantLocal as any)?.file_path || d.cheminLocal || d.file_path;
+      tousDocsImportesMap.set(d.id, {
+        ...(existantLocal || {}),
+        ...d,
+        cheminLocal: cheminLocalConserve,
+        file_path: d.file_path || existantLocal?.file_path || cheminLocalConserve,
+      });
     });
     const docsImportes = Array.from(tousDocsImportesMap.values());
 
@@ -1692,12 +1702,20 @@ export const getDocumentPdfUrl = (filePath: string): string => {
 
   // 2. Si c'est une clé Supabase Storage :
   console.log('🔗 Résolution URL Supabase Storage pour :', cleanPath);
-  // Si le chemin commence par un préfixe ou bucket spécifique
-  const isDedicatedUserBucket = cleanPath.startsWith('documents_utilisateurs/');
-  const bucketName = cleanPath.includes('/') && !isDedicatedUserBucket ? 'cours-documents' : 'cours-documents';
+  let bucketName = 'cours-documents';
+  let storagePath = cleanPath;
+
+  if (cleanPath.startsWith('documents_utilisateurs/')) {
+    bucketName = 'documents_utilisateurs';
+    storagePath = cleanPath.replace(/^documents_utilisateurs\//, '');
+  } else if (cleanPath.startsWith('cours-documents/')) {
+    bucketName = 'cours-documents';
+    storagePath = cleanPath.replace(/^cours-documents\//, '');
+  }
+
   const { data } = supabase.storage
     .from(bucketName)
-    .getPublicUrl(cleanPath);
+    .getPublicUrl(storagePath);
 
   return data.publicUrl;
 };

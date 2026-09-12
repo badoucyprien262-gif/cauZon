@@ -149,6 +149,7 @@ export default function EcranBibliotheque() {
         limiteApercuValeur: parsedVal,
         description: dbDoc.description ?? '',
         cheminLocal: dbDoc.cheminLocal || dbDoc.file_path || '',
+        file_path: dbDoc.file_path || dbDoc.cheminLocal || '',
         is_vip_consultation: dbDoc.is_vip_consultation ?? false,
         estImporte: dbDoc.est_importe ?? dbDoc.id?.startsWith('imported_') ?? false,
       };
@@ -313,7 +314,8 @@ export default function EcranBibliotheque() {
       document: { 
         ...doc, 
         estVerrouille: false,
-        cheminLocal: estDocImporte ? cheminFichier : undefined,
+        cheminLocal: cheminFichier,
+        file_path: doc.file_path || (doc as any).file_path || cheminFichier,
         estImporte: estDocImporte
       } 
     });

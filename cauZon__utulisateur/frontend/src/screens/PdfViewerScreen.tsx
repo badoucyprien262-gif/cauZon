@@ -38,29 +38,43 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
   const estPaysage = Platform.OS === 'web' ? (modePaysageActif || screenWidth > screenHeight) : modePaysageActif;
 
 
+  const params = (route?.params as any) || {};
   const { 
-    titre, 
-    filePath, 
-    estDebloque, 
+    titre = 'Document', 
+    estDebloque = false, 
     limiteApercuPages = 3,
     limiteApercuType = 'pourcentage',
     limiteApercuValeur = 30
-  } = route?.params || {
-    titre: 'Document',
-    filePath: '',
-    estDebloque: false,
-    limiteApercuPages: 3,
-    limiteApercuType: 'pourcentage',
-    limiteApercuValeur: 30,
-  };
+  } = params;
+
+  // Extraction exhaustive des alias
+  const rawSource = 
+    params.filePath ||
+    params.cheminLocal ||
+    params.file_path ||
+    params.pdf_url ||
+    params.url ||
+    params.document?.file_path ||
+    params.document?.pdf_url ||
+    params.document?.url ||
+    params.document?.cheminLocal ||
+    '';
+  const filePath = rawSource;
 
   const [cleRechargement, setCleRechargement] = useState(0);
 
-  const estLocalOuImporte = 
+  const estLocalOuImporte = Boolean(
+    params.estImporte ||
+    params.est_importe ||
+    params.document?.estImporte ||
+    params.document?.est_importe ||
     filePath.startsWith('file:') ||
     filePath.startsWith('blob:') ||
     filePath.startsWith('data:') ||
-    filePath.startsWith('content:');
+    filePath.startsWith('content:') ||
+    filePath.startsWith('/data/') ||
+    filePath.startsWith('/storage/')
+  );
 
   // Préparation de la source PDF (Conversion Base64 sécurisée sur Mobile)
   useEffect(() => {
@@ -70,12 +84,13 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
         setChargementLocal(true);
         setHasError(false);
         setFichierIntrouvable(false);
+        console.log('[Lecteur] Source brute :', filePath);
 
         if (estLocalOuImporte) {
           if (Platform.OS !== 'web') {
             let cheminEffectif = normaliserCheminFichier(filePath);
             let existe = await verifierFichierLocalExiste(cheminEffectif);
-            console.log(`[PdfViewerScreen] Vérification initiale fichier : ${cheminEffectif} | Existe : ${existe}`);
+            console.log(`[Lecteur] Vérification initiale fichier local : ${cheminEffectif} | Existe : ${existe}`);
 
             // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
             if (!existe && DOSSIER_DOCS_PERSISTANTS) {
@@ -85,7 +100,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               if (existeSandbox) {
                 cheminEffectif = candidatSandbox;
                 existe = true;
-                console.log('✅ [PdfViewerScreen] Document retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
+                console.log('✅ [Lecteur] Document retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
               } else {
                 // Recherche par balayage sandbox
                 const cleRecherche = titre || cleanNom;
@@ -93,7 +108,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
                 if (cheminTrouve) {
                   cheminEffectif = cheminTrouve;
                   existe = true;
-                  console.log('✅ [PdfViewerScreen] Document retrouvé par balayage sandbox :', cheminTrouve);
+                  console.log('✅ [Lecteur] Document retrouvé par balayage sandbox :', cheminTrouve);
                 }
               }
             }
@@ -102,6 +117,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             if (!existe && !filePath.startsWith('file:') && !filePath.startsWith('data:') && !filePath.startsWith('blob:') && !filePath.startsWith('content:')) {
               const urlDistante = getDocumentPdfUrl(filePath);
               if (urlDistante && urlDistante.startsWith('http')) {
+                console.log('🔄 [Lecteur] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
                 const cleanName = `${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
                 const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
                 if (downloadedPath) {
@@ -112,13 +128,16 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             }
 
             if (!existe) {
-              console.warn('❌ [PdfViewerScreen] Fichier local introuvable sur l\'appareil :', filePath);
+              console.warn('❌ [Lecteur] Statut : Fichier local introuvable sur l\'appareil :', filePath);
               if (estMonte) {
                 setFichierIntrouvable(true);
                 setChargementLocal(false);
               }
               return;
             }
+
+            console.log('[Lecteur] Source résolue (Local Natif) :', cheminEffectif);
+            console.log('[Lecteur] Statut : Prêt pour conversion Base64');
 
             const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
@@ -127,13 +146,31 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               setSourcePdfData(`data:application/pdf;base64,${base64}`);
             }
           } else {
+            console.log('[Lecteur] Source résolue (Web Local/Blob) :', filePath);
+            console.log('[Lecteur] Statut : Chargement direct Web');
             if (estMonte) {
               setSourcePdfData(filePath);
             }
           }
         } else {
           // ☁️ Document distant Cloud Supabase
-          const urlPublique = getDocumentPdfUrl(filePath);
+          let urlPublique = '';
+          if (filePath) {
+            urlPublique = getDocumentPdfUrl(filePath);
+          }
+
+          console.log('[Lecteur] Source résolue (Cloud Supabase) :', urlPublique);
+
+          if (!urlPublique) {
+            console.warn('❌ [Lecteur] Statut : Aucun chemin PDF disponible');
+            if (estMonte) {
+              setHasError(false);
+              setChargementLocal(false);
+            }
+            return;
+          }
+
+          console.log('[Lecteur] Statut : Chargement document distant...');
 
           if (Platform.OS === 'web') {
             if (estMonte) {
