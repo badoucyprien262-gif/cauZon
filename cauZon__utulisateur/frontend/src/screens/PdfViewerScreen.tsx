@@ -332,6 +332,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
       gap: 20px;
       transform-origin: top center;
       will-change: transform;
+      transition: transform 0.12s cubic-bezier(0.25, 1, 0.5, 1);
     }
     .page-wrapper {
       position: relative;
@@ -585,6 +586,15 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
         const containerWidth = Math.min(window.innerWidth - 32, 860);
         const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
 
+        // Bornes strictes de sécurité et constantes d'amortissement
+        const MIN_SCALE = 1.0;
+        const MAX_SCALE = 3.5;
+        const MAX_CANVAS_DIM = 4096; // Plafond matériel GPU anti-crash
+
+        function bornerEchelle(valeur) {
+          return Math.min(MAX_SCALE, Math.max(MIN_SCALE, valeur));
+        }
+
         // Registre de re-rastérisation vectorielle dynamique à la volée
         window._pageRenderStates = window._pageRenderStates || {};
         const pageRenderStates = window._pageRenderStates;
@@ -605,7 +615,8 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
         }
 
         function appliquerZoomCss(targetScale) {
-          currentZoom = Math.min(Math.max(targetScale, 0.6), 4.5);
+          currentZoom = bornerEchelle(targetScale);
+          window._currentZoom = currentZoom;
           const tempScale = currentZoom / appliedZoom;
           const container = document.getElementById('canvas-container');
           if (container) {
@@ -615,59 +626,120 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
         }
 
+        let renderSessionId = 0;
+
         function reRasteriserPagesDynamiques() {
-          const container = document.getElementById('canvas-container');
-          if (container) {
-            container.style.transform = 'scale(1)';
-          }
-          appliedZoom = currentZoom;
-
+          const currentSessionId = ++renderSessionId;
+          const targetZoom = currentZoom;
           const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+          const MAX_CANVAS_DIM = 4096;
 
-          Object.keys(pageRenderStates).forEach(function(numStr) {
-            const pageNum = parseInt(numStr);
+          const pageNums = Object.keys(pageRenderStates).map(Number);
+          if (pageNums.length === 0) return;
+
+          const renderTasks = [];
+
+          pageNums.forEach(function(pageNum) {
             const pState = pageRenderStates[pageNum];
             if (!pState || !pState.page) return;
 
-            // Annuler la tâche précédente si en cours
-            if (pState.renderTask) {
+            // Annuler la tâche offscreen précédente si encore en cours
+            if (pState.offscreenTask) {
               try {
-                pState.renderTask.cancel();
+                pState.offscreenTask.cancel();
               } catch (e) {}
-              pState.renderTask = null;
+              pState.offscreenTask = null;
             }
 
-            const finalScale = pState.baseScale * appliedZoom;
+            const unscaledViewport = pState.page.getViewport({ scale: 1.0 });
+            const finalScale = pState.baseScale * targetZoom;
             const displayViewport = pState.page.getViewport({ scale: finalScale });
-            const renderViewport = pState.page.getViewport({ scale: finalScale * dpr });
 
-            pState.wrapper.style.width = Math.round(displayViewport.width) + 'px';
-            pState.wrapper.style.height = Math.round(displayViewport.height) + 'px';
+            // Garde-fou anti-crash mémoire GPU : plafonnement à 4096px
+            let effectiveRenderScale = finalScale * dpr;
+            const renderW = unscaledViewport.width * effectiveRenderScale;
+            const renderH = unscaledViewport.height * effectiveRenderScale;
+            if (renderW > MAX_CANVAS_DIM || renderH > MAX_CANVAS_DIM) {
+              const capRatio = Math.min(MAX_CANVAS_DIM / renderW, MAX_CANVAS_DIM / renderH);
+              effectiveRenderScale = effectiveRenderScale * capRatio;
+            }
 
-            pState.canvas.width = Math.round(renderViewport.width);
-            pState.canvas.height = Math.round(renderViewport.height);
-            pState.canvas.style.width = Math.round(displayViewport.width) + 'px';
-            pState.canvas.style.height = Math.round(displayViewport.height) + 'px';
+            const renderViewport = pState.page.getViewport({ scale: effectiveRenderScale });
 
-            const ctx = pState.canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+            // Technique Double-Buffer : Création d'un canvas secondaire hors-champ
+            // Le canvas visible actuellement à l'écran reste intact et affiché sans aucun flicker
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = Math.round(renderViewport.width);
+            offscreenCanvas.height = Math.round(renderViewport.height);
+            offscreenCanvas.style.width = Math.round(displayViewport.width) + 'px';
+            offscreenCanvas.style.height = Math.round(displayViewport.height) + 'px';
+            offscreenCanvas.style.display = 'block';
+
+            const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false, willReadFrequently: false });
+            offscreenCtx.imageSmoothingEnabled = true;
+            offscreenCtx.imageSmoothingQuality = 'high';
 
             const task = pState.page.render({
-              canvasContext: ctx,
+              canvasContext: offscreenCtx,
               viewport: renderViewport
             });
-            pState.renderTask = task;
+            pState.offscreenTask = task;
 
-            task.promise.then(function() {
-              if (pState.renderTask === task) {
-                pState.renderTask = null;
-              }
+            const promise = task.promise.then(function() {
+              return {
+                pageNum: pageNum,
+                pState: pState,
+                offscreenCanvas: offscreenCanvas,
+                displayViewport: displayViewport
+              };
             }).catch(function(err) {
               if (err && (err.name === 'RenderingCancelledException' || err.message === 'Rendering cancelled')) {
-                return;
+                return null;
               }
-              console.warn('[PDF.js] Re-rendu page ' + pageNum, err);
+              console.warn('[PDF.js] Erreur offscreen render page ' + pageNum, err);
+              return null;
+            });
+
+            renderTasks.push(promise);
+          });
+
+          // Dès que les rendus hors-champ sont résolus : permutation atomique en 1 frame
+          Promise.all(renderTasks).then(function(results) {
+            // Abandonner si un geste plus récent a démarré une autre session
+            if (currentSessionId !== renderSessionId) return;
+
+            requestAnimationFrame(function() {
+              const container = document.getElementById('canvas-container');
+              if (container) {
+                container.style.transition = 'none';
+                container.style.transform = 'scale(1)';
+              }
+              appliedZoom = targetZoom;
+
+              results.forEach(function(res) {
+                if (!res) return;
+                const pState = res.pState;
+                const offCanvas = res.offscreenCanvas;
+                const dispVp = res.displayViewport;
+
+                // 1. Adapter les dimensions du wrapper à la nouvelle taille
+                pState.wrapper.style.width = Math.round(dispVp.width) + 'px';
+                pState.wrapper.style.height = Math.round(dispVp.height) + 'px';
+
+                // 2. Permuter instantanément le canvas sans vider l'écran (zéro sursaut)
+                offCanvas.id = pState.canvas.id;
+                offCanvas.className = pState.canvas.className;
+                pState.wrapper.replaceChild(offCanvas, pState.canvas);
+                pState.canvas = offCanvas;
+                pState.offscreenTask = null;
+              });
+
+              // Réactiver la transition cinématique pour les interactions futures
+              requestAnimationFrame(function() {
+                if (container) {
+                  container.style.transition = 'transform 0.12s cubic-bezier(0.25, 1, 0.5, 1)';
+                }
+              });
             });
           });
         }
@@ -676,7 +748,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(function() {
             reRasteriserPagesDynamiques();
-          }, delaiMs || 150);
+          }, delaiMs || 90);
         }
 
         window._appliquerZoomCss = appliquerZoomCss;
@@ -689,7 +761,16 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             const unscaledViewport = page.getViewport({ scale: 1.0 });
             const baseScale = containerWidth / unscaledViewport.width;
             const displayViewport = page.getViewport({ scale: baseScale });
-            const renderViewport = page.getViewport({ scale: baseScale * dpr });
+
+            // Garde-fou GPU initial
+            let initRenderScale = baseScale * dpr;
+            const initW = unscaledViewport.width * initRenderScale;
+            const initH = unscaledViewport.height * initRenderScale;
+            if (initW > MAX_CANVAS_DIM || initH > MAX_CANVAS_DIM) {
+              const capRatio = Math.min(MAX_CANVAS_DIM / initW, MAX_CANVAS_DIM / initH);
+              initRenderScale = initRenderScale * capRatio;
+            }
+            const renderViewport = page.getViewport({ scale: initRenderScale });
 
             const wrapper = document.createElement('div');
             wrapper.className = 'page-wrapper';
@@ -817,18 +898,17 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
     }
 
     // --- Gestionnaires d'événements de zoom interactif (Web & Mobile) ---
-    let touchStartDist = 0;
-    let touchStartZoom = 1.0;
+    let lastPinchDist = 0;
     let isPinching = false;
+    const DAMPING_FACTOR_TOUCH = 0.15; // Amortissement ultra-doux (15%)
 
-    // 1. Zoom au pinch tactile à deux doigts (Mobile / Tablettes / Touch Web)
+    // 1. Zoom au pinch tactile à deux doigts feutré (Mobile / Tablettes)
     window.addEventListener('touchstart', function(e) {
       if (e.touches && e.touches.length === 2) {
         isPinching = true;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchStartDist = Math.hypot(dx, dy);
-        touchStartZoom = (window._pageRenderStates && window._appliquerZoomCss) ? (window._currentZoom || 1.0) : 1.0;
+        lastPinchDist = Math.hypot(dx, dy);
       }
     }, { passive: true });
 
@@ -837,9 +917,18 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         const currentDist = Math.hypot(dx, dy);
-        if (touchStartDist > 0) {
-          const factor = currentDist / touchStartDist;
-          window._appliquerZoomCss(touchStartZoom * factor);
+
+        // Seuil de bruit (5px) pour lisser complètement les micro-tremblements
+        if (Math.abs(currentDist - lastPinchDist) < 5) return;
+
+        if (lastPinchDist > 0) {
+          // Calcul incrémental amorti ultra-doux (0.15)
+          const ratio = currentDist / lastPinchDist;
+          const delta = (ratio - 1.0) * DAMPING_FACTOR_TOUCH;
+          const currentZ = window._currentZoom || 1.0;
+          const nouvelleEchelle = currentZ * (1.0 + delta);
+          window._appliquerZoomCss(nouvelleEchelle);
+          lastPinchDist = currentDist;
         }
       }
     }, { passive: true });
@@ -847,27 +936,29 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
     window.addEventListener('touchend', function(e) {
       if (isPinching && (!e.touches || e.touches.length < 2)) {
         isPinching = false;
-        touchStartDist = 0;
+        lastPinchDist = 0;
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(150);
+          window._programmerReRasterisation(90);
         }
       }
     }, { passive: true });
 
-    // 2. Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web)
+    // 2. Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web) au pas feutré de 3.5%
     window.addEventListener('wheel', function(e) {
       if ((e.ctrlKey || e.metaKey) && window._appliquerZoomCss) {
         e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.08 : 0.92;
+        // Pas doux millimétré de 3.5% par cran de molette
+        const delta = -Math.sign(e.deltaY) * 0.035;
         const currentZ = window._currentZoom || 1.0;
-        window._appliquerZoomCss(currentZ * factor);
+        const targetScale = currentZ + delta;
+        window._appliquerZoomCss(targetScale);
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(150);
+          window._programmerReRasterisation(90);
         }
       }
     }, { passive: false });
 
-    // 3. Double-tap pour bascule rapide (1.0x <-> 2.0x)
+    // 3. Double-tap pour bascule rapide amortie (1.0x <-> 2.0x)
     let dernierTouchEnd = 0;
     window.addEventListener('touchend', function(e) {
       if (isPinching) return;
@@ -877,7 +968,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
         const target = currentZ > 1.25 ? 1.0 : 2.0;
         window._appliquerZoomCss(target);
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(150);
+          window._programmerReRasterisation(90);
         }
       }
       dernierTouchEnd = maintenant;
