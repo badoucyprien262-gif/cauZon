@@ -195,7 +195,7 @@ export default function ModaleImportDocument({
     } catch (e: any) {
       setEnCours(false);
       console.error('Erreur téléversement Cloud document :', e);
-      afficherToast("Une erreur inattendue est survenue.", 'Erreur ❌', 'erreur');
+      afficherToast(e?.message || "Une erreur inattendue est survenue.", 'Erreur ❌', 'erreur');
     }
   };
 

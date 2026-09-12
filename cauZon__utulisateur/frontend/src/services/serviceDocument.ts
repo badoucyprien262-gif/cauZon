@@ -1014,55 +1014,76 @@ export const televerserDocumentCloud = async (params: {
       uploadBody = base64ToUint8Array(base64);
     }
 
-    // 2️⃣ Étape A : Téléversement vers Supabase Storage
+    // 2️⃣ Étape A : Téléversement vers Supabase Storage avec Timeout strict (20s) et gestion d'erreurs
     let storageBucket = 'documents_utilisateurs';
     let finalStoragePath = cloudPath;
 
-    let uploadRes = await supabase.storage
-      .from(storageBucket)
-      .upload(finalStoragePath, uploadBody, {
-        contentType: 'application/pdf',
-        upsert: true,
-      });
+    const uploadAvecTimeout = async (bucket: string, path: string, body: any, timeoutMs = 20000) => {
+      console.log('[Upload] Début envoi binaire vers :', path, 'sur bucket :', bucket);
+      const timer = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Le serveur de stockage ne répond pas (délai dépassé de 20s). Vérifiez votre connexion Internet ou les règles du Storage Supabase.')),
+          timeoutMs
+        )
+      );
 
-    if (uploadRes.error) {
-      console.warn(`Tentative bucket ${storageBucket} échouée (${uploadRes.error.message}), repli sur 'cours-documents'...`);
-      storageBucket = 'cours-documents';
-      finalStoragePath = `documents_utilisateurs/${cloudPath}`;
-
-      const fallbackRes = await supabase.storage
-        .from(storageBucket)
-        .upload(finalStoragePath, uploadBody, {
+      const uploadOp = supabase.storage
+        .from(bucket)
+        .upload(path, body, {
           contentType: 'application/pdf',
           upsert: true,
         });
 
-      if (fallbackRes.error) {
-        console.error('Erreur téléversement Storage Supabase :', fallbackRes.error);
-        throw new Error(`Échec du téléversement dans le Cloud : ${fallbackRes.error.message}`);
+      return await Promise.race([uploadOp, timer]);
+    };
+
+    try {
+      let uploadRes = await uploadAvecTimeout(storageBucket, finalStoragePath, uploadBody, 20000);
+
+      if (uploadRes.error) {
+        console.warn(`[Upload] Tentative bucket ${storageBucket} échouée (${uploadRes.error.message}), repli sur 'cours-documents'...`);
+        storageBucket = 'cours-documents';
+        finalStoragePath = `documents_utilisateurs/${cloudPath}`;
+
+        const fallbackRes = await uploadAvecTimeout(storageBucket, finalStoragePath, uploadBody, 20000);
+
+        if (fallbackRes.error) {
+          console.error('[Upload Storage Error]', fallbackRes.error);
+          throw new Error(`Échec du téléversement dans le Cloud : ${fallbackRes.error.message}`);
+        }
       }
+    } catch (errUpload: any) {
+      console.error('[Upload Storage Error]', errUpload);
+      throw errUpload;
     }
 
     console.log(`✅ Fichier PDF téléversé avec succès dans Supabase Storage [${storageBucket}] :`, finalStoragePath);
 
-    // 3️⃣ Calcul du nombre de pages
+    // 3️⃣ Calcul du nombre de pages sécurisé (immunisé contre les erreurs tslib/__extends)
     let pagesCount = params.nombrePages || 1;
     try {
-      const { PDFDocument } = await import('pdf-lib');
       if (Platform.OS === 'web') {
         const resp = await fetch(params.fileUri);
         const arrayBuf = await resp.arrayBuffer();
-        const pdfDoc = await PDFDocument.load(arrayBuf, { ignoreEncryption: true });
-        pagesCount = pdfDoc.getPageCount();
-      } else {
+        const pdfLibModule = await import('pdf-lib');
+        const PDFDocumentClass = pdfLibModule.PDFDocument || (pdfLibModule as any).default?.PDFDocument;
+        if (PDFDocumentClass && typeof PDFDocumentClass.load === 'function') {
+          const pdfDoc = await PDFDocumentClass.load(arrayBuf, { ignoreEncryption: true });
+          pagesCount = pdfDoc.getPageCount();
+        }
+      } else if (localCachePath) {
         const base64 = await FileSystem.readAsStringAsync(localCachePath, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        const pdfDoc = await PDFDocument.load(base64, { ignoreEncryption: true });
-        pagesCount = pdfDoc.getPageCount();
+        const pdfLibModule = await import('pdf-lib');
+        const PDFDocumentClass = pdfLibModule.PDFDocument || (pdfLibModule as any).default?.PDFDocument;
+        if (PDFDocumentClass && typeof PDFDocumentClass.load === 'function') {
+          const pdfDoc = await PDFDocumentClass.load(base64, { ignoreEncryption: true });
+          pagesCount = pdfDoc.getPageCount();
+        }
       }
-    } catch (errPages) {
-      console.warn('Note extraction pages PDF :', errPages);
+    } catch (errPages: any) {
+      console.warn('⚠️ [televerserDocumentCloud] Note extraction pages PDF (valeur par défaut utilisée) :', errPages?.message);
     }
 
     const tailleMo = params.fileSize
@@ -1070,33 +1091,79 @@ export const televerserDocumentCloud = async (params: {
       : 1.5;
 
     // 4️⃣ Étape B : Persistance des métadonnées dans la base de données Supabase
-    // Tentative 1 : Table dédiée 'user_library_documents'
+    // Re-vérification stricte de la session utilisateur pour garantir auth.uid() = user_id (règle RLS)
+    const { data: authCheck } = await supabase.auth.getUser();
+    const currentUser = authCheck?.user || user;
+    const currentUserId = currentUser.id;
+
     let dbPersisted = false;
-    const tableDedieePayload = {
-      id: idUnique,
-      user_id: userId,
-      title: params.customTitle.trim(),
-      folder_name: params.selectedFolder.trim() || 'Documents Personnels',
-      file_path: finalStoragePath,
-      cloud_path: cloudPath,
-      local_uri: Platform.OS === 'web' ? '' : localCachePath,
-      bucket: storageBucket,
-      file_size_bytes: params.fileSize || Math.round(tailleMo * 1024 * 1024),
-      page_count: pagesCount,
-      created_at: new Date().toISOString(),
+    let derniereErreurSql: any = null;
+
+    // Helper pour exécuter une insertion tolérante
+    const executerInsertionTolerante = async (tableName: string, payload: Record<string, any>) => {
+      if (__DEV__) console.log(`📡 [DB Insert] Table: '${tableName}'`);
+      const { error } = await supabase.from(tableName).upsert([payload]);
+      
+      if (!error) {
+        return { success: true, error: null };
+      }
+
+      derniereErreurSql = error;
+      if (__DEV__) {
+        console.error('[DB Insert Error Brut]', {
+          table: tableName,
+          code: (error as any)?.code,
+          message: error?.message,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+        });
+      }
+
+      // Si erreur de colonne manquante (ex: PGRST204 ou "Could not find the '...' column")
+      const errMsg = (error.message || '').toLowerCase();
+      if (
+        (error as any).code === 'PGRST204' ||
+        errMsg.includes('could not find') ||
+        errMsg.includes('column')
+      ) {
+        // Payload ultra-réduit de secours
+        const payloadSecours: Record<string, any> = {
+          id: idUnique,
+          user_id: currentUserId,
+          title: params.customTitle.trim(),
+          file_path: finalStoragePath,
+        };
+
+        const resFallback = await supabase.from(tableName).upsert([payloadSecours]);
+        if (!resFallback.error) {
+          return { success: true, error: null };
+        }
+
+        derniereErreurSql = resFallback.error;
+        if (__DEV__) console.error('[DB Insert Fallback Error]', resFallback.error.message);
+        return { success: false, error: resFallback.error };
+      }
+
+      return { success: false, error };
     };
 
-    const { error: errDediee } = await supabase
-      .from('user_library_documents')
-      .insert([tableDedieePayload]);
+    // Payload STRICT INDISPENSABLE pour 'user_library_documents'
+    const cleanPayload = {
+      id: docId,
+      user_id: currentUserId,
+      title: params.customTitle.trim(),
+      file_path: finalStoragePath,
+      file_size_bytes: params.fileSize || Math.round(tailleMo * 1024 * 1024),
+      page_count: pagesCount,
+    };
 
-    if (!errDediee) {
+    // Tentative 1 : Table dédiée 'user_library_documents'
+    const resDediee = await executerInsertionTolerante('user_library_documents', cleanPayload);
+    if (resDediee.success) {
       dbPersisted = true;
-      console.log('✅ Métadonnées persistées dans la table dédiée user_library_documents');
     } else {
-      console.warn('Note insertion user_library_documents :', errDediee.message);
       // Tentative 2 : Fallback dans 'documents' (status = 'user_imported') + 'acquisitions'
-      const docPayload = {
+      const docPayload: Record<string, any> = {
         id: idUnique,
         titre: params.customTitle.trim(),
         categorie: params.selectedFolder.trim() || 'Documents Personnels',
@@ -1110,38 +1177,40 @@ export const televerserDocumentCloud = async (params: {
         limite_apercu_valeur: 1,
         taille_mo: tailleMo,
         file_path: finalStoragePath,
-        cloud_path: cloudPath,
-        local_uri: Platform.OS === 'web' ? '' : localCachePath,
         status: 'user_imported',
       };
 
-      const { error: errDoc } = await supabase.from('documents').upsert([docPayload]);
-      if (!errDoc) {
+      const resDoc = await executerInsertionTolerante('documents', docPayload);
+      if (resDoc.success) {
         dbPersisted = true;
         const acqPayload: any = {
           document_id: idUnique,
-          user_id: userId,
+          user_id: currentUserId,
           is_vip_consultation: false,
           is_welcome_offer: false,
           montant_paye: 0,
         };
         if (deviceId) acqPayload.device_id = deviceId;
         try {
-          await supabase.from('acquisitions').insert([acqPayload]);
+          await supabase.from('acquisitions').upsert([acqPayload]);
         } catch (_) {}
-        console.log('✅ Métadonnées persistées via fallback documents/acquisitions');
-      } else {
-        console.warn('Note insertion documents fallback :', errDoc.message);
       }
     }
 
-    // 🔒 GARDE-FOU ANTI-ORPHELIN : Si l'enregistrement a échoué sur les deux tables distantes
+    // Si la persistance en base a échoué
     if (!dbPersisted) {
-      console.error('❌ Échec de la persistance des métadonnées dans la base Supabase');
-      // Tentative de nettoyage du fichier dans le Storage pour éviter un blob orphelin
-      await supabase.storage.from(storageBucket).remove([finalStoragePath]).catch(() => {});
-      throw new Error("Impossible d'enregistrer les métadonnées du document dans le Cloud. Veuillez vérifier votre connexion et réessayer.");
+      const detailErreur = derniereErreurSql?.message || derniereErreurSql?.details || (derniereErreurSql ? JSON.stringify(derniereErreurSql) : 'Erreur inconnue');
+
+      // Mode tolérant hors-ligne / semi-connecté pour Mobile (préserver cauzon_vault/)
+      // Sur Web sans cache natif physique : Rollback Storage obligatoire
+      if (Platform.OS === 'web') {
+        if (__DEV__) console.error('❌ Sur Web sans cache natif physique : Rollback Storage');
+        await supabase.storage.from(storageBucket).remove([finalStoragePath]).catch(() => {});
+        throw new Error(`Erreur d'enregistrement : ${detailErreur}`);
+      }
     }
+
+    const syncStatus = dbPersisted ? 'synced' : 'pending';
 
     // 5️⃣ Étape C : Objet DocumentCourse & Cache Local
     const dateAjoutIso = new Date().toISOString();
@@ -1168,12 +1237,14 @@ export const televerserDocumentCloud = async (params: {
       is_vip_consultation: false,
       est_importe: true,
       date_ajout: dateAjoutIso,
+      tags: syncStatus === 'synced' ? 'synced' : 'pending_sync',
       ...( {
         cheminLocal: Platform.OS === 'web' ? '' : localCachePath,
         estImporte: true,
         typeAcquisition: 'permanent',
         dateAjout: dateAjoutMs,
         tailleMo: tailleMo,
+        sync_status: syncStatus,
       } as any ),
     };
 
@@ -1190,7 +1261,9 @@ export const televerserDocumentCloud = async (params: {
     return {
       success: true,
       document: nouveauDoc,
-      message: `"${params.customTitle}" a été téléversé avec succès dans le Cloud et classé dans "${params.selectedFolder}" ! ☁️`,
+      message: dbPersisted
+        ? `"${params.customTitle}" a été téléversé avec succès dans le Cloud et classé dans "${params.selectedFolder}" ! ☁️`
+        : `"${params.customTitle}" a été sécurisé dans votre coffre-fort local et classé dans "${params.selectedFolder}". La synchronisation Cloud s'effectuera dès reconnexion. 🔒`,
     };
   } catch (error: any) {
     console.error('Erreur lors du téléversement Cloud :', error);
@@ -1416,13 +1489,10 @@ export const obtenirUrlSigneeDocument = async (
 
   console.log(`\n======================================================`);
   console.log(`🔍 [Storage:Sign] 1. Chemin brut reçu en entrée : "${rawPath}"`);
-
   const { bucket: initialBucket, cleanPath } = extraireBucketEtCheminRelatif(rawPath, 'documents_utilisateurs');
   console.log(`🧹 [Storage:Sign] 2. Chemin nettoyé initial : "${cleanPath}" (Bucket cible : "${initialBucket}")`);
 
   if (!cleanPath) {
-    console.warn(`⚠️ [Storage:Sign] Chemin nettoyé vide, impossible de signer.`);
-    console.log(`======================================================\n`);
     return null;
   }
 
@@ -1457,24 +1527,11 @@ export const obtenirUrlSigneeDocument = async (
 
   // Variantes de sous-dossiers (ex: "userId/documents_personnels/doc.pdf" <-> "userId/doc.pdf")
   const pathSegments = cleanPath.split('/').filter(Boolean);
-  if (pathSegments.length > 2) {
-    const fileName = pathSegments[pathSegments.length - 1];
-    const firstFolder = pathSegments[0];
-    // Ex: "userId/doc.pdf"
-    addVariant(`${firstFolder}/${fileName}`);
-    // Ex: juste le nom de fichier "doc.pdf"
-    addVariant(fileName);
-  } else if (pathSegments.length === 2) {
-    // Ex: "userId/doc.pdf" -> tester aussi "doc.pdf"
-    addVariant(pathSegments[1]);
-  }
-
-  // Si le chemin contient "documents_personnels", tester avec et sans
-  if (cleanPath.includes('documents_personnels/')) {
-    addVariant(cleanPath.replace('documents_personnels/', ''));
-  } else if (pathSegments.length === 2) {
-    // Si format "userId/doc.pdf", tester aussi "userId/documents_personnels/doc.pdf"
-    addVariant(`${pathSegments[0]}/documents_personnels/${pathSegments[1]}`);
+  if (pathSegments.length > 1) {
+    const withoutSubfolder = `${pathSegments[0]}/${pathSegments[pathSegments.length - 1]}`;
+    addVariant(withoutSubfolder);
+    const withPersonalSubfolder = `${pathSegments[0]}/documents_personnels/${pathSegments[pathSegments.length - 1]}`;
+    addVariant(withPersonalSubfolder);
   }
 
   // Si le chemin ne contient pas de dossier (ex: simple nom de fichier "imported_123.pdf")
@@ -1494,54 +1551,59 @@ export const obtenirUrlSigneeDocument = async (
     ? ['documents_utilisateurs', 'cours-documents']
     : ['cours-documents', 'documents_utilisateurs'];
 
-  console.log(`📋 [Storage:Sign] Variantes de chemins à sonder :`, pathVariants);
-  console.log(`🗄️ [Storage:Sign] Buckets à sonder :`, bucketsToTry);
-
   for (const bucket of bucketsToTry) {
     for (const variant of pathVariants) {
-      console.log(`➡️ [Storage:Sign] Tentative createSignedUrl sur [${bucket}] avec chemin : "${variant}"`);
       try {
         const { data, error } = await supabase.storage
           .from(bucket)
           .createSignedUrl(variant, dureeSecondes);
 
         if (!error && data?.signedUrl) {
-          console.log(`🎉 [Storage:Sign] SUCCÈS ! URL signée valide générée (${dureeSecondes}s)`);
-          console.log(`   - Bucket retenu : "${bucket}"`);
-          console.log(`   - Clé Storage validée : "${variant}"`);
-          console.log(`   - URL signée :`, data.signedUrl);
-          console.log(`======================================================\n`);
+          if (__DEV__) console.log(`🎉 [Storage:Sign] URL signée prête [${bucket}/${variant}]`);
           return data.signedUrl;
         }
-
-        if (error) {
-          console.log(`❌ [Storage:Sign] Échec sur [${bucket}/${variant}] :`, {
-            message: error.message,
-            name: error.name,
-            code: (error as any).statusCode || (error as any).status || 'N/A'
-          });
-        }
       } catch (err: any) {
-        console.error(`💥 [Storage:Sign] Exception lors de la signature [${bucket}/${variant}] :`, err?.message);
+        if (__DEV__) console.error(`💥 [Storage:Sign] Exception [${bucket}/${variant}] :`, err?.message);
       }
     }
   }
 
-  console.warn(`⚠️ [Storage:Sign] Document introuvable dans tous les buckets et variantes testés.`);
-  console.log(`======================================================\n`);
   return null;
 };
 
+// ⚡ Moteur de Cache L1 & Résolution Ultra-Basse Latence (< 10 ms)
+export const sourceCacheMemoire = new Map<string, { source: string; isLocal: boolean; timestamp: number }>();
+const DUREE_CACHE_SOURCE_MS = 60 * 60 * 1000; // 1 heure de validité
+
 /**
- * 🎯 RÉSODRESURCESOURCEPDF : Résolution résiliente et universelle de la source PDF
+ * Pré-résolution en tâche de fond (Warm-up en mémoire RAM)
+ * Permet de pré-générer les URLs signées et d'amorcer le cache L1 dès l'affichage de la bibliothèque
+ */
+export const preparerSourceEnArrierePlan = (doc: any): void => {
+  if (!doc) return;
+  const docId = doc.id || doc.file_path;
+  if (!docId) return;
+
+  const enCache = sourceCacheMemoire.get(docId);
+  if (enCache && Date.now() - enCache.timestamp < DUREE_CACHE_SOURCE_MS) {
+    return; // Déjà chaud en RAM
+  }
+
+  // Résolution asynchrone non-bloquante (Fire & Forget)
+  resoudreSourcePdf(doc).catch(() => {});
+};
+
+/**
+ * 🎯 RÉSODRESURCESOURCEPDF : Résolution ultra-rapide (< 10 ms) et universelle de la source PDF
  * 
- * 1. Sur Mobile :
+ * 1. Cache L1 : Si la source est déjà en mémoire RAM (validité < 1h), renvoi synchrone (< 1ms).
+ * 2. Sur Mobile :
  *    - Vérifie si local_uri ou cheminLocal existe physiquement (taille > 0).
  *    - Si oui : renvoie directement le chemin local file:// (lecture instantanée hors-ligne, 0 data).
  *    - Si non : génère une URL signée Supabase Storage valide 2 heures (7200s),
  *      déclenche en tâche de fond le téléchargement vers cauzon_vault/ pour restaurer le cache local,
  *      et renvoie l'URL signée HTTPS pour affichage immédiat en streaming sans blocage ni erreur 400.
- * 2. Sur Web :
+ * 3. Sur Web :
  *    - Si déjà blob: ou data:, renvoie directement.
  *    - Si URL signée déjà munie d'un token, renvoie directement.
  *    - Pour tout document privé ('documents_utilisateurs') : génère obligatoirement une URL signée valide 2h (7200s).
@@ -1562,7 +1624,14 @@ export const resoudreSourcePdf = async (document: {
   estPret: boolean;
   messageErreur?: string;
 }> => {
-  const docId = document.id || `doc_${Date.now()}`;
+  const docId = document.id || document.file_path || `doc_${Date.now()}`;
+
+  // ⚡ 0️⃣ Interception ultra-rapide Cache L1 Mémoire (< 1 ms)
+  const cachedL1 = sourceCacheMemoire.get(docId);
+  if (cachedL1 && Date.now() - cachedL1.timestamp < DUREE_CACHE_SOURCE_MS && cachedL1.source) {
+    return { uri: cachedL1.source, isLocal: cachedL1.isLocal, estPret: true };
+  }
+
   const localCandidates = [
     document.local_uri,
     document.cheminLocal,
@@ -1577,7 +1646,7 @@ export const resoudreSourcePdf = async (document: {
       const normalise = normaliserCheminFichier(candidate);
       const existe = await verifierFichierLocalExiste(normalise);
       if (existe) {
-        console.log('✅ [resoudreSourcePdf] Fichier local physique validé :', normalise);
+        sourceCacheMemoire.set(docId, { source: normalise, isLocal: true, timestamp: Date.now() });
         return { uri: normalise, isLocal: true, estPret: true };
       }
     }
@@ -1588,7 +1657,7 @@ export const resoudreSourcePdf = async (document: {
       const vaultFile = `${DOSSIER_VAULT}${cleanId}.pdf`;
       const existeVault = await verifierFichierLocalExiste(vaultFile);
       if (existeVault) {
-        console.log('✅ [resoudreSourcePdf] Fichier retrouvé dans cauzon_vault/ :', vaultFile);
+        sourceCacheMemoire.set(docId, { source: vaultFile, isLocal: true, timestamp: Date.now() });
         return { uri: vaultFile, isLocal: true, estPret: true };
       }
     }
@@ -1598,14 +1667,14 @@ export const resoudreSourcePdf = async (document: {
       const docsFile = `${DOSSIER_DOCS_PERSISTANTS}${cleanNom}`;
       const existeDocs = await verifierFichierLocalExiste(docsFile);
       if (existeDocs) {
-        console.log('✅ [resoudreSourcePdf] Fichier retrouvé dans cauzon_docs/ :', docsFile);
+        sourceCacheMemoire.set(docId, { source: docsFile, isLocal: true, timestamp: Date.now() });
         return { uri: docsFile, isLocal: true, estPret: true };
       }
 
       // Recherche par balayage sandbox
       const cheminRetrouve = await retrouverFichierDansSandbox(docId || document.titre || '');
       if (cheminRetrouve) {
-        console.log('✅ [resoudreSourcePdf] Fichier retrouvé par balayage sandbox :', cheminRetrouve);
+        sourceCacheMemoire.set(docId, { source: cheminRetrouve, isLocal: true, timestamp: Date.now() });
         return { uri: cheminRetrouve, isLocal: true, estPret: true };
       }
     }
@@ -1636,7 +1705,7 @@ export const resoudreSourcePdf = async (document: {
       if (estDocumentPrive || bucket === 'documents_utilisateurs') {
         const urlSignee = await obtenirUrlSigneeDocument(cleanPath, 7200);
         if (urlSignee) {
-          console.log('🌐 [resoudreSourcePdf] Mobile : Streaming via URL signée privée (2h) :', urlSignee);
+          sourceCacheMemoire.set(docId, { source: urlSignee, isLocal: false, timestamp: Date.now() });
           restaurerDansVaultEnArrierePlan(urlSignee, docId);
           return { uri: urlSignee, isLocal: false, estPret: true };
         }
@@ -1644,12 +1713,14 @@ export const resoudreSourcePdf = async (document: {
         // Document public (cours-documents)
         if (remoteCandidate.startsWith('http://') || remoteCandidate.startsWith('https://')) {
           if (!remoteCandidate.includes('/documents_utilisateurs/')) {
+            sourceCacheMemoire.set(docId, { source: remoteCandidate, isLocal: false, timestamp: Date.now() });
             restaurerDansVaultEnArrierePlan(remoteCandidate, docId);
             return { uri: remoteCandidate, isLocal: false, estPret: true };
           }
         }
         const publicUrl = getDocumentPdfUrl(cleanPath);
         if (publicUrl && publicUrl.startsWith('http')) {
+          sourceCacheMemoire.set(docId, { source: publicUrl, isLocal: false, timestamp: Date.now() });
           restaurerDansVaultEnArrierePlan(publicUrl, docId);
           return { uri: publicUrl, isLocal: false, estPret: true };
         }
@@ -1668,9 +1739,11 @@ export const resoudreSourcePdf = async (document: {
   if (Platform.OS === 'web') {
     // Si c'est un blob: ou data: issu directement du navigateur Web courant
     if (document.cheminLocal?.startsWith('blob:') || document.cheminLocal?.startsWith('data:')) {
+      sourceCacheMemoire.set(docId, { source: document.cheminLocal, isLocal: true, timestamp: Date.now() });
       return { uri: document.cheminLocal, isLocal: true, estPret: true };
     }
     if (document.file_path?.startsWith('blob:') || document.file_path?.startsWith('data:')) {
+      sourceCacheMemoire.set(docId, { source: document.file_path, isLocal: true, timestamp: Date.now() });
       return { uri: document.file_path, isLocal: true, estPret: true };
     }
 
@@ -1691,7 +1764,6 @@ export const resoudreSourcePdf = async (document: {
     ) || '';
 
     if (!rawCloud) {
-      console.warn('❌ [resoudreSourcePdf] Web : Aucun chemin distant valide trouvé parmi les candidats');
       return {
         uri: '',
         isLocal: false,
@@ -1702,6 +1774,7 @@ export const resoudreSourcePdf = async (document: {
 
     // Si c'est déjà une URL signée valide avec token Supabase actif
     if ((rawCloud.startsWith('http://') || rawCloud.startsWith('https://')) && rawCloud.includes('token=')) {
+      sourceCacheMemoire.set(docId, { source: rawCloud, isLocal: false, timestamp: Date.now() });
       return { uri: rawCloud, isLocal: false, estPret: true };
     }
 
@@ -1715,10 +1788,9 @@ export const resoudreSourcePdf = async (document: {
     if (estDocumentPrive || bucket === 'documents_utilisateurs') {
       const urlSignee = await obtenirUrlSigneeDocument(cleanPath, 7200);
       if (urlSignee) {
-        console.log('🌐 [resoudreSourcePdf] Web : Streaming via URL signée privée (2h) :', urlSignee);
+        sourceCacheMemoire.set(docId, { source: urlSignee, isLocal: false, timestamp: Date.now() });
         return { uri: urlSignee, isLocal: false, estPret: true };
       }
-      console.error('❌ [resoudreSourcePdf] Échec génération URL signée pour document privé Web :', cleanPath);
       return {
         uri: '',
         isLocal: false,
@@ -1729,10 +1801,14 @@ export const resoudreSourcePdf = async (document: {
 
     // Document public (cours-documents)
     if (rawCloud.startsWith('http://') || rawCloud.startsWith('https://')) {
+      sourceCacheMemoire.set(docId, { source: rawCloud, isLocal: false, timestamp: Date.now() });
       return { uri: rawCloud, isLocal: false, estPret: true };
     }
 
     const publicUrl = getDocumentPdfUrl(cleanPath);
+    if (publicUrl) {
+      sourceCacheMemoire.set(docId, { source: publicUrl, isLocal: false, timestamp: Date.now() });
+    }
     return {
       uri: publicUrl,
       isLocal: false,

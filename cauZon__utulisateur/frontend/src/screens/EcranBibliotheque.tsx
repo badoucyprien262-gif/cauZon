@@ -26,7 +26,7 @@ import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
-import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal } from '../services/serviceDocument';
+import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal, preparerSourceEnArrierePlan } from '../services/serviceDocument';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -183,6 +183,9 @@ export default function EcranBibliotheque() {
         setAcquisitionsContexte(formates.filter((d) => !d.estImporte));
         setDocumentsImportesContexte(formates.filter((d) => d.estImporte));
         setLoading(false);
+
+        // ⚡ Warm-up immédiat dès lecture du cache local
+        formates.slice(0, 3).forEach((d) => preparerSourceEnArrierePlan(d));
       } else {
         setMesDocs([]);
         setDocumentsImportes([]);
@@ -232,6 +235,9 @@ export default function EcranBibliotheque() {
         setAcquisitions(formates.filter((d) => !d.estImporte));
         setAcquisitionsContexte(formates.filter((d) => !d.estImporte));
         setDocumentsImportesContexte(formates.filter((d) => d.estImporte));
+
+        // ⚡ Pré-résolution optimiste (Warm-up en mémoire RAM pour les 3 premiers documents récents)
+        formates.slice(0, 3).forEach((d) => preparerSourceEnArrierePlan(d));
       } else if (localCombines.length === 0) {
         setMesDocs([]);
         setDocumentsImportes([]);
@@ -240,7 +246,7 @@ export default function EcranBibliotheque() {
         setDocumentsImportesContexte([]);
       }
     } catch (error) {
-      console.error('Erreur lors du chargement de la bibliothèque réelle :', error);
+      if (__DEV__) console.error('Erreur lors du chargement de la bibliothèque réelle :', error);
     } finally {
       setLoading(false);
     }
