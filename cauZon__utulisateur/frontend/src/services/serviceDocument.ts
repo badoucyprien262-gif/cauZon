@@ -22,6 +22,9 @@ export interface DocumentCourse {
   limite_apercu_valeur: number;
   taille_mo: number;
   file_path: string;
+  cloud_path?: string;
+  local_uri?: string;
+  bucket?: string;
   status: string;
   is_vip_consultation?: boolean;
   est_importe?: boolean;
@@ -668,6 +671,98 @@ function base64ToUint8Array(base64: string): Uint8Array {
 export const DOSSIER_DOCS_PERSISTANTS = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}cauzon_docs/` : '';
 
 /**
+ * 🔒 Coffre-fort documentaire indépendant et permanent pour les documents importés (cauzon_vault/)
+ */
+export const DOSSIER_VAULT = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}cauzon_vault/` : '';
+
+/**
+ * Assure la création du répertoire applicatif dédié pour le coffre-fort
+ */
+export const assurerDossierCoffreFort = async (): Promise<string> => {
+  if (Platform.OS === 'web' || !DOSSIER_VAULT) return '';
+  try {
+    const info = await FileSystem.getInfoAsync(DOSSIER_VAULT);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(DOSSIER_VAULT, { intermediates: true });
+      console.log('🔒 Répertoire cauzon_vault/ initialisé avec succès');
+    }
+    return DOSSIER_VAULT;
+  } catch (e) {
+    console.warn('⚠️ Erreur création dossier cauzon_vault :', e);
+    return DOSSIER_VAULT;
+  }
+};
+
+/**
+ * Copie immédiatement un fichier sélectionné dans le coffre-fort documentaire (cauzon_vault/)
+ * garantissant que même si l'utilisateur supprime l'original, le PDF reste présent.
+ */
+export const stockerDansCoffreFortLocal = async (
+  sourceUri: string,
+  docId: string
+): Promise<string> => {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    return sourceUri;
+  }
+  if (!sourceUri) {
+    throw new Error('URI source manquante pour le coffre-fort.');
+  }
+
+  const vaultDir = await assurerDossierCoffreFort();
+  const cleanId = docId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destLocalUri = `${vaultDir}${cleanId}.pdf`;
+
+  // Vérifier si déjà présent
+  try {
+    const checkExist = await FileSystem.getInfoAsync(destLocalUri);
+    if (checkExist.exists && checkExist.size && checkExist.size > 0) {
+      console.log('✅ Document déjà présent dans cauzon_vault/ :', destLocalUri);
+      return destLocalUri;
+    }
+  } catch (_) {}
+
+  // 1. Copie native via copyAsync
+  let copySuccess = false;
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: destLocalUri });
+    const checkCopy = await FileSystem.getInfoAsync(destLocalUri);
+    if (checkCopy.exists && checkCopy.size && checkCopy.size > 0) {
+      copySuccess = true;
+    }
+  } catch (errCopy: any) {
+    console.warn('⚠️ copyAsync direct vers vault échoué, essai fallback Base64 :', errCopy.message);
+  }
+
+  // 2. Repli Base64 pour Android content://
+  if (!copySuccess) {
+    try {
+      const base64Data = await FileSystem.readAsStringAsync(sourceUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (base64Data && base64Data.length > 0) {
+        await FileSystem.writeAsStringAsync(destLocalUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const checkWrite = await FileSystem.getInfoAsync(destLocalUri);
+        if (checkWrite.exists && checkWrite.size && checkWrite.size > 0) {
+          copySuccess = true;
+        }
+      }
+    } catch (errBase64: any) {
+      console.warn('⚠️ Fallback Base64 vers vault échoué :', errBase64.message);
+    }
+  }
+
+  if (copySuccess) {
+    console.log('🔒 [Coffre-fort] Document copié et sécurisé avec succès dans cauzon_vault/ :', destLocalUri);
+    return destLocalUri;
+  }
+
+  // En cas d'échec sur le vault, repli sur copierFichierVersDossierPersistant
+  return await copierFichierVersDossierPersistant(sourceUri, docId);
+};
+
+/**
  * Normalise un chemin de fichier pour Android/iOS (préfixe file:// nécessaire pour FileSystem)
  */
 export const normaliserCheminFichier = (chemin: string): string => {
@@ -894,30 +989,24 @@ export const televerserDocumentCloud = async (params: {
 
     const userId = user.id;
     const deviceId = await getDeviceId();
-    const idUnique = `imported_${Date.now()}`;
+    const docId = `imported_${Date.now()}`;
+    const idUnique = docId;
     const cleanFileName = params.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const folderSlug = (params.selectedFolder || 'Documents Personnels')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]/g, '_');
+    
+    // 🔒 Chemin Cloud standardisé & indépendant : ${userId}/${docId}.pdf
+    const cloudPath = `${userId}/${docId}.pdf`;
 
-    // Chemin de stockage distant
-    const relativePath = `${userId}/${folderSlug}/${Date.now()}_${cleanFileName}`;
-
-    // 1️⃣ Préparation du contenu binaire (Web vs Native) & Stockage Sandbox persistant
+    // 1️⃣ Préparation du contenu binaire (Web vs Native) & Stockage Sécurisé Coffre-Fort (cauzon_vault/)
     let uploadBody: any;
     let localCachePath = params.fileUri;
 
     if (Platform.OS === 'web') {
       const response = await fetch(params.fileUri);
       uploadBody = await response.blob();
+      localCachePath = '';
     } else {
-      // Copie immédiate dans le dossier persistant cauzon_docs/
-      localCachePath = await copierFichierVersDossierPersistant(
-        params.fileUri,
-        `${Date.now()}_${cleanFileName}`
-      );
+      // 🔒 Isolation immédiate et définitive dans le coffre-fort documentaire indépendant cauzon_vault/
+      localCachePath = await stockerDansCoffreFortLocal(params.fileUri, docId);
 
       const base64 = await FileSystem.readAsStringAsync(localCachePath, {
         encoding: FileSystem.EncodingType.Base64,
@@ -927,7 +1016,7 @@ export const televerserDocumentCloud = async (params: {
 
     // 2️⃣ Étape A : Téléversement vers Supabase Storage
     let storageBucket = 'documents_utilisateurs';
-    let finalStoragePath = relativePath;
+    let finalStoragePath = cloudPath;
 
     let uploadRes = await supabase.storage
       .from(storageBucket)
@@ -939,7 +1028,7 @@ export const televerserDocumentCloud = async (params: {
     if (uploadRes.error) {
       console.warn(`Tentative bucket ${storageBucket} échouée (${uploadRes.error.message}), repli sur 'cours-documents'...`);
       storageBucket = 'cours-documents';
-      finalStoragePath = `documents_utilisateurs/${relativePath}`;
+      finalStoragePath = `documents_utilisateurs/${cloudPath}`;
 
       const fallbackRes = await supabase.storage
         .from(storageBucket)
@@ -989,6 +1078,8 @@ export const televerserDocumentCloud = async (params: {
       title: params.customTitle.trim(),
       folder_name: params.selectedFolder.trim() || 'Documents Personnels',
       file_path: finalStoragePath,
+      cloud_path: cloudPath,
+      local_uri: Platform.OS === 'web' ? '' : localCachePath,
       bucket: storageBucket,
       file_size_bytes: params.fileSize || Math.round(tailleMo * 1024 * 1024),
       page_count: pagesCount,
@@ -1019,6 +1110,8 @@ export const televerserDocumentCloud = async (params: {
         limite_apercu_valeur: 1,
         taille_mo: tailleMo,
         file_path: finalStoragePath,
+        cloud_path: cloudPath,
+        local_uri: Platform.OS === 'web' ? '' : localCachePath,
         status: 'user_imported',
       };
 
@@ -1042,6 +1135,14 @@ export const televerserDocumentCloud = async (params: {
       }
     }
 
+    // 🔒 GARDE-FOU ANTI-ORPHELIN : Si l'enregistrement a échoué sur les deux tables distantes
+    if (!dbPersisted) {
+      console.error('❌ Échec de la persistance des métadonnées dans la base Supabase');
+      // Tentative de nettoyage du fichier dans le Storage pour éviter un blob orphelin
+      await supabase.storage.from(storageBucket).remove([finalStoragePath]).catch(() => {});
+      throw new Error("Impossible d'enregistrer les métadonnées du document dans le Cloud. Veuillez vérifier votre connexion et réessayer.");
+    }
+
     // 5️⃣ Étape C : Objet DocumentCourse & Cache Local
     const dateAjoutIso = new Date().toISOString();
     const dateAjoutMs = Date.now();
@@ -1060,12 +1161,15 @@ export const televerserDocumentCloud = async (params: {
       limite_apercu_valeur: 1,
       taille_mo: tailleMo,
       file_path: finalStoragePath,
+      cloud_path: cloudPath,
+      local_uri: Platform.OS === 'web' ? '' : localCachePath,
+      bucket: storageBucket,
       status: 'actif',
       is_vip_consultation: false,
       est_importe: true,
       date_ajout: dateAjoutIso,
       ...( {
-        cheminLocal: localCachePath,
+        cheminLocal: Platform.OS === 'web' ? '' : localCachePath,
         estImporte: true,
         typeAcquisition: 'permanent',
         dateAjout: dateAjoutMs,
@@ -1209,33 +1313,468 @@ export const importerDocumentLocal = async (params: {
 
 
 /**
- * Exporte un document vers le stockage local de l'appareil (Mobile & Web)
+ * Restaure en arrière-plan (sans bloquer l'affichage) un document distant dans le coffre-fort local
  */
-export const exporterDocumentVersAppareil = async (document: {
+export const restaurerDansVaultEnArrierePlan = (urlDistante: string, docId: string): void => {
+  if (Platform.OS === 'web' || !DOSSIER_VAULT || !urlDistante || !urlDistante.startsWith('http')) return;
+
+  const cleanId = docId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const targetVaultPath = `${DOSSIER_VAULT}${cleanId}.pdf`;
+
+  // Exécution asynchrone non-bloquante (Fire & Forget)
+  (async () => {
+    try {
+      await assurerDossierCoffreFort();
+      const check = await FileSystem.getInfoAsync(targetVaultPath);
+      if (check.exists && check.size && check.size > 0) return;
+
+      console.log(`📥 [Restauration Vault] Téléchargement en tâche de fond pour ${docId}...`);
+      const dlRes = await FileSystem.downloadAsync(urlDistante, targetVaultPath);
+      if (dlRes && dlRes.status === 200) {
+        console.log(`🔒 [Restauration Vault] Cache local restauré avec succès dans : ${targetVaultPath}`);
+      }
+    } catch (e: any) {
+      console.warn('⚠️ [Restauration Vault] Échec téléchargement tâche de fond :', e?.message);
+    }
+  })();
+};
+
+/**
+ * 🎯 RÉSODRESURCESOURCEPDF : Résolution résiliente et universelle de la source PDF
+ * 
+ * 1. Sur Mobile :
+ *    - Vérifie si local_uri ou cheminLocal existe physiquement (taille > 0).
+ *    - Si oui : renvoie directement le chemin local file:// (lecture instantanée hors-ligne, 0 data).
+ *    - Si non : génère une URL signée Supabase Storage valide 2 heures (7200s),
+ *      déclenche en tâche de fond le téléchargement vers cauzon_vault/ pour restaurer le cache local,
+ *      et renvoie l'URL signée HTTPS pour affichage immédiat en streaming sans blocage.
+ * 2. Sur Web :
+ *    - Si déjà blob: ou data:, renvoie directement.
+ *    - Sinon, génère une URL signée Supabase Storage valide 2h (7200s) et renvoie l'URL HTTPS pour streaming direct.
+ */
+/**
+ * Extrait proprement le bucket et le chemin relatif sans slash initial ni préfixe de bucket.
+ * Détecte aussi si l'entrée est déjà une URL Supabase publique non signée sur documents_utilisateurs
+ * afin d'en extraire le chemin relatif pur pour signature immédiate.
+ */
+export const extraireBucketEtCheminRelatif = (
+  rawPath: string,
+  defaultBucket: string = 'documents_utilisateurs'
+): { bucket: string; cleanPath: string; estDocumentPrive: boolean } => {
+  if (!rawPath) return { bucket: defaultBucket, cleanPath: '', estDocumentPrive: false };
+
+  let path = rawPath.trim();
+
+  // 1. Si c'est une URL HTTP Supabase Storage complète (/storage/v1/object/...)
+  if (path.includes('/storage/v1/object/')) {
+    const match = path.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/?#]+)\/([^?#]+)/);
+    if (match) {
+      const b = match[1];
+      const p = decodeURIComponent(match[2]).replace(/^\/+/, '');
+      return {
+        bucket: b,
+        cleanPath: p,
+        estDocumentPrive: b === 'documents_utilisateurs',
+      };
+    }
+  }
+
+  // 2. Détection du bucket par préfixe textuel
+  let bucket = defaultBucket;
+  if (path.startsWith('documents_utilisateurs/') || path.startsWith('/documents_utilisateurs/')) {
+    bucket = 'documents_utilisateurs';
+    path = path.replace(/^\/?documents_utilisateurs\//, '');
+  } else if (path.startsWith('cours-documents/') || path.startsWith('/cours-documents/')) {
+    bucket = 'cours-documents';
+    path = path.replace(/^\/?cours-documents\//, '');
+  } else if (/^[0-9a-fA-F-]{20,}/.test(path) || path.includes('/imported_') || path.startsWith('imported_')) {
+    bucket = 'documents_utilisateurs';
+  }
+
+  // 3. Nettoyage strict des slashes et préfixes résiduels en tête
+  const cleanPath = path
+    .replace(/^documents_utilisateurs\//, '')
+    .replace(/^\/+/, '')
+    .trim();
+
+  const estDocumentPrive = bucket === 'documents_utilisateurs';
+
+  return { bucket, cleanPath, estDocumentPrive };
+};
+
+/**
+ * 🔐 Génère une URL signée Supabase Storage valide pour un document privé ou sécurisé.
+ * - Journalise clairement le chemin brut, le chemin nettoyé et les réponses Supabase.
+ * - Teste intelligemment les variantes de chemin (avec ou sans sous-dossiers, userId, etc.).
+ * - Teste le bucket privé 'documents_utilisateurs' puis le bucket 'cours-documents'.
+ */
+export const obtenirUrlSigneeDocument = async (
+  rawPath: string,
+  dureeSecondes: number = 7200
+): Promise<string | null> => {
+  if (!rawPath) return null;
+
+  console.log(`\n======================================================`);
+  console.log(`🔍 [Storage:Sign] 1. Chemin brut reçu en entrée : "${rawPath}"`);
+
+  const { bucket: initialBucket, cleanPath } = extraireBucketEtCheminRelatif(rawPath, 'documents_utilisateurs');
+  console.log(`🧹 [Storage:Sign] 2. Chemin nettoyé initial : "${cleanPath}" (Bucket cible : "${initialBucket}")`);
+
+  if (!cleanPath) {
+    console.warn(`⚠️ [Storage:Sign] Chemin nettoyé vide, impossible de signer.`);
+    console.log(`======================================================\n`);
+    return null;
+  }
+
+  // 1. Établir la liste des variantes de chemin à tester
+  const pathVariants: string[] = [];
+  const addVariant = (p: string) => {
+    if (!p) return;
+    const clean = p.replace(/^\/+/, '').trim();
+    if (clean && !pathVariants.includes(clean)) {
+      pathVariants.push(clean);
+    }
+    // Tester également avec décodage / encodage d'URI si nécessaire
+    try {
+      const decoded = decodeURIComponent(clean);
+      if (decoded !== clean && !pathVariants.includes(decoded)) {
+        pathVariants.push(decoded);
+      }
+    } catch (_) {}
+  };
+
+  // Variante principale
+  addVariant(cleanPath);
+
+  // Variante sans préfixe "documents_utilisateurs/" résiduel
+  if (cleanPath.startsWith('documents_utilisateurs/')) {
+    addVariant(cleanPath.replace(/^documents_utilisateurs\//, ''));
+  }
+  // Variante sans préfixe "cours-documents/"
+  if (cleanPath.startsWith('cours-documents/')) {
+    addVariant(cleanPath.replace(/^cours-documents\//, ''));
+  }
+
+  // Variantes de sous-dossiers (ex: "userId/documents_personnels/doc.pdf" <-> "userId/doc.pdf")
+  const pathSegments = cleanPath.split('/').filter(Boolean);
+  if (pathSegments.length > 2) {
+    const fileName = pathSegments[pathSegments.length - 1];
+    const firstFolder = pathSegments[0];
+    // Ex: "userId/doc.pdf"
+    addVariant(`${firstFolder}/${fileName}`);
+    // Ex: juste le nom de fichier "doc.pdf"
+    addVariant(fileName);
+  } else if (pathSegments.length === 2) {
+    // Ex: "userId/doc.pdf" -> tester aussi "doc.pdf"
+    addVariant(pathSegments[1]);
+  }
+
+  // Si le chemin contient "documents_personnels", tester avec et sans
+  if (cleanPath.includes('documents_personnels/')) {
+    addVariant(cleanPath.replace('documents_personnels/', ''));
+  } else if (pathSegments.length === 2) {
+    // Si format "userId/doc.pdf", tester aussi "userId/documents_personnels/doc.pdf"
+    addVariant(`${pathSegments[0]}/documents_personnels/${pathSegments[1]}`);
+  }
+
+  // Si le chemin ne contient pas de dossier (ex: simple nom de fichier "imported_123.pdf")
+  // tenter de lui préfixer l'ID de l'utilisateur connecté s'il est disponible
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUserId = authData?.user?.id;
+    if (currentUserId) {
+      const fileName = pathSegments[pathSegments.length - 1] || cleanPath;
+      addVariant(`${currentUserId}/${fileName}`);
+      addVariant(`${currentUserId}/documents_personnels/${fileName}`);
+    }
+  } catch (_) {}
+
+  // 2. Établir l'ordre des buckets à sonder
+  const bucketsToTry = initialBucket === 'documents_utilisateurs'
+    ? ['documents_utilisateurs', 'cours-documents']
+    : ['cours-documents', 'documents_utilisateurs'];
+
+  console.log(`📋 [Storage:Sign] Variantes de chemins à sonder :`, pathVariants);
+  console.log(`🗄️ [Storage:Sign] Buckets à sonder :`, bucketsToTry);
+
+  for (const bucket of bucketsToTry) {
+    for (const variant of pathVariants) {
+      console.log(`➡️ [Storage:Sign] Tentative createSignedUrl sur [${bucket}] avec chemin : "${variant}"`);
+      try {
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .createSignedUrl(variant, dureeSecondes);
+
+        if (!error && data?.signedUrl) {
+          console.log(`🎉 [Storage:Sign] SUCCÈS ! URL signée valide générée (${dureeSecondes}s)`);
+          console.log(`   - Bucket retenu : "${bucket}"`);
+          console.log(`   - Clé Storage validée : "${variant}"`);
+          console.log(`   - URL signée :`, data.signedUrl);
+          console.log(`======================================================\n`);
+          return data.signedUrl;
+        }
+
+        if (error) {
+          console.log(`❌ [Storage:Sign] Échec sur [${bucket}/${variant}] :`, {
+            message: error.message,
+            name: error.name,
+            code: (error as any).statusCode || (error as any).status || 'N/A'
+          });
+        }
+      } catch (err: any) {
+        console.error(`💥 [Storage:Sign] Exception lors de la signature [${bucket}/${variant}] :`, err?.message);
+      }
+    }
+  }
+
+  console.warn(`⚠️ [Storage:Sign] Document introuvable dans tous les buckets et variantes testés.`);
+  console.log(`======================================================\n`);
+  return null;
+};
+
+/**
+ * 🎯 RÉSODRESURCESOURCEPDF : Résolution résiliente et universelle de la source PDF
+ * 
+ * 1. Sur Mobile :
+ *    - Vérifie si local_uri ou cheminLocal existe physiquement (taille > 0).
+ *    - Si oui : renvoie directement le chemin local file:// (lecture instantanée hors-ligne, 0 data).
+ *    - Si non : génère une URL signée Supabase Storage valide 2 heures (7200s),
+ *      déclenche en tâche de fond le téléchargement vers cauzon_vault/ pour restaurer le cache local,
+ *      et renvoie l'URL signée HTTPS pour affichage immédiat en streaming sans blocage ni erreur 400.
+ * 2. Sur Web :
+ *    - Si déjà blob: ou data:, renvoie directement.
+ *    - Si URL signée déjà munie d'un token, renvoie directement.
+ *    - Pour tout document privé ('documents_utilisateurs') : génère obligatoirement une URL signée valide 2h (7200s).
+ */
+export const resoudreSourcePdf = async (document: {
+  id?: string;
+  titre?: string;
+  file_path?: string;
+  cheminLocal?: string;
+  local_uri?: string;
+  cloud_path?: string;
+  bucket?: string;
+  pdf_url?: string;
+  url?: string;
+}): Promise<{
+  uri: string;
+  isLocal: boolean;
+  estPret: boolean;
+  messageErreur?: string;
+}> => {
+  const docId = document.id || `doc_${Date.now()}`;
+  const localCandidates = [
+    document.local_uri,
+    document.cheminLocal,
+    (document as any).filePathLocal,
+  ].filter(Boolean) as string[];
+
+  // 1️⃣ Mode Mobile Natif (Android & iOS)
+  if (Platform.OS !== 'web') {
+    // A. Tester les chemins locaux directs (en excluant les URLs HTTP distantes)
+    for (const candidate of localCandidates) {
+      if (candidate.startsWith('http://') || candidate.startsWith('https://')) continue;
+      const normalise = normaliserCheminFichier(candidate);
+      const existe = await verifierFichierLocalExiste(normalise);
+      if (existe) {
+        console.log('✅ [resoudreSourcePdf] Fichier local physique validé :', normalise);
+        return { uri: normalise, isLocal: true, estPret: true };
+      }
+    }
+
+    // B. Tester si présent dans cauzon_vault/ ou cauzon_docs/
+    if (DOSSIER_VAULT) {
+      const cleanId = docId.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const vaultFile = `${DOSSIER_VAULT}${cleanId}.pdf`;
+      const existeVault = await verifierFichierLocalExiste(vaultFile);
+      if (existeVault) {
+        console.log('✅ [resoudreSourcePdf] Fichier retrouvé dans cauzon_vault/ :', vaultFile);
+        return { uri: vaultFile, isLocal: true, estPret: true };
+      }
+    }
+
+    if (DOSSIER_DOCS_PERSISTANTS) {
+      const cleanNom = ((document.file_path || document.titre || docId).split('/').pop() || `${docId}.pdf`).replace(/[^a-zA-Z0-9._-]/g, '_');
+      const docsFile = `${DOSSIER_DOCS_PERSISTANTS}${cleanNom}`;
+      const existeDocs = await verifierFichierLocalExiste(docsFile);
+      if (existeDocs) {
+        console.log('✅ [resoudreSourcePdf] Fichier retrouvé dans cauzon_docs/ :', docsFile);
+        return { uri: docsFile, isLocal: true, estPret: true };
+      }
+
+      // Recherche par balayage sandbox
+      const cheminRetrouve = await retrouverFichierDansSandbox(docId || document.titre || '');
+      if (cheminRetrouve) {
+        console.log('✅ [resoudreSourcePdf] Fichier retrouvé par balayage sandbox :', cheminRetrouve);
+        return { uri: cheminRetrouve, isLocal: true, estPret: true };
+      }
+    }
+
+    // C. Si introuvable localement -> Restauration & Streaming via URL signée Supabase Storage (7200s)
+    const remoteCandidates = [
+      document.cloud_path,
+      document.file_path,
+      document.pdf_url,
+      document.url,
+      (document as any).filePath,
+    ].filter(Boolean) as string[];
+
+    const remoteCandidate = remoteCandidates.find(c =>
+      !c.startsWith('file:') &&
+      !c.startsWith('content:') &&
+      !c.startsWith('/data/') &&
+      !c.startsWith('/storage/')
+    ) || '';
+
+    if (remoteCandidate) {
+      const { bucket, cleanPath, estDocumentPrive } = extraireBucketEtCheminRelatif(
+        remoteCandidate,
+        document.bucket || 'documents_utilisateurs'
+      );
+
+      // Si c'est un document privé (documents_utilisateurs), TOUJOURS générer une URL signée
+      if (estDocumentPrive || bucket === 'documents_utilisateurs') {
+        const urlSignee = await obtenirUrlSigneeDocument(cleanPath, 7200);
+        if (urlSignee) {
+          console.log('🌐 [resoudreSourcePdf] Mobile : Streaming via URL signée privée (2h) :', urlSignee);
+          restaurerDansVaultEnArrierePlan(urlSignee, docId);
+          return { uri: urlSignee, isLocal: false, estPret: true };
+        }
+      } else {
+        // Document public (cours-documents)
+        if (remoteCandidate.startsWith('http://') || remoteCandidate.startsWith('https://')) {
+          if (!remoteCandidate.includes('/documents_utilisateurs/')) {
+            restaurerDansVaultEnArrierePlan(remoteCandidate, docId);
+            return { uri: remoteCandidate, isLocal: false, estPret: true };
+          }
+        }
+        const publicUrl = getDocumentPdfUrl(cleanPath);
+        if (publicUrl && publicUrl.startsWith('http')) {
+          restaurerDansVaultEnArrierePlan(publicUrl, docId);
+          return { uri: publicUrl, isLocal: false, estPret: true };
+        }
+      }
+    }
+
+    return {
+      uri: '',
+      isLocal: false,
+      estPret: false,
+      messageErreur: 'Ce document a été importé sur une version antérieure sans sauvegarde cloud. Veuillez le réimporter.',
+    };
+  }
+
+  // 2️⃣ Mode Web (Platform.OS === 'web') : On ignore totalement les chemins physiques locaux mobiles
+  if (Platform.OS === 'web') {
+    // Si c'est un blob: ou data: issu directement du navigateur Web courant
+    if (document.cheminLocal?.startsWith('blob:') || document.cheminLocal?.startsWith('data:')) {
+      return { uri: document.cheminLocal, isLocal: true, estPret: true };
+    }
+    if (document.file_path?.startsWith('blob:') || document.file_path?.startsWith('data:')) {
+      return { uri: document.file_path, isLocal: true, estPret: true };
+    }
+
+    // SUR WEB : Ignorer TOTALEMENT local_uri et cheminLocal natifs (file://, content://, /data/, /storage/)
+    const webCandidates = [
+      document.cloud_path,
+      document.file_path,
+      document.pdf_url,
+      document.url,
+      (document as any).filePath,
+    ].filter(Boolean) as string[];
+
+    const rawCloud = webCandidates.find(c =>
+      !c.startsWith('file:') &&
+      !c.startsWith('content:') &&
+      !c.startsWith('/data/') &&
+      !c.startsWith('/storage/')
+    ) || '';
+
+    if (!rawCloud) {
+      console.warn('❌ [resoudreSourcePdf] Web : Aucun chemin distant valide trouvé parmi les candidats');
+      return {
+        uri: '',
+        isLocal: false,
+        estPret: false,
+        messageErreur: 'Ce document a été importé sur une version antérieure sans sauvegarde cloud. Veuillez le réimporter.',
+      };
+    }
+
+    // Si c'est déjà une URL signée valide avec token Supabase actif
+    if ((rawCloud.startsWith('http://') || rawCloud.startsWith('https://')) && rawCloud.includes('token=')) {
+      return { uri: rawCloud, isLocal: false, estPret: true };
+    }
+
+    // Extraction propre du bucket et du chemin relatif (nettoie aussi les URLs publiques /object/public/)
+    const { bucket, cleanPath, estDocumentPrive } = extraireBucketEtCheminRelatif(
+      rawCloud,
+      document.bucket || 'documents_utilisateurs'
+    );
+
+    // Si c'est un document privé (documents_utilisateurs), GÉNÉRATION OBLIGATOIRE d'URL signée (7200s)
+    if (estDocumentPrive || bucket === 'documents_utilisateurs') {
+      const urlSignee = await obtenirUrlSigneeDocument(cleanPath, 7200);
+      if (urlSignee) {
+        console.log('🌐 [resoudreSourcePdf] Web : Streaming via URL signée privée (2h) :', urlSignee);
+        return { uri: urlSignee, isLocal: false, estPret: true };
+      }
+      console.error('❌ [resoudreSourcePdf] Échec génération URL signée pour document privé Web :', cleanPath);
+      return {
+        uri: '',
+        isLocal: false,
+        estPret: false,
+        messageErreur: 'Ce document a été importé sur une version antérieure sans sauvegarde cloud. Veuillez le réimporter.',
+      };
+    }
+
+    // Document public (cours-documents)
+    if (rawCloud.startsWith('http://') || rawCloud.startsWith('https://')) {
+      return { uri: rawCloud, isLocal: false, estPret: true };
+    }
+
+    const publicUrl = getDocumentPdfUrl(cleanPath);
+    return {
+      uri: publicUrl,
+      isLocal: false,
+      estPret: Boolean(publicUrl),
+      messageErreur: publicUrl ? undefined : 'Ce document a été importé sur une version antérieure sans sauvegarde cloud. Veuillez le réimporter.',
+    };
+  }
+
+  return {
+    uri: '',
+    isLocal: false,
+    estPret: false,
+    messageErreur: 'Ce document a été importé sur une version antérieure sans sauvegarde cloud. Veuillez le réimporter.',
+  };
+};
+
+/**
+ * 📲 Exporte ou restaure un document vers le stockage personnel de l'appareil (Téléchargements, Partage)
+ * Fonctionne sur Mobile (via expo-sharing) et Web (via téléchargement Blob)
+ */
+export const exporterDocumentVersTelephone = async (document: {
   id: string;
   titre: string;
   file_path?: string;
   cheminLocal?: string;
+  local_uri?: string;
+  cloud_path?: string;
+  bucket?: string;
 }): Promise<{ success: boolean; message: string }> => {
   try {
-    const rawPath = document.file_path || document.cheminLocal || '';
-    if (!rawPath) {
-      return { success: false, message: 'Fichier introuvable pour ce cours.' };
+    const { uri: sourceUri } = await resoudreSourcePdf(document);
+    if (!sourceUri) {
+      return { success: false, message: 'Impossible de localiser la source du document.' };
     }
 
-    // Déterminer l'URL téléchargeable
-    let sourceUrl = rawPath;
-    if (!rawPath.startsWith('http') && !rawPath.startsWith('file:') && !rawPath.startsWith('blob:') && !rawPath.startsWith('data:')) {
-      sourceUrl = getDocumentPdfUrl(rawPath);
-    }
-
-    const { mimeType, uti, extension } = obtenirMimeTypeEtExtension(rawPath || document.titre);
-    const nomFichierNettoye = `${document.titre.replace(/[^a-zA-Z0-9_\-]/g, '_')}${extension}`;
+    const { mimeType, uti, extension } = obtenirMimeTypeEtExtension(document.file_path || document.cheminLocal || document.titre);
+    const nomFichierNettoye = `${document.titre.replace(/[^a-zA-Z0-9_\-]/g, '_')}${extension.toLowerCase().endsWith('.pdf') ? '' : '.pdf'}`;
 
     // 🌐 Mode PC / Navigateur Web
     if (Platform.OS === 'web') {
       try {
-        const response = await fetch(sourceUrl);
+        const response = await fetch(sourceUri);
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
         const link = window.document.createElement('a');
@@ -1247,46 +1786,47 @@ export const exporterDocumentVersAppareil = async (document: {
         window.URL.revokeObjectURL(blobUrl);
         return { success: true, message: `"${document.titre}" a été téléchargé sur votre ordinateur 💾` };
       } catch (webErr) {
-        // Fallback ouverture direct
         if (typeof window !== 'undefined') {
-          window.open(sourceUrl, '_blank');
+          window.open(sourceUri, '_blank');
           return { success: true, message: 'Ouverture du document pour enregistrement...' };
         }
       }
     }
 
     // 📱 Mode Mobile (Android & iOS)
-    const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory || '';
-    const localUri = `${baseDir}${nomFichierNettoye}`;
+    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
+    const tempShareUri = `${baseDir}${nomFichierNettoye}`;
 
-    // Téléchargement si URL distante
-    if (sourceUrl.startsWith('http')) {
-      const downloadResult = await FileSystem.downloadAsync(sourceUrl, localUri);
-      if (downloadResult.status !== 200) {
-        throw new Error('Échec du téléchargement du document.');
+    if (sourceUri.startsWith('http')) {
+      const dl = await FileSystem.downloadAsync(sourceUri, tempShareUri);
+      if (dl.status !== 200) {
+        throw new Error('Échec du téléchargement pour le partage.');
       }
-    } else if (sourceUrl.startsWith('file:') && sourceUrl !== localUri) {
-      await FileSystem.copyAsync({ from: sourceUrl, to: localUri });
+    } else if (sourceUri.startsWith('file:') && sourceUri !== tempShareUri) {
+      await FileSystem.copyAsync({ from: sourceUri, to: tempShareUri });
     }
 
-    // Partage ou enregistrement direct via le menu natif
     const isAvailable = await Sharing.isAvailableAsync();
     if (isAvailable) {
-      await Sharing.shareAsync(localUri, {
-        mimeType: mimeType,
-        dialogTitle: `Enregistrer "${document.titre}"`,
-        UTI: uti,
+      await Sharing.shareAsync(tempShareUri, {
+        mimeType: mimeType || 'application/pdf',
+        dialogTitle: `Exporter "${document.titre}"`,
+        UTI: uti || 'com.adobe.pdf',
       });
       return { success: true, message: 'Document prêt et partagé avec succès ! 📲' };
     }
 
-
-    return { success: true, message: `Document enregistré dans l'espace de stockage de l'appareil :\n${localUri}` };
-  } catch (error: any) {
-    console.error("Erreur lors de l'exportation :", error.message);
-    return { success: false, message: error.message || "Impossible d'exporter le document." };
+    return { success: true, message: `Document enregistré dans votre espace local :\n${tempShareUri}` };
+  } catch (err: any) {
+    console.error("Erreur lors de l'exportation vers le téléphone :", err);
+    return { success: false, message: err.message || "Impossible d'exporter ce document." };
   }
 };
+
+/**
+ * Alias de rétro-compatibilité
+ */
+export const exporterDocumentVersAppareil = exporterDocumentVersTelephone;
 
 /**
  * Sauvegarde la bibliothèque locale dans AsyncStorage
@@ -1372,10 +1912,10 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
         if (!errUserLib && userLibDocs && userLibDocs.length > 0) {
           cloudUserDocs.push(
             ...userLibDocs.map((uDoc: any) => {
-              const bucketPrefix = uDoc.bucket || 'documents_utilisateurs';
-              const qualifieFilePath = uDoc.file_path?.startsWith('documents_utilisateurs/') || uDoc.file_path?.startsWith('cours-documents/')
-                ? uDoc.file_path
-                : `${bucketPrefix}/${uDoc.file_path}`;
+              const bucket = uDoc.bucket || 'documents_utilisateurs';
+              const cleanStoragePath = (uDoc.cloud_path || uDoc.file_path || '')
+                .replace(/^documents_utilisateurs\//, '')
+                .replace(/^\/+/, '');
 
               return {
                 id: uDoc.id || `imported_${uDoc.created_at ? new Date(uDoc.created_at).getTime() : Date.now()}`,
@@ -1390,7 +1930,10 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
                 limite_apercu_type: 'page',
                 limite_apercu_valeur: 1,
                 taille_mo: uDoc.file_size_bytes ? parseFloat((uDoc.file_size_bytes / (1024 * 1024)).toFixed(2)) : 1.5,
-                file_path: qualifieFilePath,
+                file_path: cleanStoragePath,
+                cloud_path: cleanStoragePath,
+                bucket: bucket,
+                local_uri: uDoc.local_uri || '',
                 status: 'actif',
                 is_vip_consultation: false,
                 est_importe: true,
@@ -1414,15 +1957,18 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
           const mesFallback = fallbackDocs.filter((fd: any) => userAcqIds.includes(fd.id));
           for (const fb of mesFallback) {
             if (!cloudUserDocs.some((d) => d.id === fb.id)) {
-              const qualifieFbPath = fb.file_path?.startsWith('documents_utilisateurs/') || fb.file_path?.startsWith('cours-documents/')
-                ? fb.file_path
-                : `documents_utilisateurs/${fb.file_path}`;
+              const cleanFbPath = (fb.cloud_path || fb.file_path || '')
+                .replace(/^documents_utilisateurs\//, '')
+                .replace(/^\/+/, '');
 
               cloudUserDocs.push({
                 ...fb,
                 is_vip_consultation: false,
                 est_importe: true,
-                file_path: qualifieFbPath,
+                file_path: cleanFbPath,
+                cloud_path: cleanFbPath,
+                bucket: 'documents_utilisateurs',
+                local_uri: fb.local_uri || '',
                 cheminLocal: '',
                 estImporte: true,
                 typeAcquisition: 'permanent',
@@ -1457,6 +2003,8 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
         ...d,
         cheminLocal: cheminLocalConserve,
         file_path: d.file_path || existantLocal?.file_path || cheminLocalConserve || '',
+        cloud_path: d.cloud_path || existantLocal?.cloud_path || d.file_path || '',
+        bucket: d.bucket || existantLocal?.bucket || 'documents_utilisateurs',
       });
     });
     const docsImportes = Array.from(tousDocsImportesMap.values());
@@ -1717,7 +2265,8 @@ export const supprimerDocumentLocal = async (documentId: string): Promise<{ succ
 
 
 /**
- * Résout l'URL ou l'URI d'accès du fichier PDF (Local, Blob ou Supabase Storage)
+ * Résout l'URL ou l'URI d'accès du fichier PDF (Local, Blob ou Supabase Storage public)
+ * Pour les documents privés (documents_utilisateurs), privilégier resoudreSourcePdf() ou obtenirUrlSigneeDocument().
  */
 export const getDocumentPdfUrl = (filePath: string): string => {
   if (!filePath) return '';
@@ -1737,25 +2286,18 @@ export const getDocumentPdfUrl = (filePath: string): string => {
     return cleanPath;
   }
 
-  // 2. Si c'est une clé Supabase Storage :
-  console.log('🔗 Résolution URL Supabase Storage pour :', cleanPath);
-  let bucketName = 'cours-documents';
-  let storagePath = cleanPath;
+  // 2. Extraction robuste via extraireBucketEtCheminRelatif
+  const { bucket, cleanPath: storagePath, estDocumentPrive } = extraireBucketEtCheminRelatif(
+    cleanPath,
+    'cours-documents'
+  );
 
-  if (cleanPath.startsWith('documents_utilisateurs/')) {
-    bucketName = 'documents_utilisateurs';
-    storagePath = cleanPath.replace(/^documents_utilisateurs\//, '');
-  } else if (cleanPath.startsWith('cours-documents/')) {
-    bucketName = 'cours-documents';
-    storagePath = cleanPath.replace(/^cours-documents\//, '');
-  } else if (cleanPath.includes('/') && /^[0-9a-fA-F-]{20,}/.test(cleanPath)) {
-    // Si le chemin commence par un UUID utilisateur (ex: "e4a2.../dossier/fichier.pdf")
-    bucketName = 'documents_utilisateurs';
-    storagePath = cleanPath;
+  if (estDocumentPrive) {
+    console.warn('⚠️ [getDocumentPdfUrl] Attention : getPublicUrl appelé sur documents_utilisateurs (privé). Utilisez resoudreSourcePdf() ou obtenirUrlSigneeDocument() pour éviter l\'erreur HTTP 400 !');
   }
 
   const { data } = supabase.storage
-    .from(bucketName)
+    .from(bucket)
     .getPublicUrl(storagePath);
 
   return data.publicUrl;

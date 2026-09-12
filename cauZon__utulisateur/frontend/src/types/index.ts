@@ -19,6 +19,8 @@ export interface Document {
   coverUrl?: string;
   urlMiniature?: string;
   cheminLocal?: string;
+  local_uri?: string;
+  cloud_path?: string;
   statut?: string;
   status?: string;
   is_vip_consultation?: boolean;
@@ -50,6 +52,8 @@ export interface DocumentCourse {
   date_ajout?: string;
   coverUrl?: string;
   cheminLocal?: string;
+  local_uri?: string;
+  cloud_path?: string;
 }
 
 // Categorie

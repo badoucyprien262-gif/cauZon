@@ -26,7 +26,7 @@ import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
-import { fetchMesDocuments, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant } from '../services/serviceDocument';
+import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal } from '../services/serviceDocument';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -202,6 +202,22 @@ export default function EcranBibliotheque() {
       if (data && data.length > 0) {
         // Toujours re-fusionner avec le stockage local des documents importés pour ne jamais les effacer
         const importsLocaux = await chargerDocumentsImportes();
+        
+        // Documents importés provenant du Cloud (user_library_documents / fallback)
+        const serverImports = data.filter(
+          (d: any) => d.est_importe || d.estImporte || d.id?.startsWith('imported_')
+        );
+
+        // Fusion des imports : priorité au cache local si chemin local présent, enrichi par les imports distants
+        const mapImports = new Map<string, any>();
+        serverImports.forEach((d: any) => mapImports.set(d.id, d));
+        (importsLocaux || []).forEach((d: any) => {
+          const cloudDoc = mapImports.get(d.id);
+          mapImports.set(d.id, { ...(cloudDoc || {}), ...d });
+        });
+        const tousImports = Array.from(mapImports.values());
+
+        // Cours officiels du catalogue
         const serverOfficiels = data.filter(
           (d: any) => !d.id?.startsWith('imported_') && !d.est_importe && !d.estImporte
         );
@@ -209,7 +225,7 @@ export default function EcranBibliotheque() {
           (d: any) => docsDebloquesIds && docsDebloquesIds.includes(d.id)
         );
 
-        const fusionFinale = [...(importsLocaux || []), ...serverValides];
+        const fusionFinale = [...tousImports, ...serverValides];
         const formates = formaterDocsPourAffichage(fusionFinale);
         setMesDocs(formates);
         setDocumentsImportes(formates.filter((d) => d.estImporte));
@@ -325,7 +341,7 @@ export default function EcranBibliotheque() {
 
 
   const exporterDocument = async (doc: Document) => {
-    const res = await exporterDocumentVersAppareil(doc);
+    const res = await exporterDocumentVersTelephone(doc);
     afficherToast(
       res.message,
       "Exportation 💾",
@@ -379,10 +395,10 @@ export default function EcranBibliotheque() {
           return;
         }
 
-        // Copie immédiate dans le stockage persistant cauzon_docs/ (Sandboxing)
-        const persistentUri = await copierFichierVersDossierPersistant(
+        // 🔒 Copie immédiate dans le coffre-fort documentaire indépendant cauzon_vault/
+        const persistentUri = await stockerDansCoffreFortLocal(
           asset.uri,
-          `${Date.now()}_${nomFichier}`
+          `import_${Date.now()}_${nomFichier.replace(/\.pdf$/, '')}`
         );
 
         // Fichier sélectionné : on prépare les données et on ouvre la modale de configuration

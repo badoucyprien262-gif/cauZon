@@ -15,7 +15,7 @@ import {
 import { Ionicons } from './AppIcon';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../store/ContexteApp';
-import { importerDocumentLocal, televerserDocumentCloud, copierFichierVersDossierPersistant } from '../services/serviceDocument';
+import { importerDocumentLocal, televerserDocumentCloud, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal } from '../services/serviceDocument';
 import type { DocumentCourse } from '../types';
 
 export interface FichierImporte {
@@ -110,10 +110,10 @@ export default function ModaleImportDocument({
           return;
         }
 
-        // 🔒 Sandboxing immédiat : copie dans le stockage persistant cauzon_docs/
-        const persistentUri = await copierFichierVersDossierPersistant(
+        // 🔒 Sandboxing & Coffre-fort immédiat (cauzon_vault/)
+        const persistentUri = await stockerDansCoffreFortLocal(
           asset.uri,
-          `${Date.now()}_${nomFichier}`
+          `import_${Date.now()}_${nomFichier.replace(/\.pdf$/, '')}`
         );
 
         // ✅ Étape A réussie — Mémoriser le fichier et basculer vers l'écran de rangement

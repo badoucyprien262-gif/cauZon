@@ -19,7 +19,7 @@ import { Accelerometer } from 'expo-sensors';
 import { useApp } from '../store/ContexteApp';
 
 import { RootStackParamList } from '../navigation/NavigateurApp';
-import { getDocumentPdfUrl, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox } from '../services/serviceDocument';
+import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox, resoudreSourcePdf } from '../services/serviceDocument';
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
@@ -34,42 +34,56 @@ export default function EcranLecteurDocument() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
-  // Extraction exhaustive et ultra-robuste de la source PDF depuis tous les alias possibles
+  const estWeb = Platform.OS === 'web';
   const docParams = (route.params as any)?.document || (route.params as any) || {};
-  const rawSource =
+
+  // Extraction prioritaire et propre des références Cloud (sans chemins locaux physiques mobiles)
+  const listeCandidatsCloud = [
+    (document as any).cloud_path,
+    docParams.cloud_path,
+    (document as any).file_path,
+    docParams.file_path,
+    (document as any).filePath,
+    (route.params as any)?.file_path,
+    (route.params as any)?.filePath,
+    (document as any).pdf_url,
+    (document as any).url,
+    docParams.pdf_url,
+    docParams.url,
+  ];
+
+  const cloudPathNettoye = listeCandidatsCloud.find(c =>
+    Boolean(c && typeof c === 'string' && !c.startsWith('file:') && !c.startsWith('content:') && !c.startsWith('/data/') && !c.startsWith('/storage/'))
+  ) || '';
+
+  const cheminLocalPhysique = estWeb ? '' : (
     (route.params as any)?.cheminLocal ||
-    (route.params as any)?.file_path ||
-    (route.params as any)?.pdf_url ||
-    (route.params as any)?.url ||
-    (route.params as any)?.filePath ||
-    (route.params as any)?.document?.file_path ||
-    (route.params as any)?.document?.pdf_url ||
-    (route.params as any)?.document?.url ||
     (route.params as any)?.document?.cheminLocal ||
     document.cheminLocal ||
-    (document as any).file_path ||
-    (document as any).pdf_url ||
-    (document as any).url ||
-    docParams.cheminLocal ||
-    docParams.file_path ||
-    docParams.pdf_url ||
-    docParams.url ||
-    '';
-  const cheminBrut = rawSource;
+    (document as any).local_uri ||
+    docParams.local_uri ||
+    ''
+  );
 
-  // Détection stricte d'un document personnel importé (Stockage local sur l'appareil)
+  const cheminBrut = estWeb ? (cloudPathNettoye || (document as any).file_path || '') : (cheminLocalPhysique || cloudPathNettoye || (document as any).file_path || '');
+
+  // Détection stricte d'un document personnel importé (Stockage local ou sauvegarde Cloud utilisateur)
   const estDocumentImporte = Boolean(
     (document as any).est_importe ||
     (document as any).estImporte ||
     docParams.est_importe ||
     docParams.estImporte ||
     document.id?.startsWith('imported_') ||
+    docParams.id?.startsWith('imported_') ||
     cheminBrut.startsWith('file:') ||
     cheminBrut.startsWith('blob:') ||
     cheminBrut.startsWith('data:') ||
     cheminBrut.startsWith('content:') ||
     cheminBrut.startsWith('/data/') ||
-    cheminBrut.startsWith('/storage/')
+    cheminBrut.startsWith('/storage/') ||
+    (document as any).cloud_path ||
+    (document as any).bucket === 'documents_utilisateurs' ||
+    docParams.bucket === 'documents_utilisateurs'
   );
 
   // Les documents importés sont toujours 100% débloqués et ne nécessitent aucun calcul de paywall
@@ -82,6 +96,7 @@ export default function EcranLecteurDocument() {
   const [pageState, setPageState] = useState({ current: 1, total: document.nombrePages || 1 });
   const [hasError, setHasError] = useState(false);
   const [fichierIntrouvable, setFichierIntrouvable] = useState(false);
+  const [messageErreurPersonnalise, setMessageErreurPersonnalise] = useState<string>('');
   const [chargementLocal, setChargementLocal] = useState(true);
   const [sourcePdfData, setSourcePdfData] = useState<string>('');
   const [modePaysageActif, setModePaysageActif] = useState(false);
@@ -103,139 +118,51 @@ export default function EcranLecteurDocument() {
         setChargementLocal(true);
         setHasError(false);
         setFichierIntrouvable(false);
-        console.log('[Lecteur] Source brute :', cheminBrut);
+        setMessageErreurPersonnalise('');
+        console.log('[Lecteur] Source brute :', cheminBrut, '| Mode Web :', estWeb);
 
-        if (estDocumentImporte) {
-          if (Platform.OS !== 'web') {
-            let cheminEffectif = normaliserCheminFichier(cheminBrut);
-            let existe = await verifierFichierLocalExiste(cheminEffectif);
-            console.log(`[Lecteur] Vérification initiale fichier local : ${cheminEffectif} | Existe : ${existe}`);
+        // 🎯 Résolution unifiée résiliente (Local Vault / Docs Persistants vs URLs signées Supabase)
+        const resolution = await resoudreSourcePdf({
+          id: document.id || docParams.id,
+          titre: document.titre || docParams.titre,
+          file_path: cloudPathNettoye || (document as any).file_path || docParams.file_path,
+          cheminLocal: cheminLocalPhysique,
+          local_uri: estWeb ? '' : ((document as any).local_uri || docParams.local_uri),
+          cloud_path: cloudPathNettoye || (document as any).cloud_path || docParams.cloud_path,
+          bucket: (document as any).bucket || docParams.bucket || 'documents_utilisateurs',
+          pdf_url: (document as any).pdf_url || docParams.pdf_url,
+          url: (document as any).url || docParams.url,
+        });
 
-            // 1. Si le chemin enregistré n'existe pas directement, chercher dans le sandbox cauzon_docs/
-            if (!existe && DOSSIER_DOCS_PERSISTANTS) {
-              const nomFichier = (document as any).file_path || (document as any).titre || '';
-              const cleanNom = nomFichier.split('/').pop() || `${document.id}.pdf`;
-              const candidatSandbox = `${DOSSIER_DOCS_PERSISTANTS}${cleanNom}`;
-              const existeSandbox = await verifierFichierLocalExiste(candidatSandbox);
-              if (existeSandbox) {
-                cheminEffectif = candidatSandbox;
-                existe = true;
-                console.log('✅ [Lecteur] Document importé retrouvé dans cauzon_docs/ (par nom) :', candidatSandbox);
-              } else {
-                // Recherche par correspondance flexible (ID, titre, nom) dans tout le dossier cauzon_docs/
-                const cleRecherche = document.id || (document as any).titre || cleanNom;
-                const cheminTrouve = await retrouverFichierDansSandbox(cleRecherche);
-                if (cheminTrouve) {
-                  cheminEffectif = cheminTrouve;
-                  existe = true;
-                  console.log('✅ [Lecteur] Document importé retrouvé par balayage sandbox :', cheminTrouve);
-                }
-              }
-            }
+        console.log('[Lecteur] Résolution obtenue :', resolution);
 
-            // 2. Si toujours introuvable localement mais possède une référence distante (sauvegarde Cloud VIP ou Storage)
-            let urlDistanteSecours = '';
-            if (!existe) {
-              const remotePath = (document as any).file_path || (document as any).pdf_url || (document as any).url || '';
-              if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:') && !remotePath.startsWith('content:')) {
-                const urlDistante = getDocumentPdfUrl(remotePath);
-                if (urlDistante && urlDistante.startsWith('http')) {
-                  urlDistanteSecours = urlDistante;
-                  console.log('🔄 [Lecteur] Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
-                  const cleanName = `${document.id}_${(document.titre || 'doc').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-                  const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
-                  if (downloadedPath) {
-                    cheminEffectif = downloadedPath;
-                    existe = true;
-                  }
-                }
-              }
-            }
+        if (!resolution.uri) {
+          console.warn('❌ [Lecteur] Statut : Aucun chemin PDF disponible');
+          if (estMonte) {
+            setMessageErreurPersonnalise(resolution.messageErreur || '');
+            setFichierIntrouvable(true);
+            setChargementLocal(false);
+          }
+          return;
+        }
 
-            // 3. Si introuvable après TOUTES les tentatives locales
-            if (!existe) {
-              // Si une URL Cloud est disponible, l'ouvrir directement en streaming plutôt que de bloquer l'utilisateur
-              if (urlDistanteSecours) {
-                console.log('🌐 [Lecteur] Repli streaming direct Cloud pour document importé :', urlDistanteSecours);
-                if (estMonte) {
-                  setSourcePdfData(urlDistanteSecours);
-                  setChargementLocal(false);
-                }
-                return;
-              }
+        if (resolution.isLocal && Platform.OS !== 'web') {
+          console.log('[Lecteur] Source résolue (Local Natif) :', resolution.uri);
+          console.log('[Lecteur] Statut : Prêt pour conversion Base64');
 
-              console.warn('❌ [Lecteur] Statut : Fichier local introuvable après toutes les tentatives :', cheminBrut);
-              if (estMonte) {
-                setFichierIntrouvable(true);
-                setChargementLocal(false);
-              }
-              return;
-            }
-
-            console.log('[Lecteur] Source résolue (Local Natif) :', cheminEffectif);
-            console.log('[Lecteur] Statut : Prêt pour conversion Base64');
-
-            // Lecture en Base64 pure (sans préfixe MIME) pour transmission sécurisée à PDF.js via Uint8Array
-            const base64Brut = await FileSystem.readAsStringAsync(cheminEffectif, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            // Vérification intégrité : les 4 premiers chars décodés en UTF-8 doivent commencer par %PDF
-            // (en base64 : '%PDF' → 'JVBE')
-            if (base64Brut && !base64Brut.startsWith('JVBE') && !base64Brut.startsWith('jvbe')) {
-              console.warn('⚠️ [Lecteur] Avertissement intégrité PDF : l\'en-tête base64 ne commence pas par JVBE (%PDF). Contenu potentiellement corrompu.', base64Brut.substring(0, 8));
-            }
-            // On passe UNIQUEMENT la chaîne base64 brute (sans préfixe data:) pour que PDF.js reçoive un Uint8Array propre
-            const cleanBase64 = base64Brut.replace(/^data:application\/pdf;base64,/i, '');
-            if (estMonte) {
-              setSourcePdfData(cleanBase64);
-            }
-          } else {
-            // Sur Web, l'URL blob ou data est directement utilisable
-            console.log('[Lecteur] Source résolue (Web Local/Blob) :', cheminBrut);
-            console.log('[Lecteur] Statut : Chargement direct Web');
-            if (estMonte) {
-              setSourcePdfData(cheminBrut);
-            }
+          // Lecture en Base64 pure (sans préfixe MIME) pour transmission sécurisée à PDF.js via Uint8Array
+          const base64Brut = await FileSystem.readAsStringAsync(resolution.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const cleanBase64 = base64Brut.replace(/^data:application\/pdf;base64,/i, '');
+          if (estMonte) {
+            setSourcePdfData(cleanBase64);
           }
         } else {
-          // ☁️ Document Public / Catalogue Cloud Supabase
-          const remoteFilePath =
-            (document as any).file_path ||
-            (document as any).pdf_url ||
-            (document as any).url ||
-            (document as any).filePath ||
-            document.cheminLocal ||
-            cheminBrut;
-
-          let urlPublique = '';
-          if (remoteFilePath) {
-            urlPublique = getDocumentPdfUrl(remoteFilePath);
-          }
-
-          console.log('[Lecteur] Source résolue (Cloud Supabase) :', urlPublique);
-
-          if (!urlPublique) {
-            console.warn('❌ [Lecteur] Statut : Aucun chemin PDF disponible');
-            if (estMonte) {
-              setHasError(false);
-              setChargementLocal(false);
-            }
-            return;
-          }
-
-          console.log('[Lecteur] Statut : Chargement document distant...');
-
-          // Sur Web comme sur Mobile : Streaming direct via l'URL publique Supabase Storage
-          // Zéro téléchargement bloquant dans le thread JS, zéro conversion Base64 lourde en mémoire.
-          // PDF.js dans la WebView lit directement le flux par morceaux (HTTP Range / stream).
+          // Streaming direct HTTP/HTTPS ou blob Web
+          console.log('[Lecteur] Source résolue (Streaming Cloud / Web) :', resolution.uri);
           if (estMonte) {
-            setSourcePdfData(urlPublique);
-          }
-
-          // Mise en cache hors-ligne transparente en arrière-plan (silencieuse, non-bloquante)
-          if (Platform.OS !== 'web') {
-            const cacheFileName = `cache_${document.id}_${(document.titre || 'cours').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            telechargerFichierVersDossierPersistant(urlPublique, cacheFileName).catch(() => {});
+            setSourcePdfData(resolution.uri);
           }
         }
       } catch (err) {
@@ -523,224 +450,289 @@ export default function EcranLecteurDocument() {
   ` : ''}
 
   <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
-    // Données PDF encodées en JSON pour éviter tout problème de guillemets dans le template literal
-    const rawPdfData = ${JSON.stringify(sourcePdfData)};
-
-    // Détection automatique : base64 brut ou URL HTTP/file
-    // Si ce n'est pas une URL (http/https/file/blob), on traite comme base64 pur
-    function construirePdfSource(data) {
-      if (!data) return null;
-      // URL directe : passer telle quelle à PDF.js
-      if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('file://') || data.startsWith('blob:')) {
-        return data;
+    function initialiserLecteur() {
+      if (typeof pdfjsLib === 'undefined') {
+        setTimeout(initialiserLecteur, 50);
+        return;
       }
-      // data: URI complète : extraire le base64 et convertir en Uint8Array
-      const base64Match = data.match(/^data:application\/pdf;base64,(.+)/i);
-      const base64Str = base64Match ? base64Match[1] : data;
-      // Décoder base64 → binaire → Uint8Array (méthode recommandée par PDF.js pour les données locales)
+
       try {
-        const binaryStr = atob(base64Str);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      } catch (wErr) {
+        console.warn('[PDF.js] Worker non instanciable :', wErr);
+      }
+
+      // Données PDF encodées en JSON pour éviter tout problème de guillemets dans le template literal
+      const rawPdfData = ${JSON.stringify(sourcePdfData)};
+
+      // Détection automatique : base64 brut ou URL HTTP/file
+      function construirePdfSource(data) {
+        if (!data) return null;
+        if (typeof data !== 'string') return data;
+        if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('file://') || data.startsWith('blob:')) {
+          return data;
         }
-        return { data: bytes };
-      } catch (e) {
-        console.error('[PDF.js] Échec décodage base64:', e.message);
-        return null;
-      }
-    }
-
-    const pdfSource = construirePdfSource(rawPdfData);
-
-    function triggerPayment(type) {
-      const payload = JSON.stringify({ type: type });
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(payload);
-      } else if (window.parent) {
-        window.parent.postMessage(payload, '*');
-      }
-    }
-    window.triggerPayment = triggerPayment;
-
-    const notifyPageChange = (current, previewLimit, realTotalPages) => {
-      const payload = JSON.stringify({
-        type: 'pageChange',
-        currentPage: current,
-        totalPages: realTotalPages,
-        totalCount: realTotalPages,
-        previewLimitPages: previewLimit
-      });
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(payload);
-      } else if (window.parent) {
-        window.parent.postMessage(payload, '*');
-      }
-    };
-
-    if (!pdfSource) {
-      const loadingEl = document.getElementById('loading');
-      if (loadingEl) loadingEl.innerHTML = '<div style="text-align:center;padding:40px;"><p style="color:#DC2626;font-weight:bold;">⚠️ Source PDF vide ou invalide</p></div>';
-    } else {
-    pdfjsLib.getDocument(pdfSource).promise.then(async (pdf) => {
-      const loadingEl = document.getElementById('loading');
-      if (loadingEl) loadingEl.style.display = 'none';
-      const container = document.getElementById('canvas-container');
-      
-      const realTotalPages = pdf.numPages;
-      const bannerText = document.getElementById('banner-pages-text');
-      if (bannerText) {
-        bannerText.innerText = "Débloquez le cours complet de " + realTotalPages + " pages pour poursuivre votre lecture.";
-      }
-      
-      let maxPages = pdf.numPages;
-      let targetCutoffPage = 1;
-      let percentOnTargetPage = ${limiteApercuValeur};
-      let overlayTitle = "Aperçu limité";
-
-      const rawType = '${limiteApercuType}'.toLowerCase();
-
-      if (${estVerrouille}) {
-        if (rawType === 'page') {
-          // RÉCEPTEUR 1 : MODE PAGES FIXES
-          const pageCount = Number(${limiteApercuValeur});
-          if (pageCount <= 0) {
-            maxPages = 1;
-            targetCutoffPage = 1;
-            percentOnTargetPage = 0;
-            overlayTitle = "Document verrouillé";
-          } else {
-            maxPages = Math.min(pdf.numPages, pageCount);
-            targetCutoffPage = -1;
-          }
-        } else if (rawType.startsWith('fluide') || rawType.startsWith('neutre')) {
-          // RÉCEPTEUR 2 : MODE FLUIDE / NEUTRE (Position absolue Page + Hauteur relative au pixel près)
-          let tPage = ${document.limiteApercuPages ?? 1};
-          let tOffset = Number(${limiteApercuValeur});
-
-          const parts = rawType.split(':');
-          if (parts.length >= 3) {
-            tPage = parseInt(parts[1]) || tPage;
-            tOffset = parseFloat(parts[2]) || tOffset;
-          } else if (parts.length === 2) {
-            tOffset = parseFloat(parts[1]) || tOffset;
-          }
-
-          if (tOffset <= 0 && tPage <= 1) {
-            maxPages = 1;
-            targetCutoffPage = 1;
-            percentOnTargetPage = 0;
-            overlayTitle = "Document verrouillé";
-          } else if (tOffset >= 100 && tPage >= pdf.numPages) {
-            maxPages = pdf.numPages;
-            targetCutoffPage = -1;
-          } else {
-            targetCutoffPage = Math.min(pdf.numPages, Math.max(1, tPage));
-            maxPages = targetCutoffPage;
-            percentOnTargetPage = Math.max(0, Math.min(100, tOffset));
-            overlayTitle = "Aperçu gratuit (Page " + targetCutoffPage + " à " + (tOffset % 1 === 0 ? tOffset : tOffset.toFixed(1)) + "%)";
-          }
-        } else {
-          // RÉCEPTEUR 3 : MODE POURCENTAGE CLASSIQUE
-          const globalPercent = Number(${limiteApercuValeur});
-          if (globalPercent <= 0) {
-            maxPages = 1;
-            targetCutoffPage = 1;
-            percentOnTargetPage = 0;
-            overlayTitle = "Document verrouillé";
-          } else if (globalPercent >= 100) {
-            maxPages = pdf.numPages;
-            targetCutoffPage = -1;
-          } else {
-            const totalUnits = pdf.numPages;
-            const targetUnits = totalUnits * (globalPercent / 100);
-            targetCutoffPage = Math.min(pdf.numPages, Math.max(1, Math.ceil(targetUnits)));
-            maxPages = targetCutoffPage;
-            const fullPreviousPages = targetCutoffPage - 1;
-            const remainingUnitsOnPage = targetUnits - fullPreviousPages;
-            percentOnTargetPage = Math.max(0, Math.min(100, remainingUnitsOnPage * 100));
-            overlayTitle = "Aperçu limité à " + (globalPercent % 1 === 0 ? globalPercent : globalPercent.toFixed(1)) + "% du cours";
-          }
+        let base64Str = data;
+        const idx = base64Str.indexOf('base64,');
+        if (idx !== -1) {
+          base64Str = base64Str.substring(idx + 7);
         }
-      }
-
-      notifyPageChange(1, maxPages, realTotalPages);
-
-      // Largeur optimale et densité nette calibrée (Retina 2x standard pour mobile sans surconsommation GPU)
-      const containerWidth = Math.min(window.innerWidth - 32, 860);
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
-
-      // Rendu asynchrone fluide de chaque page (rendu progressif)
-      for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
         try {
-          const page = await pdf.getPage(pageNum);
-          const unscaledViewport = page.getViewport({ scale: 1.0 });
-          const baseScale = containerWidth / unscaledViewport.width;
-          const displayViewport = page.getViewport({ scale: baseScale });
-          const renderViewport = page.getViewport({ scale: baseScale * dpr });
-
-          const wrapper = document.createElement('div');
-          wrapper.className = 'page-wrapper';
-          wrapper.id = 'page-wrapper-' + pageNum;
-          wrapper.style.width = displayViewport.width + 'px';
-          wrapper.style.height = displayViewport.height + 'px';
-
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(renderViewport.width);
-          canvas.height = Math.round(renderViewport.height);
-          canvas.style.width = displayViewport.width + 'px';
-          canvas.style.height = displayViewport.height + 'px';
-
-          const context = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-          context.imageSmoothingEnabled = true;
-          context.imageSmoothingQuality = 'high';
-
-          wrapper.appendChild(canvas);
-          container.appendChild(wrapper);
-
-
-          // Coupure sur la page cible
-          if (${estVerrouille} && targetCutoffPage > 0 && pageNum === targetCutoffPage) {
-            const blurOverlay = document.createElement('div');
-            blurOverlay.className = 'blur-overlay';
-            blurOverlay.style.top = percentOnTargetPage + '%';
-            blurOverlay.innerHTML = \`
-              <div class="overlay-card">
-                <div class="overlay-lock-icon">🔒</div>
-                <div class="overlay-title">\${overlayTitle}</div>
-                <div class="overlay-subtitle">Débloquez l'intégralité du cours de \${pdf.numPages} pages pour poursuivre votre apprentissage.</div>
-                <div class="overlay-buttons">
-                  <button class="btn-buy" onclick="triggerPayment('buy')">🛒 Acheter (${document.prix ?? 100} F)</button>
-                  <button class="btn-vip" onclick="triggerPayment('vip')">🎁 Pass VIP (500 F)</button>
-                </div>
-              </div>
-            \`;
-            wrapper.appendChild(blurOverlay);
+          const binaryStr = atob(base64Str);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
           }
-
-          await page.render({
-            canvasContext: context,
-            viewport: renderViewport
-          }).promise;
-
-        } catch (pageErr) {
-          console.warn('Erreur rendu page ' + pageNum, pageErr);
+          return { data: bytes };
+        } catch (e) {
+          console.error('[PDF.js] Échec décodage base64:', e.message);
+          return null;
         }
       }
-    }).catch(err => {
-      const loadingEl = document.getElementById('loading');
-      if (loadingEl) {
-        loadingEl.innerHTML = [
-          '<div style="text-align:center;padding:40px;">',
-            '<p style="color:#DC2626;font-weight:bold;margin-bottom:8px;">⚠️ Impossible de charger le PDF</p>',
-            '<p style="color:#6B7280;font-size:13px;margin-bottom:20px;">' + (err && err.message ? err.message : 'Erreur réseau ou fichier inaccessible') + '</p>',
-          '</div>'
-        ].join('');
+
+      const pdfSource = construirePdfSource(rawPdfData);
+
+      function triggerPayment(type) {
+        const payload = JSON.stringify({ type: type });
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(payload);
+        } else if (window.parent) {
+          window.parent.postMessage(payload, '*');
+        }
       }
-    });
-    } // fin else pdfSource valide
+      window.triggerPayment = triggerPayment;
+
+      const notifyPageChange = (current, previewLimit, realTotalPages) => {
+        const payload = JSON.stringify({
+          type: 'pageChange',
+          currentPage: current,
+          totalPages: realTotalPages,
+          totalCount: realTotalPages,
+          previewLimitPages: previewLimit
+        });
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(payload);
+        } else if (window.parent) {
+          window.parent.postMessage(payload, '*');
+        }
+      };
+
+      if (!pdfSource) {
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.innerHTML = '<div style="text-align:center;padding:40px;"><p style="color:#DC2626;font-weight:bold;">⚠️ Source PDF vide ou invalide</p></div>';
+        return;
+      }
+
+      const docParams = typeof pdfSource === 'string'
+        ? { url: pdfSource, withCredentials: false, stopAtErrors: false }
+        : { data: pdfSource.data, stopAtErrors: false };
+
+      pdfjsLib.getDocument(docParams).promise.then(async (pdf) => {
+        // 1. Masquage proactif du loader HTML dès que le PDF est analysé
+        const initialLoader = document.getElementById('loading');
+        if (initialLoader) initialLoader.style.display = 'none';
+
+        const container = document.getElementById('canvas-container');
+        if (container) container.style.display = 'flex';
+        
+        const realTotalPages = pdf.numPages;
+        const bannerText = document.getElementById('banner-pages-text');
+        if (bannerText) {
+          bannerText.innerText = "Débloquez le cours complet de " + realTotalPages + " pages pour poursuivre votre lecture.";
+        }
+        
+        let maxPages = pdf.numPages;
+        let targetCutoffPage = 1;
+        let percentOnTargetPage = ${limiteApercuValeur};
+        let overlayTitle = "Aperçu limité";
+
+        const rawType = '${limiteApercuType}'.toLowerCase();
+
+        if (${estVerrouille}) {
+          if (rawType === 'page') {
+            const pageCount = Number(${limiteApercuValeur});
+            if (pageCount <= 0) {
+              maxPages = 1;
+              targetCutoffPage = 1;
+              percentOnTargetPage = 0;
+              overlayTitle = "Document verrouillé";
+            } else {
+              maxPages = Math.min(pdf.numPages, pageCount);
+              targetCutoffPage = -1;
+            }
+          } else if (rawType.startsWith('fluide') || rawType.startsWith('neutre')) {
+            let tPage = ${document.limiteApercuPages ?? 1};
+            let tOffset = Number(${limiteApercuValeur});
+
+            const parts = rawType.split(':');
+            if (parts.length >= 3) {
+              tPage = parseInt(parts[1]) || tPage;
+              tOffset = parseFloat(parts[2]) || tOffset;
+            } else if (parts.length === 2) {
+              tOffset = parseFloat(parts[1]) || tOffset;
+            }
+
+            if (tOffset <= 0 && tPage <= 1) {
+              maxPages = 1;
+              targetCutoffPage = 1;
+              percentOnTargetPage = 0;
+              overlayTitle = "Document verrouillé";
+            } else if (tOffset >= 100 && tPage >= pdf.numPages) {
+              maxPages = pdf.numPages;
+              targetCutoffPage = -1;
+            } else {
+              targetCutoffPage = Math.min(pdf.numPages, Math.max(1, tPage));
+              maxPages = targetCutoffPage;
+              percentOnTargetPage = Math.max(0, Math.min(100, tOffset));
+              overlayTitle = "Aperçu gratuit (Page " + targetCutoffPage + " à " + (tOffset % 1 === 0 ? tOffset : tOffset.toFixed(1)) + "%)";
+            }
+          } else {
+            const globalPercent = Number(${limiteApercuValeur});
+            if (globalPercent <= 0) {
+              maxPages = 1;
+              targetCutoffPage = 1;
+              percentOnTargetPage = 0;
+              overlayTitle = "Document verrouillé";
+            } else if (globalPercent >= 100) {
+              maxPages = pdf.numPages;
+              targetCutoffPage = -1;
+            } else {
+              const totalUnits = pdf.numPages;
+              const targetUnits = totalUnits * (globalPercent / 100);
+              targetCutoffPage = Math.min(pdf.numPages, Math.max(1, Math.ceil(targetUnits)));
+              maxPages = targetCutoffPage;
+              const fullPreviousPages = targetCutoffPage - 1;
+              const remainingUnitsOnPage = targetUnits - fullPreviousPages;
+              percentOnTargetPage = Math.max(0, Math.min(100, remainingUnitsOnPage * 100));
+              overlayTitle = "Aperçu limité à " + (globalPercent % 1 === 0 ? globalPercent : globalPercent.toFixed(1)) + "% du cours";
+            }
+          }
+        }
+
+        notifyPageChange(1, maxPages, realTotalPages);
+
+        const containerWidth = Math.min(window.innerWidth - 32, 860);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+
+        // Rendu asynchrone fluide de chaque page (rendu progressif)
+        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+          try {
+            const page = await pdf.getPage(pageNum);
+            const unscaledViewport = page.getViewport({ scale: 1.0 });
+            const baseScale = containerWidth / unscaledViewport.width;
+            const displayViewport = page.getViewport({ scale: baseScale });
+            const renderViewport = page.getViewport({ scale: baseScale * dpr });
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'page-wrapper';
+            wrapper.id = 'page-wrapper-' + pageNum;
+            wrapper.style.width = displayViewport.width + 'px';
+            wrapper.style.height = displayViewport.height + 'px';
+
+            const canvas = document.createElement('canvas');
+            canvas.id = 'pdf-canvas-' + pageNum;
+            canvas.width = Math.round(renderViewport.width);
+            canvas.height = Math.round(renderViewport.height);
+            canvas.style.width = displayViewport.width + 'px';
+            canvas.style.height = displayViewport.height + 'px';
+            canvas.style.display = 'block';
+
+            const context = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+
+            wrapper.appendChild(canvas);
+            container.appendChild(wrapper);
+
+            // Coupure sur la page cible
+            if (${estVerrouille} && targetCutoffPage > 0 && pageNum === targetCutoffPage) {
+              const blurOverlay = document.createElement('div');
+              blurOverlay.className = 'blur-overlay';
+              blurOverlay.style.top = percentOnTargetPage + '%';
+              blurOverlay.innerHTML = \`
+                <div class="overlay-card">
+                  <div class="overlay-lock-icon">🔒</div>
+                  <div class="overlay-title">\${overlayTitle}</div>
+                  <div class="overlay-subtitle">Débloquez l'intégralité du cours de \${pdf.numPages} pages pour poursuivre votre apprentissage.</div>
+                  <div class="overlay-buttons">
+                    <button class="btn-buy" onclick="triggerPayment('buy')">🛒 Acheter (${document.prix ?? 100} F)</button>
+                    <button class="btn-vip" onclick="triggerPayment('vip')">🎁 Pass VIP (500 F)</button>
+                  </div>
+                </div>
+              \`;
+              wrapper.appendChild(blurOverlay);
+            }
+
+            const renderTask = page.render({
+              canvasContext: context,
+              viewport: renderViewport
+            });
+            
+            renderTask.promise.then(function() {
+              // 1. Masquer explicitement le message de chargement
+              const loader = document.getElementById('loading');
+              if (loader) loader.style.display = 'none';
+              
+              // 2. Rendre le canvas visible
+              canvas.style.display = 'block';
+              if (container) container.style.display = 'flex';
+
+              // 3. Notifier React Native
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                  type: 'RENDER_SUCCESS', 
+                  page: pageNum 
+                }));
+              }
+            }).catch(function(error) {
+              console.error('Erreur renderTask page ' + pageNum, error);
+              const loader = document.getElementById('loading');
+              if (loader && pageNum === 1) {
+                loader.innerHTML = "<p style='color:#6B1124; font-weight:bold;'>Erreur d'affichage de la page. Touchez pour réessayer.</p>";
+                loader.style.display = 'block';
+              }
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                  type: 'RENDER_ERROR', 
+                  message: error ? error.message : 'Erreur de rendu' 
+                }));
+              }
+            });
+
+            await renderTask.promise.catch(function(e) {
+              console.warn('Capture renderTask page ' + pageNum, e);
+            });
+
+          } catch (pageErr) {
+            console.warn('Erreur rendu page ' + pageNum, pageErr);
+          }
+        }
+      }).catch(err => {
+        console.error('Erreur getDocument:', err);
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) {
+          loadingEl.innerHTML = [
+            '<div style="text-align:center;padding:40px;">',
+              '<p style="color:#DC2626;font-weight:bold;margin-bottom:8px;">⚠️ Impossible de charger le PDF</p>',
+              '<p style="color:#6B7280;font-size:13px;margin-bottom:20px;">' + (err && err.message ? err.message : 'Erreur réseau ou fichier inaccessible') + '</p>',
+            '</div>'
+          ].join('');
+          loadingEl.style.display = 'block';
+        }
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ 
+            type: 'RENDER_ERROR', 
+            message: err ? err.message : 'Erreur chargement PDF' 
+          }));
+        }
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initialiserLecteur);
+    } else {
+      initialiserLecteur();
+    }
 
     window.addEventListener('scroll', () => {
       const scrollPos = window.scrollY + window.innerHeight / 3;
@@ -756,7 +748,8 @@ export default function EcranLecteurDocument() {
   </script>
 </body>
 </html>
-    `
+    `,
+    baseUrl: 'https://localhost'
   };
 
   return (
@@ -834,19 +827,27 @@ export default function EcranLecteurDocument() {
           </View>
         ) : fichierIntrouvable ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="alert-circle-outline" size={54} color="#E74C3C" />
+            <Ionicons name="cloud-offline-outline" size={54} color="#E74C3C" />
             <Text style={[styles.emptyText, { color: '#E74C3C', fontWeight: 'bold', fontSize: 16, marginTop: 12 }]}>
-              Document Local Introuvable
+              Document Non Accessible
             </Text>
             <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6, paddingHorizontal: 24, textAlign: 'center' }]}>
-              Le fichier de ce cours personnel a été déplacé ou supprimé de l'appareil. Vous pouvez le réimporter facilement depuis votre bibliothèque.
+              {messageErreurPersonnalise || "Le fichier n'a pas pu être chargé localement ni synchronisé depuis votre Cloud Supabase sécurisé."}
             </Text>
-            <TouchableOpacity 
-              style={[styles.buyBtn, { marginTop: 16, paddingHorizontal: 20, backgroundColor: couleurs.primaire }]} 
-              onPress={handleBack}
-            >
-              <Text style={styles.buyBtnText}>Retour à la bibliothèque</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <TouchableOpacity 
+                style={[styles.buyBtn, { paddingHorizontal: 16, backgroundColor: couleurs.primaire }]} 
+                onPress={() => setCleRechargement(prev => prev + 1)}
+              >
+                <Text style={styles.buyBtnText}>🔄 Réessayer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.buyBtn, { paddingHorizontal: 16, backgroundColor: couleurs.fondCarte }]} 
+                onPress={handleBack}
+              >
+                <Text style={[styles.buyBtnText, { color: couleurs.texte }]}>Retour</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : sourcePdfData && !hasError ? (
           <View style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
@@ -883,6 +884,14 @@ export default function EcranLecteurDocument() {
                       setModaleAchatVisible(true);
                     } else if (data.type === 'vip') {
                       setModaleVipVisible(true);
+                    } else if (data.type === 'RENDER_SUCCESS') {
+                      // Le canvas a été rendu avec succès
+                      setChargementLocal(false);
+                      setHasError(false);
+                    } else if (data.type === 'RENDER_ERROR') {
+                      // Erreur lors du rendu du canvas
+                      setHasError(true);
+                      setChargementLocal(false);
                     } else if (event.nativeEvent.data === 'error') {
                       setHasError(true);
                     }
