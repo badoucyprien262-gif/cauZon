@@ -67,6 +67,13 @@ export const extraireParamsDepuisUrl = (url: string): { [key: string]: string } 
 };
 
 /**
+ * Web Client ID Google OAuth (avec fallback autonome pour EAS Build)
+ */
+export const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+  '843173177415-rsjoi9cto15k6kfh80ko94g5uhqrghdj.apps.googleusercontent.com';
+
+/**
  * Lance la connexion rapide via Google avec Supabase.
  * - Sur Web : Redirection OAuth dynamique capturant l'URL exacte du cours/page en cours.
  * - Sur Android : Boîte de dialogue native Google Play Services / One Tap (GoogleSignin + signInWithIdToken)
@@ -93,10 +100,11 @@ export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{
 
     // 2. Plateforme Native Android : Authentification Google Native (Play Services / One Tap)
     if (Platform.OS === 'android') {
-      const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+      console.log('📱 Démarrage authentification Google native Android...');
+      console.log('🔑 Google Web Client ID configuré :', GOOGLE_WEB_CLIENT_ID.substring(0, 15) + '...');
 
       GoogleSignin.configure({
-        webClientId: webClientId || undefined,
+        webClientId: GOOGLE_WEB_CLIENT_ID,
         scopes: ['email', 'profile'],
       });
 
@@ -109,20 +117,40 @@ export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{
         return { success: false, error: 'Connexion annulée' };
       }
 
-      const idToken = response.data?.idToken || (response as any).idToken;
+      // Extraction robuste du jeton idToken (response.data.idToken ou response.idToken)
+      let idToken: string | null = (response as any)?.data?.idToken || (response as any)?.idToken || null;
+
+      // Si idToken est toujours absent/null, interrogation directe via getTokens()
       if (!idToken) {
-        throw new Error("Jeton Google (idToken) manquant. Vérifiez la configuration de EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
+        console.log('🔄 idToken non présent dans response, tentative de récupération via GoogleSignin.getTokens()...');
+        try {
+          const tokens = await GoogleSignin.getTokens();
+          idToken = tokens?.idToken || null;
+          console.log('🎟️ Jeton idToken récupéré via getTokens :', !!idToken);
+        } catch (tokenErr) {
+          console.warn('⚠️ Échec de récupération via getTokens() :', tokenErr);
+        }
       }
 
+      if (!idToken) {
+        console.error('❌ Impossible de récupérer le jeton idToken Google.');
+        throw new Error("Jeton Google (idToken) manquant. Vérifiez la configuration du Web Client ID Google.");
+      }
+
+      console.log('🔐 Connexion à Supabase via signInWithIdToken...');
       // Connexion directe dans Supabase via le jeton d'identité Google ID Token
       const { data: authData, error: authErr } = await supabase.auth.signInWithIdToken({
         provider: 'google',
         token: idToken,
       });
 
-      if (authErr) throw authErr;
+      if (authErr) {
+        console.error('❌ Erreur Supabase signInWithIdToken :', authErr.message);
+        throw authErr;
+      }
 
       if (authData?.user) {
+        console.log('✅ Utilisateur Supabase authentifié avec succès :', authData.user.email);
         await synchroniserProfilGoogle(authData.user);
         return { success: true };
       }
