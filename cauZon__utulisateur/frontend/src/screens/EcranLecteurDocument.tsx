@@ -19,7 +19,7 @@ import { Accelerometer } from 'expo-sensors';
 import { useApp } from '../store/ContexteApp';
 
 import { RootStackParamList } from '../navigation/NavigateurApp';
-import { getDocumentPdfUrl, exporterDocumentVersAppareil, verifierFichierLocalExiste } from '../services/serviceDocument';
+import { getDocumentPdfUrl, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS } from '../services/serviceDocument';
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
@@ -76,7 +76,39 @@ export default function EcranLecteurDocument() {
 
         if (estDocumentImporte) {
           if (Platform.OS !== 'web') {
-            const existe = await verifierFichierLocalExiste(cheminBrut);
+            let cheminEffectif = cheminBrut;
+            let existe = await verifierFichierLocalExiste(cheminEffectif);
+
+            // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
+            if (!existe && DOSSIER_DOCS_PERSISTANTS) {
+              const nomFichier = (document as any).file_path || (document as any).titre || '';
+              const cleanNom = nomFichier.split('/').pop() || `${document.id}.pdf`;
+              const candidatSandbox = `${DOSSIER_DOCS_PERSISTANTS}${cleanNom}`;
+              const existeSandbox = await verifierFichierLocalExiste(candidatSandbox);
+              if (existeSandbox) {
+                cheminEffectif = candidatSandbox;
+                existe = true;
+                console.log('✅ Document retrouvé dans cauzon_docs/ :', candidatSandbox);
+              }
+            }
+
+            // Si toujours introuvable localement mais possède une référence distante (Supabase Cloud)
+            if (!existe) {
+              const remotePath = (document as any).file_path || '';
+              if (remotePath && !remotePath.startsWith('file:') && !remotePath.startsWith('data:') && !remotePath.startsWith('blob:')) {
+                const urlDistante = getDocumentPdfUrl(remotePath);
+                if (urlDistante && urlDistante.startsWith('http')) {
+                  console.log('🔄 Téléchargement de secours depuis le Cloud vers cauzon_docs/ :', urlDistante);
+                  const cleanName = `${document.id}_${(document.titre || 'doc').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                  const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
+                  if (downloadedPath) {
+                    cheminEffectif = downloadedPath;
+                    existe = true;
+                  }
+                }
+              }
+            }
+
             if (!existe) {
               console.warn('❌ Fichier local introuvable sur l\'appareil :', cheminBrut);
               if (estMonte) {
@@ -86,9 +118,8 @@ export default function EcranLecteurDocument() {
               return;
             }
 
-
             // Lecture en Base64 pour injecter directement dans PDF.js sans requête réseau
-            const base64 = await FileSystem.readAsStringAsync(cheminBrut, {
+            const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
             });
             if (estMonte) {

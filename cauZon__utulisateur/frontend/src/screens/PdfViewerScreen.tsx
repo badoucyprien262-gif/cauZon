@@ -1,11 +1,11 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '../components/AppIcon';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Accelerometer } from 'expo-sensors';
-import { getDocumentPdfUrl, verifierFichierLocalExiste } from '../services/serviceDocument';
+import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS } from '../services/serviceDocument';
 
 import { useApp } from '../store/ContexteApp';
 
@@ -69,7 +69,34 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
 
         if (estLocalOuImporte) {
           if (Platform.OS !== 'web') {
-            const existe = await verifierFichierLocalExiste(filePath);
+            let cheminEffectif = filePath;
+            let existe = await verifierFichierLocalExiste(cheminEffectif);
+
+            // Si le chemin enregistré n'existe pas, vérifier dans le dossier sandbox cauzon_docs/
+            if (!existe && DOSSIER_DOCS_PERSISTANTS) {
+              const cleanNom = filePath.split('/').pop() || `${Date.now()}.pdf`;
+              const candidatSandbox = `${DOSSIER_DOCS_PERSISTANTS}${cleanNom}`;
+              const existeSandbox = await verifierFichierLocalExiste(candidatSandbox);
+              if (existeSandbox) {
+                cheminEffectif = candidatSandbox;
+                existe = true;
+                console.log('✅ Document retrouvé dans cauzon_docs/ :', candidatSandbox);
+              }
+            }
+
+            // Si introuvable et a une URL distante de secours
+            if (!existe && !filePath.startsWith('file:') && !filePath.startsWith('data:') && !filePath.startsWith('blob:')) {
+              const urlDistante = getDocumentPdfUrl(filePath);
+              if (urlDistante && urlDistante.startsWith('http')) {
+                const cleanName = `${Date.now()}_${titre.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                const downloadedPath = await telechargerFichierVersDossierPersistant(urlDistante, cleanName);
+                if (downloadedPath) {
+                  cheminEffectif = downloadedPath;
+                  existe = true;
+                }
+              }
+            }
+
             if (!existe) {
               console.warn('❌ Fichier local introuvable sur l\'appareil :', filePath);
               if (estMonte) {
@@ -79,8 +106,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               return;
             }
 
-
-            const base64 = await FileSystem.readAsStringAsync(filePath, {
+            const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
             });
             if (estMonte) {

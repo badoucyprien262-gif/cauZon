@@ -26,6 +26,7 @@ export interface DocumentCourse {
   is_vip_consultation?: boolean;
   est_importe?: boolean;
   date_ajout?: string;
+  cheminLocal?: string;
 }
 
 
@@ -661,6 +662,93 @@ function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 /**
+ * Dossier de stockage persistant dédié pour les documents importés dans l'application
+ */
+export const DOSSIER_DOCS_PERSISTANTS = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}cauzon_docs/` : '';
+
+/**
+ * Copie un fichier sélectionné vers le dossier persistant sécurisé de l'application (Sandboxing).
+ * Permet à l'application d'accéder au document de façon permanente et autonome même si l'utilisateur
+ * déplace ou supprime le fichier d'origine de son appareil.
+ */
+export const copierFichierVersDossierPersistant = async (
+  sourceUri: string,
+  idUniqueOuNom?: string
+): Promise<string> => {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    return sourceUri;
+  }
+
+  try {
+    const docsDir = DOSSIER_DOCS_PERSISTANTS;
+    const dirInfo = await FileSystem.getInfoAsync(docsDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(docsDir, { intermediates: true });
+    }
+
+    const cleanName = (idUniqueOuNom || `imported_${Date.now()}`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const nomFinal = cleanName.endsWith('.pdf') ? cleanName : `${cleanName}.pdf`;
+    const targetPath = `${docsDir}${nomFinal}`;
+
+    // Copie physique vers le dossier sandbox permanent de l'application
+    await FileSystem.copyAsync({ from: sourceUri, to: targetPath });
+
+    const checkCopy = await FileSystem.getInfoAsync(targetPath);
+    if (checkCopy.exists && checkCopy.size && checkCopy.size > 0) {
+      console.log('✅ Fichier copié dans le stockage sandbox persistant :', targetPath);
+      return targetPath;
+    } else {
+      console.warn('⚠️ Échec vérification copie, repli sur sourceUri');
+      return sourceUri;
+    }
+  } catch (err: any) {
+    console.error('Erreur lors de la copie vers le stockage persistant :', err.message);
+    return sourceUri;
+  }
+};
+
+/**
+ * Télécharge un document distant (HTTP / Supabase Storage) et le stocke
+ * directement dans le répertoire sandbox persistant cauzon_docs/.
+ */
+export const telechargerFichierVersDossierPersistant = async (
+  urlDistante: string,
+  idUniqueOuNom?: string
+): Promise<string | null> => {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    return urlDistante;
+  }
+
+  try {
+    const docsDir = DOSSIER_DOCS_PERSISTANTS;
+    const dirInfo = await FileSystem.getInfoAsync(docsDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(docsDir, { intermediates: true });
+    }
+
+    const cleanName = (idUniqueOuNom || `downloaded_${Date.now()}`)
+      .replace(/[^a-zA-Z0-9._-]/g, '_');
+    const nomFinal = cleanName.endsWith('.pdf') ? cleanName : `${cleanName}.pdf`;
+    const targetPath = `${docsDir}${nomFinal}`;
+
+    // Téléchargement direct vers le dossier sandbox permanent
+    const downloadRes = await FileSystem.downloadAsync(urlDistante, targetPath);
+    if (downloadRes.status === 200) {
+      const check = await FileSystem.getInfoAsync(targetPath);
+      if (check.exists && check.size && check.size > 0) {
+        console.log('✅ Fichier distant téléchargé et persisté dans cauzon_docs/ :', targetPath);
+        return targetPath;
+      }
+    }
+    return null;
+  } catch (err: any) {
+    console.warn('⚠️ Échec du téléchargement persistant :', err?.message);
+    return null;
+  }
+};
+
+/**
  * ☁️ TÉLÉVERSEMENT ET PERSISTANCE CLOUD D'UN DOCUMENT PDF (VIP)
  * 
  * Étape A : Upload dans Supabase Storage ('documents_utilisateurs' ou repli sur 'cours-documents')
@@ -697,7 +785,7 @@ export const televerserDocumentCloud = async (params: {
     // Chemin de stockage distant
     const relativePath = `${userId}/${folderSlug}/${Date.now()}_${cleanFileName}`;
 
-    // 1️⃣ Préparation du contenu binaire (Web vs Native)
+    // 1️⃣ Préparation du contenu binaire (Web vs Native) & Stockage Sandbox persistant
     let uploadBody: any;
     let localCachePath = params.fileUri;
 
@@ -705,25 +793,13 @@ export const televerserDocumentCloud = async (params: {
       const response = await fetch(params.fileUri);
       uploadBody = await response.blob();
     } else {
-      if (FileSystem.documentDirectory) {
-        try {
-          const dossierImport = `${FileSystem.documentDirectory}documents_importes/`;
-          const dirInfo = await FileSystem.getInfoAsync(dossierImport);
-          if (!dirInfo.exists) {
-            await FileSystem.makeDirectoryAsync(dossierImport, { intermediates: true });
-          }
-          const destination = `${dossierImport}${idUnique}.pdf`;
-          await FileSystem.copyAsync({ from: params.fileUri, to: destination });
-          const check = await FileSystem.getInfoAsync(destination);
-          if (check.exists && check.size && check.size > 0) {
-            localCachePath = destination;
-          }
-        } catch (e: any) {
-          console.warn('Note copie locale cache :', e?.message);
-        }
-      }
+      // Copie immédiate dans le dossier persistant cauzon_docs/
+      localCachePath = await copierFichierVersDossierPersistant(
+        params.fileUri,
+        `${Date.now()}_${cleanFileName}`
+      );
 
-      const base64 = await FileSystem.readAsStringAsync(params.fileUri, {
+      const base64 = await FileSystem.readAsStringAsync(localCachePath, {
         encoding: FileSystem.EncodingType.Base64,
       });
       uploadBody = base64ToUint8Array(base64);
@@ -923,32 +999,12 @@ export const importerDocumentLocal = async (params: {
 
     const idUnique = `imported_${Date.now()}`;
 
-    // Sur Mobile (Android / iOS) : copier le fichier dans le stockage persistant de l'application
+    // Sur Mobile (Android / iOS) : copier le fichier dans le stockage sandbox persistant cauzon_docs/
     if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
-      try {
-        const dossierImport = `${FileSystem.documentDirectory}documents_importes/`;
-        const dirInfo = await FileSystem.getInfoAsync(dossierImport);
-        if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(dossierImport, { intermediates: true });
-        }
-        
-        // Nom de fichier PDF unique et permanent requis
-        const destination = `${dossierImport}${idUnique}.pdf`;
-        
-        // Copie synchrone depuis le cache DocumentPicker vers le dossier permanent sécurisé
-        await FileSystem.copyAsync({ from: params.file_path, to: destination });
-        
-        // Vérification de la présence effective du fichier copié
-        const checkCopy = await FileSystem.getInfoAsync(destination);
-        if (checkCopy.exists && checkCopy.size && checkCopy.size > 0) {
-          cheminPersistant = destination;
-          console.log('✅ Document PDF importé stocké avec succès dans le dossier permanent :', destination);
-        } else {
-          console.warn('⚠️ Échec de vérification du fichier copié, repli sur le chemin source');
-        }
-      } catch (errCopy: any) {
-        console.error('Erreur lors de la copie permanente du document :', errCopy.message);
-      }
+      cheminPersistant = await copierFichierVersDossierPersistant(
+        params.file_path,
+        `${Date.now()}_${idUnique}`
+      );
     }
 
     // Calcul dynamique et robuste du nombre exact de pages du PDF importé
@@ -1418,13 +1474,29 @@ export const supprimerDocumentLocal = async (documentId: string): Promise<{ succ
 
     // 1. Si le document est un document importé
     if (documentId.startsWith('imported_')) {
-      // Suppression physique du fichier sur l'appareil
+      // Suppression physique du fichier sur l'appareil (cauzon_docs/ ou ancien documents_importes/)
       if (Platform.OS !== 'web' && FileSystem.documentDirectory) {
         try {
-          const path = `${FileSystem.documentDirectory}documents_importes/${documentId}.pdf`;
-          const info = await FileSystem.getInfoAsync(path);
-          if (info.exists) {
-            await FileSystem.deleteAsync(path, { idempotent: true });
+          const docs = await chargerDocumentsImportes();
+          const docTrouve = docs.find((d) => d.id === documentId);
+          const cheminEnregistre = docTrouve?.cheminLocal;
+          if (cheminEnregistre && cheminEnregistre.startsWith('file:')) {
+            const check = await FileSystem.getInfoAsync(cheminEnregistre);
+            if (check.exists) {
+              await FileSystem.deleteAsync(cheminEnregistre, { idempotent: true });
+            }
+          }
+
+          // Nettoyage par identifiant dans cauzon_docs/ et documents_importes/
+          const pathsToCheck = [
+            `${DOSSIER_DOCS_PERSISTANTS}${documentId}.pdf`,
+            `${FileSystem.documentDirectory}documents_importes/${documentId}.pdf`,
+          ];
+          for (const p of pathsToCheck) {
+            const info = await FileSystem.getInfoAsync(p);
+            if (info.exists) {
+              await FileSystem.deleteAsync(p, { idempotent: true });
+            }
           }
         } catch (_) {}
       }

@@ -680,7 +680,16 @@ export default function EcranAccueil() {
       </View>
 
       {/* 2. Zone principale avec Header Flottant One UI et ScrollView stable */}
-      <View style={{ flex: 1, position: 'relative', ...(Platform.OS === 'web' ? { minHeight: 0 } : {}) }}>
+      <View
+        style={[
+          { flex: 1, position: 'relative' },
+          Platform.OS === 'web' && ({
+            height: '100%',
+            minHeight: 0,
+            overflow: 'hidden',
+          } as any),
+        ]}
+      >
         {/* Barre de Recherche et Matières Flottante One UI (Superposition absolue sans Layout Shift) */}
         <Animated.View
           style={{
@@ -765,19 +774,22 @@ export default function EcranAccueil() {
           style={[
             { flex: 1 },
             Platform.OS === 'web' && ({
-              // @ts-ignore
+              overflowY: 'auto',
               touchAction: 'pan-y',
               WebkitOverflowScrolling: 'touch',
               overscrollBehaviorY: 'contain',
             } as any),
           ]}
-          showsVerticalScrollIndicator={false} 
-          contentContainerStyle={[styles.scrollContent, { paddingTop: 96, flexGrow: 1 }]}
+          showsVerticalScrollIndicator={Platform.OS === 'web'} 
+          contentContainerStyle={[
+            styles.scrollContent, 
+            { paddingTop: 96, flexGrow: 1 },
+            Platform.OS === 'web' && ({ paddingBottom: 100 } as any),
+          ]}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           bounces={true}
-          overScrollMode="never"
-          nestedScrollEnabled={true}
+          {...(Platform.OS !== 'web' ? { overScrollMode: 'never', nestedScrollEnabled: true } : {})}
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 
@@ -982,15 +994,42 @@ export default function EcranAccueil() {
           </View>
         ) : (
           <View style={styles.gridContainer}>
-            <FlatList
-              key={nombreColonnes}
-              data={filteredDocuments}
-              renderItem={renderDocumentCard}
-              keyExtractor={(item) => item.id}
-              numColumns={nombreColonnes}
-              scrollEnabled={false}
-              columnWrapperStyle={styles.columnWrapper}
-            />
+            {Platform.OS === 'web' ? (
+              Array.from({ length: Math.ceil(filteredDocuments.length / nombreColonnes) }).map((_, rowIndex) => {
+                const sliceStart = rowIndex * nombreColonnes;
+                const rowItems = filteredDocuments.slice(sliceStart, sliceStart + nombreColonnes);
+                return (
+                  <View key={`grid-row-${rowIndex}`} style={[styles.columnWrapper, { marginBottom: 16 }]}>
+                    {rowItems.map((item) => (
+                      <CarteDocument
+                        key={item.id}
+                        document={item}
+                        largeur={largeurCarte}
+                        onPress={() =>
+                          navigation.navigate('DocumentViewer', {
+                            document: item,
+                            onUnlock: (id) => {
+                              debloquerDocument(id);
+                            },
+                          })
+                        }
+                        onUnlockPress={() => handleUnlock(item.id, item.prix)}
+                      />
+                    ))}
+                  </View>
+                );
+              })
+            ) : (
+              <FlatList
+                key={nombreColonnes}
+                data={filteredDocuments}
+                renderItem={renderDocumentCard}
+                keyExtractor={(item) => item.id}
+                numColumns={nombreColonnes}
+                scrollEnabled={false}
+                columnWrapperStyle={styles.columnWrapper}
+              />
+            )}
           </View>
         )}
 

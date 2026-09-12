@@ -15,7 +15,7 @@ import {
 import { Ionicons } from './AppIcon';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../store/ContexteApp';
-import { importerDocumentLocal, televerserDocumentCloud } from '../services/serviceDocument';
+import { importerDocumentLocal, televerserDocumentCloud, copierFichierVersDossierPersistant } from '../services/serviceDocument';
 import type { DocumentCourse } from '../types';
 
 export interface FichierImporte {
@@ -110,11 +110,17 @@ export default function ModaleImportDocument({
           return;
         }
 
+        // 🔒 Sandboxing immédiat : copie dans le stockage persistant cauzon_docs/
+        const persistentUri = await copierFichierVersDossierPersistant(
+          asset.uri,
+          `${Date.now()}_${nomFichier}`
+        );
+
         // ✅ Étape A réussie — Mémoriser le fichier et basculer vers l'écran de rangement
         const titreSansExt = asset.name.replace(/\.[^/.]+$/, '');
         setFichierSelectionne({
           name: asset.name,
-          uri: asset.uri,
+          uri: persistentUri,
           size: asset.size,
         });
         setTitrePersonnalise(titreSansExt);

@@ -26,7 +26,7 @@ import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
-import { fetchMesDocuments, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes } from '../services/serviceDocument';
+import { fetchMesDocuments, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant } from '../services/serviceDocument';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -148,7 +148,7 @@ export default function EcranBibliotheque() {
         limiteApercuType: parsedType,
         limiteApercuValeur: parsedVal,
         description: dbDoc.description ?? '',
-        cheminLocal: dbDoc.file_path ?? '',
+        cheminLocal: dbDoc.cheminLocal || dbDoc.file_path || '',
         is_vip_consultation: dbDoc.is_vip_consultation ?? false,
         estImporte: dbDoc.est_importe ?? dbDoc.id?.startsWith('imported_') ?? false,
       };
@@ -368,10 +368,16 @@ export default function EcranBibliotheque() {
           return;
         }
 
+        // Copie immédiate dans le stockage persistant cauzon_docs/ (Sandboxing)
+        const persistentUri = await copierFichierVersDossierPersistant(
+          asset.uri,
+          `${Date.now()}_${nomFichier}`
+        );
+
         // Fichier sélectionné : on prépare les données et on ouvre la modale de configuration
         setFichierImportSelectionne({
           name: asset.name,
-          uri: asset.uri,
+          uri: persistentUri,
           size: asset.size,
         });
         setImportModalVisible(true);

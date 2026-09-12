@@ -39,7 +39,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#6B1124"
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin"
     ],
     "ios": {
       "bundleIdentifier": "com.cauzon.app",
@@ -57,13 +58,14 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "POST_NOTIFICATIONS",
-        "VIBRATE",
-        "RECEIVE_BOOT_COMPLETED"
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -81,9 +83,9 @@
       "EXPO_PUBLIC_FEEXPAY_PUBLIC_KEY": "test_Hg7Kjl3ZAM63UuIUpuudD9nKuu3ZAM67Kjl3Uuhn",
       "EXPO_PUBLIC_FEEXPAY_MODE": "sandbox",
       "eas": {
-        "projectId": "8bf68898-d1e1-4a72-9317-827af406386f"
+        "projectId": "6ea2d2ad-3564-4d9b-9a3e-f3820d66bfa7"
       }
     },
-    "owner": "cyprien45"
+    "owner": "cyprien-dev2"
   }
 }
