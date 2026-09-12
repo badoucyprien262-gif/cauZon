@@ -139,11 +139,17 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             console.log('[Lecteur] Source résolue (Local Natif) :', cheminEffectif);
             console.log('[Lecteur] Statut : Prêt pour conversion Base64');
 
-            const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
+            const base64Brut = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
             });
+            // Vérification intégrité signature %PDF- (en base64 : 'JVBE')
+            if (base64Brut && !base64Brut.startsWith('JVBE') && !base64Brut.startsWith('jvbe')) {
+              console.warn('⚠️ [Lecteur] Avertissement intégrité PDF : en-tête base64 inattendu :', base64Brut.substring(0, 8));
+            }
+            // Passe le base64 RAW sans préfixe — PDF.js le reçoit via Uint8Array dans le HTML
+            const cleanBase64 = base64Brut.replace(/^data:application\/pdf;base64,/i, '');
             if (estMonte) {
-              setSourcePdfData(`data:application/pdf;base64,${base64}`);
+              setSourcePdfData(cleanBase64);
             }
           } else {
             console.log('[Lecteur] Source résolue (Web Local/Blob) :', filePath);
@@ -183,14 +189,17 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
             const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cleanName);
 
             if (targetLocalPath) {
-              base64Result = await FileSystem.readAsStringAsync(targetLocalPath, {
+              const base64Raw = await FileSystem.readAsStringAsync(targetLocalPath, {
                 encoding: FileSystem.EncodingType.Base64,
               });
+              // Nettoyage défensif du préfixe MIME si présent
+              base64Result = base64Raw.replace(/^data:application\/pdf;base64,/i, '');
             }
 
             if (estMonte) {
               if (base64Result) {
-                setSourcePdfData(`data:application/pdf;base64,${base64Result}`);
+                // Base64 RAW sans préfixe — décodé via atob→Uint8Array dans le HTML PDF.js
+                setSourcePdfData(base64Result);
               } else {
                 setSourcePdfData(urlPublique);
               }
@@ -458,8 +467,33 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
   ${!estDebloque ? `<div id="limit-banner">⚠️ Limite de l'aperçu gratuit atteinte (${limiteApercuPages} pages). Veuillez débloquer le cours complet.</div>` : ''}
 
   <script>
-    const url = '${sourcePdfData}';
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    // Données PDF encodées en JSON — évite tout problème de guillemets dans le template literal
+    const rawPdfData = ${JSON.stringify(sourcePdfData)};
+
+    // Détection automatique : base64 brut ou URL HTTP/file
+    function construirePdfSource(data) {
+      if (!data) return null;
+      if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('file://') || data.startsWith('blob:')) {
+        return data;
+      }
+      const base64Match = data.match(/^data:application\/pdf;base64,(.+)/i);
+      const base64Str = base64Match ? base64Match[1] : data;
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        return { data: bytes };
+      } catch (e) {
+        console.error('[PDF.js] Échec décodage base64:', e.message);
+        return null;
+      }
+    }
+
+    const pdfSource = construirePdfSource(rawPdfData);
 
     const notifyPageChange = (current, previewLimit, realTotalPages) => {
       const payload = JSON.stringify({
@@ -476,7 +510,11 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
       }
     };
 
-    pdfjsLib.getDocument(url).promise.then(async (pdf) => {
+    if (!pdfSource) {
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.innerHTML = '<div style="text-align:center;padding:40px;"><p style="color:#DC2626;font-weight:bold;">⚠️ Source PDF vide ou invalide</p></div>';
+    } else {
+    pdfjsLib.getDocument(pdfSource).promise.then(async (pdf) => {
       const loadingEl = document.getElementById('loading');
       if (loadingEl) loadingEl.style.display = 'none';
       const container = document.getElementById('canvas-container');
@@ -621,11 +659,11 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           '<div style="text-align:center;padding:40px;">',
             '<p style="color:#DC2626;font-weight:bold;margin-bottom:8px;">⚠️ Impossible de charger le PDF</p>',
             '<p style="color:#6B7280;font-size:13px;margin-bottom:20px;">' + (err && err.message ? err.message : 'Erreur réseau ou fichier inaccessible') + '</p>',
-            '<a href="' + url + '" target="_blank" style="background:#6B1124;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;">📄 Ouvrir dans le navigateur</a>',
           '</div>'
         ].join('');
       }
     });
+    } // fin else pdfSource valide
 
     // Détection de la page active lors du défilement
     window.addEventListener('scroll', () => {

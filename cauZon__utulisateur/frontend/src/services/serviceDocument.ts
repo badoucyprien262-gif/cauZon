@@ -800,8 +800,24 @@ export const copierFichierVersDossierPersistant = async (
     }
 
     if (copySuccess) {
+      // Vérification intégrité : contrôle la signature %PDF- dans les premiers octets du fichier copié
+      try {
+        const header = await FileSystem.readAsStringAsync(targetPath, {
+          encoding: FileSystem.EncodingType.UTF8,
+          position: 0,
+          length: 10,
+        } as any);
+        if (header && header.startsWith('%PDF')) {
+          console.log('✅ [Intégrité] Signature %PDF- confirmée dans le fichier copié.');
+        } else {
+          console.warn(`⚠️ [Intégrité] La signature %PDF- est ABSENTE dans le fichier copié ! (début: ${header?.substring(0, 10)}). Le fichier est peut-être corrompu.`);
+        }
+      } catch (headerErr: any) {
+        console.warn('⚠️ [Intégrité] Impossible de vérifier l\'en-tête PDF :', headerErr.message);
+      }
       console.log('✅ Fichier copié avec succès dans le stockage sandbox persistant :', targetPath);
       return targetPath;
+
     } else {
       // Rejeter explicitement pour empêcher l'enregistrement d'un document fantôme avec URI éphémère
       throw new Error(`Échec de la copie physique vers le stockage persistant : le fichier copié est introuvable ou vide (${targetPath}).`);

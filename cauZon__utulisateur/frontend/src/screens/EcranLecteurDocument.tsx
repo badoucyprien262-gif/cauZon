@@ -163,12 +163,19 @@ export default function EcranLecteurDocument() {
             console.log('[Lecteur] Source résolue (Local Natif) :', cheminEffectif);
             console.log('[Lecteur] Statut : Prêt pour conversion Base64');
 
-            // Lecture en Base64 pour injecter directement dans PDF.js sans restriction CORS WebView
-            const base64 = await FileSystem.readAsStringAsync(cheminEffectif, {
+            // Lecture en Base64 pure (sans préfixe MIME) pour transmission sécurisée à PDF.js via Uint8Array
+            const base64Brut = await FileSystem.readAsStringAsync(cheminEffectif, {
               encoding: FileSystem.EncodingType.Base64,
             });
+            // Vérification intégrité : les 4 premiers chars décodés en UTF-8 doivent commencer par %PDF
+            // (en base64 : '%PDF' → 'JVBE')
+            if (base64Brut && !base64Brut.startsWith('JVBE') && !base64Brut.startsWith('jvbe')) {
+              console.warn('⚠️ [Lecteur] Avertissement intégrité PDF : l\'en-tête base64 ne commence pas par JVBE (%PDF). Contenu potentiellement corrompu.', base64Brut.substring(0, 8));
+            }
+            // On passe UNIQUEMENT la chaîne base64 brute (sans préfixe data:) pour que PDF.js reçoive un Uint8Array propre
+            const cleanBase64 = base64Brut.replace(/^data:application\/pdf;base64,/i, '');
             if (estMonte) {
-              setSourcePdfData(`data:application/pdf;base64,${base64}`);
+              setSourcePdfData(cleanBase64);
             }
           } else {
             // Sur Web, l'URL blob ou data est directement utilisable
@@ -218,14 +225,17 @@ export default function EcranLecteurDocument() {
             const targetLocalPath = await telechargerFichierVersDossierPersistant(urlPublique, cacheFileName);
 
             if (targetLocalPath) {
-              base64Result = await FileSystem.readAsStringAsync(targetLocalPath, {
+              const base64Raw = await FileSystem.readAsStringAsync(targetLocalPath, {
                 encoding: FileSystem.EncodingType.Base64,
               });
+              // Nettoyage défensif : retirer tout préfixe MIME si présent (ne devrait pas l'être ici)
+              base64Result = base64Raw.replace(/^data:application\/pdf;base64,/i, '');
             }
 
             if (estMonte) {
               if (base64Result) {
-                setSourcePdfData(`data:application/pdf;base64,${base64Result}`);
+                // On passe le base64 RAW (sans préfixe data:) — le HTML PDF.js le décodera via atob → Uint8Array
+                setSourcePdfData(base64Result);
               } else {
                 // Fallback direct sur l'URL publique si échec de mise en cache
                 setSourcePdfData(urlPublique);
@@ -518,8 +528,37 @@ export default function EcranLecteurDocument() {
   ` : ''}
 
   <script>
-    const url = '${sourcePdfData}';
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+    // Données PDF encodées en JSON pour éviter tout problème de guillemets dans le template literal
+    const rawPdfData = ${JSON.stringify(sourcePdfData)};
+
+    // Détection automatique : base64 brut ou URL HTTP/file
+    // Si ce n'est pas une URL (http/https/file/blob), on traite comme base64 pur
+    function construirePdfSource(data) {
+      if (!data) return null;
+      // URL directe : passer telle quelle à PDF.js
+      if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('file://') || data.startsWith('blob:')) {
+        return data;
+      }
+      // data: URI complète : extraire le base64 et convertir en Uint8Array
+      const base64Match = data.match(/^data:application\/pdf;base64,(.+)/i);
+      const base64Str = base64Match ? base64Match[1] : data;
+      // Décoder base64 → binaire → Uint8Array (méthode recommandée par PDF.js pour les données locales)
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        return { data: bytes };
+      } catch (e) {
+        console.error('[PDF.js] Échec décodage base64:', e.message);
+        return null;
+      }
+    }
+
+    const pdfSource = construirePdfSource(rawPdfData);
 
     function triggerPayment(type) {
       const payload = JSON.stringify({ type: type });
@@ -546,7 +585,11 @@ export default function EcranLecteurDocument() {
       }
     };
 
-    pdfjsLib.getDocument(url).promise.then(async (pdf) => {
+    if (!pdfSource) {
+      const loadingEl = document.getElementById('loading');
+      if (loadingEl) loadingEl.innerHTML = '<div style="text-align:center;padding:40px;"><p style="color:#DC2626;font-weight:bold;">⚠️ Source PDF vide ou invalide</p></div>';
+    } else {
+    pdfjsLib.getDocument(pdfSource).promise.then(async (pdf) => {
       const loadingEl = document.getElementById('loading');
       if (loadingEl) loadingEl.style.display = 'none';
       const container = document.getElementById('canvas-container');
@@ -698,11 +741,11 @@ export default function EcranLecteurDocument() {
           '<div style="text-align:center;padding:40px;">',
             '<p style="color:#DC2626;font-weight:bold;margin-bottom:8px;">⚠️ Impossible de charger le PDF</p>',
             '<p style="color:#6B7280;font-size:13px;margin-bottom:20px;">' + (err && err.message ? err.message : 'Erreur réseau ou fichier inaccessible') + '</p>',
-            '<a href="' + url + '" target="_blank" style="background:#6B1124;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px;">📄 Ouvrir dans le navigateur</a>',
           '</div>'
         ].join('');
       }
     });
+    } // fin else pdfSource valide
 
     window.addEventListener('scroll', () => {
       const scrollPos = window.scrollY + window.innerHeight / 3;
