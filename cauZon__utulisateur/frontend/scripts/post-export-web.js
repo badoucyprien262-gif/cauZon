@@ -92,9 +92,12 @@ if (fs.existsSync(htmlFile)) {
     `    <meta name="mobile-web-app-capable" content="yes">\n` +
     `    <meta name="apple-mobile-web-app-capable" content="yes">\n` +
     `    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n` +
-    `    <meta name="apple-mobile-web-app-title" content="cauZon">\n`;
+    `    <meta name="apple-mobile-web-app-title" content="cauZon">\n` +
+    `    <!-- Google Identity Services (GIS) Web -->\n` +
+    `    <script src="https://accounts.google.com/gsi/client" async defer></script>\n`;
 
   // Nettoyer d'éventuelles injections précédentes
+  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<script src="https:\/\/accounts\.google\.com\/gsi\/client" async defer><\/script>\n?/i, '');
   html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<meta name="apple-mobile-web-app-title" content="cauZon">\n?/i, '');
 
   // Injection dans le <head>

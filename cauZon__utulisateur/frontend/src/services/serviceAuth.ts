@@ -81,8 +81,48 @@ export const GOOGLE_WEB_CLIENT_ID =
  */
 export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    // 1. Plateforme Web : Conservation du flux OAuth standard
+    // 1. Plateforme Web : Authentification Google Identity Services (GIS) sans redirection
     if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
+        return new Promise((resolve) => {
+          (window as any).google.accounts.id.initialize({
+            client_id: GOOGLE_WEB_CLIENT_ID,
+            callback: async (response: any) => {
+              try {
+                if (!response?.credential) {
+                  console.error('Aucun credential reçu de Google');
+                  resolve({ success: false, error: 'Aucun jeton reçu de Google' });
+                  return;
+                }
+                const { data, error } = await supabase.auth.signInWithIdToken({
+                  provider: 'google',
+                  token: response.credential,
+                });
+                if (error) {
+                  console.error('Erreur session Supabase :', error);
+                  resolve({ success: false, error: error.message });
+                  return;
+                }
+                if (data?.user) {
+                  await synchroniserProfilGoogle(data.user);
+                }
+                resolve({ success: true });
+              } catch (err: any) {
+                console.error('Erreur session Supabase :', err);
+                resolve({ success: false, error: err?.message || 'Erreur de connexion' });
+              }
+            },
+          });
+          // Réinitialiser le cookie g_state pour réautoriser l'affichage immédiat du prompt One Tap
+          try {
+            document.cookie = 'g_state=;path=/;expires=Thu, 01 Jan 1970 00:00:01 GMT';
+          } catch (_) {}
+          (window as any).google.accounts.id.prompt();
+          resolve({ success: true });
+        });
+      }
+
+      // Fallback OAuth si le script GIS n'est pas encore prêt ou chargé
       const redirectUrl = obtenirUrlRedirectionOAuth(customRedirectUrl);
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
