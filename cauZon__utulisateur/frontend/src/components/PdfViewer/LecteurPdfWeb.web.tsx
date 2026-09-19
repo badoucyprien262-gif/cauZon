@@ -98,10 +98,13 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
 
   // Références techniques pour la gestion de la re-rastérisation vectorielle dynamique
   const pdfDocRef = useRef<any>(null);
-  const renderTasksRef = useRef<Map<number, any>>(new Map());
+  const pageRenderTasks = useRef<{ [pageNumber: number]: any }>({});
+  const renderedScalesMap = useRef<Map<number, number>>(new Map());
   const pagesVisiblesRef = useRef<Set<number>>(new Set([1]));
-  const zoomRenduMapRef = useRef<Map<number, number>>(new Map());
   const targetWidthRef = useRef<number>(800);
+  const zoomActifRef = useRef<number>(scale || 1.0);
+  const pageCouranteRef = useRef<number>(1);
+  const zoomDebounceTimerRef = useRef<any>(null);
 
   useEffect(() => {
     if (scale && scale !== zoomActif) {
@@ -131,40 +134,39 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
     setZoomActif(1.0);
   }, []);
 
-  // Fonction centrale pour effectuer la re-rastérisation haute définition d'une page à un zoom donné
+  // 🎯 Formule vectorielle haute fidélité PDF.js avec ré-échantillonnage réel au zoom
   const rasteriserPage = useCallback(async (
-    pageNum: number,
+    pageNumber: number,
     wrapper: HTMLElement,
-    zoomScale: number,
+    currentZoomScale: number,
     pageInstance?: any
   ) => {
     const pdfDoc = pdfDocRef.current;
     if (!pdfDoc) return;
 
-    // 1. Annuler toute tâche de rendu en cours sur cette page pour éviter les conflits
-    if (renderTasksRef.current.has(pageNum)) {
+    // 1. Annuler impérativement la tâche précédente sur ce canvas si elle tourne
+    if (pageRenderTasks.current[pageNumber]) {
       try {
-        renderTasksRef.current.get(pageNum)?.cancel();
-      } catch (_) {}
-      renderTasksRef.current.delete(pageNum);
+        pageRenderTasks.current[pageNumber].cancel();
+      } catch (e) {}
+      delete pageRenderTasks.current[pageNumber];
     }
 
     try {
-      const page = pageInstance || (await pdfDoc.getPage(pageNum));
+      const page = pageInstance || (await pdfDoc.getPage(pageNumber));
       const unscaledViewport = page.getViewport({ scale: 1.0 });
 
-      const isWebKitIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-      const rawDpr = window.devicePixelRatio || 1;
-      const dpr = isWebKitIOS ? Math.min(rawDpr, 1.75) : Math.min(rawDpr, 2.0);
-
+      // Plafond à 2.5 pour ménager la RAM mobile iOS/Android
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      
       const targetWidth = targetWidthRef.current || 800;
       const baseScale = targetWidth / unscaledViewport.width;
-      
-      // Résolution réelle augmentée du facteur de zoom pour éliminer tout flou
-      const resolutionScale = baseScale * zoomScale * dpr;
-      const renderViewport = page.getViewport({ scale: resolutionScale });
+      const effectiveScale = baseScale * currentZoomScale;
 
-      // Retirer le placeholder
+      // 2. Le viewport vectoriel PDF.js prend en compte le zoom ET la densité de pixels réelle
+      const viewport = page.getViewport({ scale: effectiveScale * dpr });
+
+      // Retirer le placeholder si présent
       const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
       if (placeholder) {
         placeholder.remove();
@@ -175,88 +177,110 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
       if (!canvas) {
         canvas = document.createElement('canvas');
         canvas.style.display = 'block';
-        canvas.style.width = '100%';
-        canvas.style.height = 'auto';
-        canvas.style.aspectRatio = `${renderViewport.width} / ${renderViewport.height}`;
+        canvas.style.margin = '0 auto';
         canvas.style.flexShrink = '0';
         canvas.style.touchAction = 'pan-x pan-y pinch-zoom';
         wrapper.appendChild(canvas);
       }
 
-      // Dimensions physiques en pixels du canvas (buffer bitmap haute définition)
-      canvas.width = Math.floor(renderViewport.width);
-      canvas.height = Math.floor(renderViewport.height);
+      // 3. Dimensions PHYSIQUES du canvas (la matrice de pixels réels)
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
 
+      // 4. Dimensions VISUELLES CSS (la taille affichée à l'écran)
+      const cssWidth = Math.floor(viewport.width / dpr);
+      const cssHeight = Math.floor(viewport.height / dpr);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+
+      // Ajuster également le wrapper pour contenir le canvas exactement
+      wrapper.style.width = `${cssWidth}px`;
+      wrapper.style.maxWidth = 'none';
+
+      // 5. Exécuter le rendu vectoriel direct
       const ctx = canvas.getContext('2d', { alpha: false });
-      if (ctx) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
+      if (!ctx) return;
 
-        const renderTask = page.render({
-          canvasContext: ctx,
-          viewport: renderViewport,
-        });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
-        renderTasksRef.current.set(pageNum, renderTask);
+      const renderContext = {
+        canvasContext: ctx,
+        viewport: viewport,
+      };
+      const task = page.render(renderContext);
+      pageRenderTasks.current[pageNumber] = task;
 
-        try {
-          await renderTask.promise;
-          zoomRenduMapRef.current.set(pageNum, zoomScale);
-        } catch (renderErr: any) {
-          if (renderErr?.name === 'RenderingCancelledException') {
-            // Annulation normale déclenchée par un zoom ou défilement plus récent
-            return;
-          }
-          throw renderErr;
-        } finally {
-          if (renderTasksRef.current.get(pageNum) === renderTask) {
-            renderTasksRef.current.delete(pageNum);
-          }
+      try {
+        await task.promise;
+        renderedScalesMap.current.set(pageNumber, currentZoomScale);
+      } catch (renderErr: any) {
+        if (renderErr?.name === 'RenderingCancelledException') {
+          // Annulation normale déclenchée par un zoom ou défilement plus récent
+          return;
+        }
+        throw renderErr;
+      } finally {
+        if (pageRenderTasks.current[pageNumber] === task) {
+          delete pageRenderTasks.current[pageNumber];
         }
       }
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
-        console.warn(`[LecteurPdfWeb] Échec re-rastérisation page ${pageNum} :`, err);
+        console.warn(`[LecteurPdfWeb] Échec re-rastérisation page ${pageNumber} :`, err);
       }
     }
   }, []);
 
   // 🚀 Réponse immédiate CSS (60/120 FPS) + Re-rastérisation vectorielle temporisée (Debounce 250ms)
   useEffect(() => {
+    zoomActifRef.current = zoomActif;
     const container = containerRef.current;
     if (!container) return;
+
+    const targetWidth = targetWidthRef.current || 800;
+    const immediateCssWidth = Math.floor(targetWidth * zoomActif);
 
     // 1. Réponse visuelle instantanée : redimensionnement CSS des wrappers
     const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
-      if (zoomActif > 1.0) {
-        w.style.width = `${Math.round(zoomActif * 100)}%`;
-        w.style.maxWidth = 'none';
-      } else if (zoomActif === 1.0) {
-        w.style.width = '100%';
-        w.style.maxWidth = '800px';
-      } else {
-        w.style.width = `${Math.round(zoomActif * 100)}%`;
-        w.style.maxWidth = `${Math.round(800 * zoomActif)}px`;
+      w.style.width = `${immediateCssWidth}px`;
+      w.style.maxWidth = 'none';
+      const c = w.querySelector('canvas');
+      if (c) {
+        c.style.width = `${immediateCssWidth}px`;
+        c.style.height = 'auto';
       }
     });
 
     // 2. Debounce de 250ms : re-rastérisation vectorielle HD des pages visibles
-    const timer = setTimeout(() => {
+    if (zoomDebounceTimerRef.current) {
+      clearTimeout(zoomDebounceTimerRef.current);
+    }
+
+    zoomDebounceTimerRef.current = setTimeout(() => {
       if (!pdfDocRef.current) return;
 
-      pagesVisiblesRef.current.forEach(pNum => {
+      const pagesATraiter = pagesVisiblesRef.current.size > 0
+        ? Array.from(pagesVisiblesRef.current)
+        : [pageCouranteRef.current || 1];
+
+      pagesATraiter.forEach(pNum => {
         const wrapper = container.querySelector<HTMLElement>(`.cauzon-page-wrapper[data-page="${pNum}"]`);
         if (wrapper) {
-          const dernierZoomRendu = zoomRenduMapRef.current.get(pNum) || 1.0;
-          if (dernierZoomRendu !== zoomActif) {
+          const renderedScale = renderedScalesMap.current.get(pNum);
+          if (renderedScale !== zoomActif) {
             rasteriserPage(pNum, wrapper, zoomActif);
           }
         }
       });
     }, 250);
 
-    return () => clearTimeout(timer);
+    return () => {
+      if (zoomDebounceTimerRef.current) {
+        clearTimeout(zoomDebounceTimerRef.current);
+      }
+    };
   }, [zoomActif, rasteriserPage]);
 
   // Chargement initial du PDF & Rendu Prioritaire Page 1
@@ -399,8 +423,8 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           wrapper.setAttribute('data-page', String(pageNum));
           wrapper.style.display = 'block';
           wrapper.style.position = 'relative';
-          wrapper.style.width = zoomActif > 1.0 ? `${Math.round(zoomActif * 100)}%` : '100%';
-          wrapper.style.maxWidth = zoomActif > 1.0 ? 'none' : `${Math.min(defaultDisplayWidth, 800)}px`;
+          wrapper.style.width = `${Math.round(defaultDisplayWidth * zoomActif)}px`;
+          wrapper.style.maxWidth = 'none';
           wrapper.style.margin = isMobileScreen ? '0 auto 12px auto' : '0 auto 16px auto';
           wrapper.style.flexShrink = '0';
           wrapper.style.boxSizing = 'border-box';
@@ -504,9 +528,10 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
                 const pageAttr = entry.target.getAttribute('data-page');
                 if (pageAttr) {
                   const pNum = parseInt(pageAttr, 10);
-                  const dernierZoomRendu = zoomRenduMapRef.current.get(pNum);
-                  if (dernierZoomRendu === undefined || dernierZoomRendu !== zoomActif) {
-                    rasteriserPage(pNum, entry.target as HTMLElement, zoomActif);
+                  const renderedScale = renderedScalesMap.current.get(pNum);
+                  // Démantèlement du verrou : autoriser le rendu si non fait ou si le zoom actif a changé
+                  if (renderedScale === undefined || renderedScale !== zoomActifRef.current) {
+                    rasteriserPage(pNum, entry.target as HTMLElement, zoomActifRef.current);
                   }
                 }
               }
@@ -527,6 +552,7 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
                 if (entry.isIntersecting) {
                   pagesVisiblesRef.current.add(pNum);
                   setPageCourante(pNum);
+                  pageCouranteRef.current = pNum;
                   onPageChange?.(pNum, totalPages);
                 } else {
                   pagesVisiblesRef.current.delete(pNum);
@@ -556,12 +582,12 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
       if (pageObserver) pageObserver.disconnect();
 
       // Annuler toutes les tâches de rendu en cours
-      renderTasksRef.current.forEach(task => {
-        try { task?.cancel(); } catch (_) {}
+      Object.keys(pageRenderTasks.current).forEach(key => {
+        try { pageRenderTasks.current[Number(key)]?.cancel(); } catch (_) {}
       });
-      renderTasksRef.current.clear();
+      pageRenderTasks.current = {};
       pagesVisiblesRef.current.clear();
-      zoomRenduMapRef.current.clear();
+      renderedScalesMap.current.clear();
 
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
@@ -599,8 +625,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         }
         .cauzon-page-wrapper {
           display: block !important;
-          width: 100% !important;
-          max-width: 800px;
           margin: 0 auto 16px auto !important;
           flex-shrink: 0 !important;
           box-sizing: border-box !important;
@@ -609,8 +633,7 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         }
         .cauzon-page-wrapper canvas {
           display: block !important;
-          width: 100% !important;
-          height: auto !important;
+          margin: 0 auto !important;
           flex-shrink: 0 !important;
           touch-action: pan-x pan-y pinch-zoom !important;
         }
