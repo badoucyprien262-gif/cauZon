@@ -13,6 +13,7 @@ export {
   FEEXPAY_MODE,
   generateFeexPayTransactionId,
   formatPhoneFeexPay,
+  encoderCustomIdFeexPay,
   initierTransactionSandboxFeexPay,
   generateFeexPayHtml,
   buildFeexPayCheckoutUrl,
@@ -22,4 +23,5 @@ export type {
   CustomerFeexPay,
   FeexPayPaymentPayload,
   FeexPayResult,
+  FeexPayMetadata,
 } from './feexpay';

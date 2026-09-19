@@ -60,6 +60,7 @@ export default function ModaleAchat({
     sAbonnerVIPCinetPay,
     nomUtilisateur,
     telephoneFacturation,
+    utilisateur,
     estConnecteGoogle,
     afficherToast,
   } = useApp();
@@ -353,6 +354,12 @@ export default function ModaleAchat({
                       transId: transId,
                       customer: buildCustomer(),
                       operator: operateurSelectionne,
+                      metadata: {
+                        userId: utilisateur?.id || null,
+                        typeAchat: selectedOption === 'single' ? 'acte' : 'vip',
+                        documentId: selectedOption === 'single' ? documentId : null,
+                        deviceId: identifiantAppareil,
+                      },
                     },
                     FEEXPAY_PUBLIC_KEY
                   )}
@@ -375,6 +382,12 @@ export default function ModaleAchat({
                         transId: transId,
                         customer: buildCustomer(),
                         operator: operateurSelectionne,
+                        metadata: {
+                          userId: utilisateur?.id || null,
+                          typeAchat: selectedOption === 'single' ? 'acte' : 'vip',
+                          documentId: selectedOption === 'single' ? documentId : null,
+                          deviceId: identifiantAppareil,
+                        },
                       },
                       FEEXPAY_PUBLIC_KEY
                     ),

@@ -1,5 +1,12 @@
 import { supabase } from '../lib/supabase';
-import type { GlobalConfig, TransactionRow, FinancialStats } from '../types';
+import type {
+  GlobalConfig,
+  TransactionRow,
+  FinancialStats,
+  AdminGlobalStats,
+  AdminTransactionDetail,
+  PaginatedTransactionsResult
+} from '../types';
 
 const CONFIG_KEY = 'global_config';
 
@@ -38,14 +45,14 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
 
   // Dictionnaires de résolution métiers
   const docsMap = new Map<string, string>();
-  const profilesMap = new Map<string, { username: string; avatar: string | null; phone: string | null }>();
+  const profilesMap = new Map<string, { username: string; avatar: string | null; phone: string | null; email: string | null }>();
   const devicesMap = new Map<string, { username: string; phone: string | null }>();
 
   // 0. Pré-chargement des dictionnaires (titres de cours, profils et appareils)
   try {
     const [docsRes, profsRes, appsRes] = await Promise.allSettled([
       supabase.from('documents').select('id, titre'),
-      supabase.from('profiles').select('id, username, avatar_url, phone_number'),
+      supabase.from('profiles').select('id, username, email, nom_complet, avatar_url, phone_number'),
       supabase.from('appareils_historique_bienvenue').select('device_id, username, phone_number'),
     ]);
 
@@ -56,12 +63,13 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
     }
 
     if (profsRes.status === 'fulfilled' && profsRes.value.data) {
-      profsRes.value.data.forEach((p: { id: string; username: string | null; avatar_url: string | null; phone_number: string | null }) => {
+      profsRes.value.data.forEach((p: { id: string; username: string | null; email?: string | null; nom_complet?: string | null; avatar_url: string | null; phone_number: string | null }) => {
         if (p.id) {
           profilesMap.set(p.id, {
-            username: p.username?.trim() || p.phone_number || 'Étudiant cauZon',
+            username: p.nom_complet?.trim() || p.username?.trim() || p.phone_number || (p.email ? p.email.split('@')[0] : 'Étudiant cauZon'),
             avatar: p.avatar_url,
             phone: p.phone_number,
+            email: p.email || null,
           });
         }
       });
@@ -81,25 +89,25 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
     console.warn('Note résolution dictionnaires finances :', errInitMaps);
   }
 
-  const resolveBuyer = (userId?: string | null, devId?: string | null, clientName?: string | null, clientTel?: string | null) => {
+  const resolveBuyer = (userId?: string | null, devId?: string | null, clientName?: string | null, clientTel?: string | null, clientEmail?: string | null) => {
     if (clientName && clientName.trim() && !clientName.toLowerCase().startsWith('client_') && !clientName.toLowerCase().startsWith('anon')) {
-      return { name: clientName.trim(), avatar: null };
+      return { name: clientName.trim(), avatar: null, email: clientEmail || null, phone: clientTel || null };
     }
     if (userId && profilesMap.has(userId)) {
       const p = profilesMap.get(userId)!;
-      return { name: p.username, avatar: p.avatar };
+      return { name: p.username, avatar: p.avatar, email: clientEmail || p.email, phone: clientTel || p.phone };
     }
     if (devId && devicesMap.has(devId)) {
       const d = devicesMap.get(devId)!;
-      return { name: d.username, avatar: null };
+      return { name: d.username, avatar: null, email: clientEmail || null, phone: clientTel || d.phone };
     }
     if (clientTel && clientTel.trim()) {
-      return { name: `Étudiant (${clientTel.trim()})`, avatar: null };
+      return { name: `Étudiant (${clientTel.trim()})`, avatar: null, email: clientEmail || null, phone: clientTel.trim() };
     }
     if (devId) {
-      return { name: `Étudiant Invité (${devId.substring(0, 6)})`, avatar: null };
+      return { name: `Étudiant Invité (${devId.substring(0, 6)})`, avatar: null, email: clientEmail || null, phone: null };
     }
-    return { name: 'Étudiant cauZon', avatar: null };
+    return { name: 'Étudiant cauZon', avatar: null, email: clientEmail || null, phone: null };
   };
 
   // 1. Transactions Mobile Money / FeexPay (Tous types : Acte, VIP, Stockage)
@@ -121,6 +129,7 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
         const devId = (t.device_id as string) || null;
         const nomClient = (t.nom_client as string) || null;
         const telClient = (t.telephone_client as string) || null;
+        const emailClient = (t.email_client as string) || null;
 
         if (isApproved && montant > 0) {
           totalRevenu += montant;
@@ -138,7 +147,7 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
 
         registeredTxIds.add(txId);
 
-        const buyer = resolveBuyer(userId, devId, nomClient, telClient);
+        const buyer = resolveBuyer(userId, devId, nomClient, telClient, emailClient);
         let docDesignation = '📄 Document de cours';
         if (typeAchat === 'vip') {
           docDesignation = '👑 Location Catalogue (30 jours)';
@@ -155,6 +164,8 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
           id: txId,
           userName: buyer.name,
           userAvatar: buyer.avatar,
+          userEmail: buyer.email,
+          userPhone: buyer.phone,
           doc: docDesignation,
           price: `${montant > 0 ? montant : 100} FCFA`,
           method: formatPaymentMethod(t.operateur as string, t.mode_paiement as string),
@@ -340,4 +351,184 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
     countStockage,
     transactions: list,
   };
+};
+
+/**
+ * 📊 Statistiques globales pour l'administrateur :
+ * - Total profils inscrits
+ * - Chiffre d'affaires cumulé (somme des montants des transactions validées)
+ * - Abonnés VIP actifs (has_vip_pass = true et non expirés)
+ */
+export const fetchStatistiquesGlobales = async (): Promise<AdminGlobalStats> => {
+  try {
+    const [profilesRes, vipRes, txsRes] = await Promise.allSettled([
+      supabase.from('profiles').select('id', { count: 'exact', head: true }),
+      supabase.from('profiles').select('id, vip_expiration_date').eq('has_vip_pass', true),
+      supabase.from('transactions_fedapay').select('montant, type_achat, statut').in('statut', ['approved', 'successful', 'success', 'valide']),
+    ]);
+
+    const totalProfiles = profilesRes.status === 'fulfilled' ? (profilesRes.value.count || 0) : 0;
+
+    let activeVipSubscribers = 0;
+    if (vipRes.status === 'fulfilled' && vipRes.value.data) {
+      const now = new Date();
+      activeVipSubscribers = vipRes.value.data.filter((p: { vip_expiration_date?: string | null }) => 
+        !p.vip_expiration_date || new Date(p.vip_expiration_date) > now
+      ).length;
+    }
+
+    let totalRevenue = 0;
+    let revenueCours = 0;
+    let revenueVip = 0;
+    let revenueStockage = 0;
+    let totalTransactions = 0;
+
+    if (txsRes.status === 'fulfilled' && txsRes.value.data) {
+      totalTransactions = txsRes.value.data.length;
+      txsRes.value.data.forEach((t: { montant?: number | null; type_achat?: string | null }) => {
+        const montant = Number(t.montant) || 0;
+        const typeAchat = t.type_achat || 'acte';
+        totalRevenue += montant;
+        if (typeAchat === 'vip') {
+          revenueVip += montant;
+        } else if (typeAchat === 'stockage') {
+          revenueStockage += montant;
+        } else {
+          revenueCours += montant;
+        }
+      });
+    }
+
+    return {
+      totalProfiles,
+      totalRevenue,
+      activeVipSubscribers,
+      totalTransactions,
+      revenueCours,
+      revenueVip,
+      revenueStockage,
+    };
+  } catch (error) {
+    console.error('Erreur fetchStatistiquesGlobales :', error);
+    return {
+      totalProfiles: 0,
+      totalRevenue: 0,
+      activeVipSubscribers: 0,
+      totalTransactions: 0,
+      revenueCours: 0,
+      revenueVip: 0,
+      revenueStockage: 0,
+    };
+  }
+};
+
+/**
+ * 📑 Historique paginé des transactions pour la vue Administrateur :
+ * Jointure avec profiles (nom, email, avatar, téléphone) et documents (titre du cours pour les actes)
+ * Trié par created_at DESC
+ */
+export const fetchHistoriqueTransactionsAdmin = async (
+  page: number = 1,
+  limit: number = 20
+): Promise<PaginatedTransactionsResult> => {
+  const from = Math.max(0, (page - 1) * limit);
+  const to = from + limit - 1;
+
+  try {
+    // 1. Récupération paginée des transactions
+    const { data: rawTxs, count, error } = await supabase
+      .from('transactions_fedapay')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      console.error('Erreur récupération transactions admin :', error);
+      throw error;
+    }
+
+    const total = count ?? (rawTxs?.length || 0);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    if (!rawTxs || rawTxs.length === 0) {
+      return { data: [], total, page, limit, totalPages };
+    }
+
+    // 2. Collecte des IDs uniques pour enrichir (documents et profiles)
+    const userIds = Array.from(new Set(rawTxs.map((t: Record<string, unknown>) => t.user_id).filter(Boolean))) as string[];
+    const docIds = Array.from(new Set(rawTxs.map((t: Record<string, unknown>) => t.document_id).filter(Boolean))) as string[];
+
+    const [profilesRes, docsRes] = await Promise.allSettled([
+      userIds.length > 0
+        ? supabase.from('profiles').select('id, username, nom_complet, email, phone_number, avatar_url').in('id', userIds)
+        : Promise.resolve({ data: [] }),
+      docIds.length > 0
+        ? supabase.from('documents').select('id, titre').in('id', docIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const profilesMap = new Map<string, { nom: string; email: string | null; phone: string | null; avatar: string | null }>();
+    if (profilesRes.status === 'fulfilled' && (profilesRes.value as any)?.data) {
+      (profilesRes.value as any).data.forEach((p: any) => {
+        profilesMap.set(p.id, {
+          nom: p.nom_complet?.trim() || p.username?.trim() || 'Étudiant cauZon',
+          email: p.email || null,
+          phone: p.phone_number || null,
+          avatar: p.avatar_url || null,
+        });
+      });
+    }
+
+    const docsMap = new Map<string, string>();
+    if (docsRes.status === 'fulfilled' && (docsRes.value as any)?.data) {
+      (docsRes.value as any).data.forEach((d: any) => {
+        docsMap.set(d.id, d.titre || 'Document');
+      });
+    }
+
+    // 3. Mapping et enrichissement des lignes
+    const data: AdminTransactionDetail[] = rawTxs.map((t: Record<string, unknown>) => {
+      const userId = (t.user_id as string) || null;
+      const p = userId ? profilesMap.get(userId) : null;
+      const nom = (t.nom_client as string) || p?.nom || ((t.device_id as string) ? `Étudiant (${(t.device_id as string).substring(0, 6)})` : 'Étudiant cauZon');
+      const email = (t.email_client as string) || p?.email || null;
+      const phone = (t.telephone_client as string) || p?.phone || null;
+      const avatar = p?.avatar || null;
+      const typeAchat = (t.type_achat as string) || 'acte';
+      const docId = (t.document_id as string) || null;
+
+      let titreDoc: string | null = null;
+      if (typeAchat === 'vip') {
+        titreDoc = 'Location VIP Catalogue (30 jours)';
+      } else if (typeAchat === 'stockage') {
+        titreDoc = 'Extension de Stockage (+75 documents)';
+      } else if (docId && docsMap.has(docId)) {
+        titreDoc = docsMap.get(docId) || 'Cours';
+      }
+
+      return {
+        id: (t.id as string) || (t.transaction_id as string),
+        transaction_id: (t.transaction_id as string) || (t.id as string),
+        created_at: (t.created_at as string) || new Date().toISOString(),
+        type_achat: typeAchat,
+        montant: Number(t.montant) || 0,
+        devise: (t.devise as string) || 'XOF',
+        operateur: (t.operateur as string) || 'Mobile Money',
+        statut: (t.statut as string) || 'approved',
+        user_id: userId,
+        device_id: (t.device_id as string) || null,
+        document_id: docId,
+        document_titre: titreDoc,
+        nom_client: nom,
+        email_client: email,
+        telephone_client: phone,
+        user_avatar: avatar,
+      };
+    });
+
+    return { data, total, page, limit, totalPages };
+  } catch (err) {
+    console.error('Erreur fetchHistoriqueTransactionsAdmin :', err);
+    return { data: [], total: 0, page, limit, totalPages: 1 };
+  }
 };

@@ -39,6 +39,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
     sAbonnerVIPCinetPay,
     nomUtilisateur,
     telephoneFacturation,
+    utilisateur,
     estConnecteGoogle,
     afficherToast,
   } = useApp();
@@ -229,6 +230,12 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                           transId: transId,
                           customer: buildCustomer(),
                           operator: operateurSelectionne,
+                          metadata: {
+                            userId: utilisateur?.id || null,
+                            typeAchat: 'vip',
+                            documentId: null,
+                            deviceId: null,
+                          },
                         },
                         FEEXPAY_PUBLIC_KEY
                       )}
@@ -251,6 +258,12 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                             transId: transId,
                             customer: buildCustomer(),
                             operator: operateurSelectionne,
+                            metadata: {
+                              userId: utilisateur?.id || null,
+                              typeAchat: 'vip',
+                              documentId: null,
+                              deviceId: null,
+                            },
                           },
                           FEEXPAY_PUBLIC_KEY
                         ),

@@ -50,6 +50,13 @@ export interface CustomerFeexPay {
   country?: string; // Code pays 2 lettres (ex: 'ci', 'sn', 'bj')
 }
 
+export interface FeexPayMetadata {
+  userId?: string | null;
+  typeAchat?: 'single' | 'acte' | 'vip' | 'stockage';
+  documentId?: string | null;
+  deviceId?: string | null;
+}
+
 /** Données d'initialisation de transaction FeexPay */
 export interface FeexPayPaymentPayload {
   amount: number; // Montant en FCFA
@@ -59,6 +66,7 @@ export interface FeexPayPaymentPayload {
   operator?: FeexPayOperateur; // Opérateur sélectionné
   callbackUrl?: string; // URL de retour après paiement
   errorUrl?: string; // URL en cas d'échec
+  metadata?: FeexPayMetadata; // Métadonnées décodées par le webhook
 }
 
 /** Résultat normalisé d'une transaction FeexPay */
@@ -75,6 +83,21 @@ export interface FeexPayResult {
 // ─────────────────────────────────────────────────────────────
 // Fonctions Utilitaires
 // ─────────────────────────────────────────────────────────────
+
+/**
+ * Encode les métadonnées de transaction dans un custom_id compact.
+ * Format : userId:typeAchat:documentId:deviceId:transId
+ */
+export const encoderCustomIdFeexPay = (
+  transId: string,
+  metadata?: FeexPayMetadata
+): string => {
+  const userPart = metadata?.userId || 'none';
+  const typePart = metadata?.typeAchat || 'acte';
+  const docPart = metadata?.documentId || 'none';
+  const devPart = metadata?.deviceId || 'none';
+  return `${userPart}:${typePart}:${docPart}:${devPart}:${transId}`;
+};
 
 /**
  * Génère un identifiant unique de transaction pour FeexPay.
@@ -100,10 +123,21 @@ export const buildFeexPayCheckoutUrl = (
   publicKey: string = FEEXPAY_PUBLIC_KEY
 ): string => {
   const transId = payload.transId || generateFeexPayTransactionId();
+  const customId = encoderCustomIdFeexPay(transId, payload.metadata);
+
+  // Définition robuste des URLs de callback
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'https://cauzon.app';
+
+  const defaultCallbackUrl = `${origin}/paiement-succes?ref=${transId}`;
+  const defaultErrorUrl = `${origin}/paiement-annule?ref=${transId}`;
+
   const params = new URLSearchParams({
     token: publicKey,
     amount: payload.amount.toString(),
-    custom_id: transId,
+    custom_id: customId,
     description: payload.description,
     mode: FEEXPAY_MODE,
   });
@@ -115,8 +149,8 @@ export const buildFeexPayCheckoutUrl = (
     if (payload.customer.phone) params.append('phone', formatPhoneFeexPay(payload.customer.phone));
   }
 
-  if (payload.callbackUrl) params.append('callback_url', payload.callbackUrl);
-  if (payload.errorUrl) params.append('error_url', payload.errorUrl);
+  params.append('callback_url', payload.callbackUrl || defaultCallbackUrl);
+  params.append('error_url', payload.errorUrl || defaultErrorUrl);
 
   const baseUrl =
     FEEXPAY_MODE === 'sandbox'

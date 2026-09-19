@@ -668,12 +668,23 @@ export function SettingsView({
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#6B1124', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAF6EB', fontWeight: 800, fontSize: '11px', flexShrink: 0 }}>
-                              {(tx.userName || '?')[0].toUpperCase()}
+                            {tx.userAvatar ? (
+                              <img src={tx.userAvatar} alt="" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                            ) : (
+                              <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#6B1124', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FAF6EB', fontWeight: 800, fontSize: '11px', flexShrink: 0 }}>
+                                {(tx.userName || '?')[0].toUpperCase()}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontWeight: 700, color: textColor, fontSize: '13px' }}>
+                                {tx.userName || 'Étudiant cauZon'}
+                              </span>
+                              {(tx.userEmail || tx.userPhone) && (
+                                <span style={{ fontSize: '11px', color: subText }}>
+                                  {tx.userEmail || tx.userPhone}
+                                </span>
+                              )}
                             </div>
-                            <span style={{ fontWeight: 700, color: textColor, fontSize: '13px' }}>
-                              {tx.userName || 'Étudiant cauZon'}
-                            </span>
                           </div>
                         </td>
                         <td style={{ padding: '12px 16px', color: textColor, fontWeight: 600, fontSize: '13px' }}>

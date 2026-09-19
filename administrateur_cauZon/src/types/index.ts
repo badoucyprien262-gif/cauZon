@@ -73,10 +73,49 @@ export interface TransactionRow {
   id: string;
   userName: string;
   userAvatar?: string | null;
+  userEmail?: string | null;
+  userPhone?: string | null;
   doc: string;
   price: string;
   method: string;
   status: string;
+}
+
+export interface AdminGlobalStats {
+  totalProfiles: number;
+  totalRevenue: number;
+  activeVipSubscribers: number;
+  totalTransactions: number;
+  revenueCours: number;
+  revenueVip: number;
+  revenueStockage: number;
+}
+
+export interface AdminTransactionDetail {
+  id: string;
+  transaction_id: string;
+  created_at: string;
+  type_achat: string;
+  montant: number;
+  devise: string;
+  operateur: string;
+  statut: string;
+  user_id: string | null;
+  device_id: string | null;
+  document_id: string | null;
+  document_titre: string | null;
+  nom_client: string | null;
+  email_client: string | null;
+  telephone_client: string | null;
+  user_avatar: string | null;
+}
+
+export interface PaginatedTransactionsResult {
+  data: AdminTransactionDetail[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface FinancialStats {

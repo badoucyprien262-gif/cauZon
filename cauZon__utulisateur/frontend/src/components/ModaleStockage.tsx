@@ -29,7 +29,7 @@ interface StorageModalProps {
 }
 
 export default function ModaleStockage({ visible, onClose, onSuccess }: StorageModalProps) {
-  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, limiteStockage, afficherToast } = useApp();
+  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, utilisateur, limiteStockage, afficherToast } = useApp();
   const styles = getStyles(couleurs);
 
   const limiteActuelle = limiteStockage || 75;
@@ -207,6 +207,12 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
                       transId: transId,
                       customer: buildCustomer(),
                       operator: operateurSelectionne,
+                      metadata: {
+                        userId: utilisateur?.id || null,
+                        typeAchat: 'stockage',
+                        documentId: null,
+                        deviceId: null,
+                      },
                     },
                     FEEXPAY_PUBLIC_KEY
                   )}
@@ -229,6 +235,12 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
                         transId: transId,
                         customer: buildCustomer(),
                         operator: operateurSelectionne,
+                        metadata: {
+                          userId: utilisateur?.id || null,
+                          typeAchat: 'stockage',
+                          documentId: null,
+                          deviceId: null,
+                        },
                       },
                       FEEXPAY_PUBLIC_KEY
                     ),
