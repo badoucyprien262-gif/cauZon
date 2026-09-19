@@ -914,11 +914,13 @@ export default function EcranLecteurDocument() {
                 const newlyRendered = pState.bufferCanvas;
                 const previouslyActive = pState.activeCanvas;
 
-                // Rendre le nouveau buffer visible
+                // Micro-transition d'opacité 100 ms sur le canvas entrant — élimine le saut visuel brutal
+                newlyRendered.style.transition = 'opacity 0.1s ease-in';
                 newlyRendered.style.zIndex = '2';
                 newlyRendered.style.opacity = '1';
 
                 // Masquer l'ancien canvas sans le détruire pour le réutiliser au prochain cycle
+                previouslyActive.style.transition = 'none';
                 previouslyActive.style.zIndex = '1';
                 previouslyActive.style.opacity = '0';
 
@@ -1192,9 +1194,13 @@ export default function EcranLecteurDocument() {
     window.addEventListener('touchstart', function(e) {
       if (e.touches && e.touches.length === 2) {
         isPinching = true;
+        // Annuler immédiatement tout re-rendu offscreen en cours — libère le CPU pour le geste
+        if (window._annulerReRasterisation) window._annulerReRasterisation();
         const container = document.getElementById('canvas-container');
         if (container) {
           container.style.transition = 'none';
+          // Activer le layer GPU composite dédié pour la transformation CSS — élimine le reflow
+          container.style.willChange = 'transform';
         }
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1242,8 +1248,12 @@ export default function EcranLecteurDocument() {
         const currentZ = window._currentZoom || 1.0;
         const clampedZ = bornerEchelle(currentZ);
         fixerZoomEtDimensions(clampedZ);
+        // Libérer le layer GPU après fixation — la re-rastérisation se fait hors-geste
+        const container = document.getElementById('canvas-container');
+        if (container) container.style.willChange = 'auto';
+        // Debounce strict : 280 ms post-touchend pour laisser l'animation de scroll se stabiliser
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(60);
+          window._programmerReRasterisation(280);
         }
       }
     }, { passive: true });
