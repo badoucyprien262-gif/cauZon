@@ -172,7 +172,9 @@ if (fs.existsSync(htmlFile)) {
     `    }\n` +
     `    </script>\n` +
     `\n    <!-- Google Identity Services (GIS) Web -->\n` +
-    `    <script src="https://accounts.google.com/gsi/client" async defer></script>\n`;
+    `    <script src="https://accounts.google.com/gsi/client" async defer></script>\n` +
+    `\n    <!-- Moteur de Rendu Vectoriel PDF.js pour Consultation Web Directe -->\n` +
+    `    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>\n`;
 
   // Injection dans le <head>
   let headInjections = fullSeoAndPwaBlock + scrollFixStyle;
