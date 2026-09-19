@@ -17,10 +17,25 @@ export const FEEXPAY_TEST_PUBLIC_KEY = 'test_Hg7Kjl3ZAM63UuIUpuudD9nKuu3ZAM67Kjl
 export const FEEXPAY_PUBLIC_KEY =
   process.env.EXPO_PUBLIC_FEEXPAY_PUBLIC_KEY || FEEXPAY_TEST_PUBLIC_KEY;
 
+/** Identifiant boutique (Shop ID / Id marchand) Sandbox officiel fourni */
+export const FEEXPAY_TEST_SHOP_ID = '104ketNuptBhJuc';
+
+/** Shop ID actif (priorité à la variable d'environnement avec fallback Sandbox officiel) */
+export const FEEXPAY_SHOP_ID =
+  process.env.EXPO_PUBLIC_FEEXPAY_SHOP_ID || FEEXPAY_TEST_SHOP_ID;
+
 /** Mode d'exécution FeexPay ('sandbox' ou 'live') */
 export const FEEXPAY_MODE = (process.env.EXPO_PUBLIC_FEEXPAY_MODE || 'sandbox') as
   | 'sandbox'
   | 'live';
+
+/** URL officielle de l'Edge Function Supabase (Webhook FeexPay) */
+export const FEEXPAY_DEFAULT_WEBHOOK_URL =
+  'https://wdipnxewpmhdksrlisix.supabase.co/functions/v1/feexpay-webhook';
+
+/** URL active du Webhook FeexPay */
+export const FEEXPAY_WEBHOOK_URL =
+  process.env.EXPO_PUBLIC_FEEXPAY_WEBHOOK_URL || FEEXPAY_DEFAULT_WEBHOOK_URL;
 
 // ─────────────────────────────────────────────────────────────
 // Types & Interfaces
@@ -120,24 +135,29 @@ export const formatPhoneFeexPay = (phone: string): string => {
  */
 export const buildFeexPayCheckoutUrl = (
   payload: FeexPayPaymentPayload,
-  publicKey: string = FEEXPAY_PUBLIC_KEY
+  publicKey: string = FEEXPAY_PUBLIC_KEY,
+  shopId: string = FEEXPAY_SHOP_ID
 ): string => {
   const transId = payload.transId || generateFeexPayTransactionId();
   const customId = encoderCustomIdFeexPay(transId, payload.metadata);
 
-  // Définition robuste des URLs de callback
+  // Définition robuste des URLs de redirection client
   const origin =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin
       : 'https://cauzon.app';
 
-  const defaultCallbackUrl = `${origin}/paiement-succes?ref=${transId}`;
+  const defaultReturnUrl = `${origin}/paiement-succes?ref=${transId}`;
   const defaultErrorUrl = `${origin}/paiement-annule?ref=${transId}`;
 
   const params = new URLSearchParams({
     token: publicKey,
+    id: shopId,
+    shop_id: shopId,
+    shop: shopId,
     amount: payload.amount.toString(),
     custom_id: customId,
+    callback_info: customId,
     description: payload.description,
     mode: FEEXPAY_MODE,
   });
@@ -149,7 +169,11 @@ export const buildFeexPayCheckoutUrl = (
     if (payload.customer.phone) params.append('phone', formatPhoneFeexPay(payload.customer.phone));
   }
 
-  params.append('callback_url', payload.callbackUrl || defaultCallbackUrl);
+  // 🔔 Confirmation serveur à serveur obligatoire (Edge Function Supabase)
+  params.append('callback_url', payload.callbackUrl || FEEXPAY_WEBHOOK_URL);
+  
+  // 🔄 Redirection client du navigateur après paiement
+  params.append('return_url', defaultReturnUrl);
   params.append('error_url', payload.errorUrl || defaultErrorUrl);
 
   const baseUrl =
@@ -193,9 +217,11 @@ export const initierTransactionSandboxFeexPay = async (
 export const generateFeexPayHtml = (
   payload: FeexPayPaymentPayload,
   publicKey: string = FEEXPAY_PUBLIC_KEY,
+  shopId: string = FEEXPAY_SHOP_ID,
   isSandbox: boolean = FEEXPAY_MODE === 'sandbox'
 ): string => {
   const transId = payload.transId || generateFeexPayTransactionId();
+  const customId = encoderCustomIdFeexPay(transId, payload.metadata);
   const customerJson = JSON.stringify(payload.customer || {});
   const amount = payload.amount;
   const description = payload.description;
@@ -359,9 +385,12 @@ export const generateFeexPayHtml = (
 
       <script>
         const transId = '${transId}';
+        const customId = '${customId}';
         const amount = ${amount};
         const customer = ${customerJson};
         const token = '${publicKey}';
+        const shopId = '${shopId}';
+        const webhookUrl = '${FEEXPAY_WEBHOOK_URL}';
 
         function notifierApp(data) {
           const jsonString = typeof data === 'string' ? data : JSON.stringify(data);
@@ -394,10 +423,28 @@ export const generateFeexPayHtml = (
           spin.style.display = 'inline-block';
           text.textContent = 'Validation en cours...';
 
+          // Déclenchement automatique du Webhook Supabase en arrière-plan pour synchronisation BDD & Realtime
+          try {
+            fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                status: 'SUCCESS',
+                reference: 'FP-SANDBOX-' + Date.now(),
+                amount: amount,
+                custom_id: customId,
+                operator: 'MOBILE_MONEY',
+                customer: customer
+              })
+            }).catch(function(err) {
+              console.warn('⚠️ Note webhook sandbox local :', err);
+            });
+          } catch (_) {}
+
           setTimeout(() => {
             notifierApp({
               status: 'SUCCESS',
-              reference: 'FP-' + Date.now(),
+              reference: 'FP-SANDBOX-' + Date.now(),
               transId: transId,
               amount: amount,
               message: 'Paiement FeexPay validé avec succès.'
