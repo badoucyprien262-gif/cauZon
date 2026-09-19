@@ -1,0 +1,15 @@
+# ==============================================================================
+# 🤖 cauZon — Directive Robots.txt pour Googlebot et moteurs de recherche
+# Fichier : public/robots.txt
+# ==============================================================================
+
+User-agent: *
+Allow: /
+
+# Bloquer l'indexation technique et privée
+Disallow: /api/
+Disallow: /_expo/
+Disallow: /functions/
+
+# Sitemap officiel
+Sitemap: https://cauzon.app/sitemap.xml

@@ -249,7 +249,7 @@ console.log('✅ Icônes haute résolution et aperçu Open Graph synchronisés d
 // 2-bis. Copie des fichiers SEO Google (robots.txt et sitemap.xml)
 // ────────────────────────────────────────────────────────────────────────────
 const publicDir = path.join(rootDir, 'public');
-['robots.txt', 'sitemap.xml'].forEach(fileName => {
+['robots.txt', 'sitemap.xml', 'google0a16ebf370de0768.html'].forEach(fileName => {
   const src = path.join(publicDir, fileName);
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, path.join(distDir, fileName));

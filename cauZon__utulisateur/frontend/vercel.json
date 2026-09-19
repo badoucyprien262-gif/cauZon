@@ -39,6 +39,10 @@
   ],
   "rewrites": [
     {
+      "source": "/google0a16ebf370de0768.html",
+      "destination": "/google0a16ebf370de0768.html"
+    },
+    {
       "source": "/assets/(.*)",
       "destination": "/assets/$1"
     },
