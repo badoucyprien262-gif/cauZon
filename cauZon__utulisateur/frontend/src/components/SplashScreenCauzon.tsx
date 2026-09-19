@@ -3,13 +3,16 @@ import { View, Text, StyleSheet, Animated, Dimensions, Platform } from 'react-na
 
 interface Props {
   onFinish: () => void;
+  estPret?: boolean;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function SplashScreenCauzon({ onFinish }: Props) {
+export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) {
   const letters = ['c', 'a', 'u', 'Z', 'o', 'n'];
   const useNative = Platform.OS !== 'web';
+  const estPretRef = useRef(estPret);
+  estPretRef.current = estPret;
 
   // Valeurs animées pour chaque lettre
   const letterAnims = useRef(
@@ -27,10 +30,12 @@ export default function SplashScreenCauzon({ onFinish }: Props) {
   const overlayScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Timer de sécurité absolue pour garantir la libération de l'écran quoi qu'il arrive
+    let unmounted = false;
+
+    // Timer de sécurité absolue (max 3.5s) pour garantir la libération de l'écran quoi qu'il arrive
     const safetyTimer = setTimeout(() => {
-      if (onFinish) onFinish();
-    }, 2100);
+      if (!unmounted && onFinish) onFinish();
+    }, 3500);
 
     // 1. Séquence en cascade (Stagger) de chaque lettre (0.0s -> 0.75s)
     const staggerAnimations = letterAnims.map((anim) =>
@@ -53,12 +58,20 @@ export default function SplashScreenCauzon({ onFinish }: Props) {
       ])
     );
 
-    // Lancer la séquence complète fluide
+    // Phase 1 : Cascade de lettres
     Animated.sequence([
-      // Phase 1 : Cascade de lettres
       Animated.stagger(70, staggerAnimations),
-      // Légère stabilisation
       Animated.delay(180),
+    ]).start(async () => {
+      if (unmounted) return;
+
+      // 🛡️ Barrière de synchronisation : attendre que les données soient prêtes (max 1.5s supplémentaire)
+      const startTime = Date.now();
+      while (!estPretRef.current && Date.now() - startTime < 1500) {
+        await new Promise((r) => setTimeout(r, 60));
+        if (unmounted) return;
+      }
+
       // Phase 2 : Twist Zoom Immersif vers le plein écran
       Animated.parallel([
         Animated.timing(logoZoomScale, {
@@ -81,15 +94,16 @@ export default function SplashScreenCauzon({ onFinish }: Props) {
           duration: 520,
           useNativeDriver: useNative,
         }),
-      ]),
-    ]).start(() => {
-      clearTimeout(safetyTimer);
-      if (onFinish) {
-        onFinish();
-      }
+      ]).start(() => {
+        clearTimeout(safetyTimer);
+        if (!unmounted && onFinish) {
+          onFinish();
+        }
+      });
     });
 
     return () => {
+      unmounted = true;
       clearTimeout(safetyTimer);
     };
   }, [letterAnims, logoZoomScale, logoZoomOpacity, overlayOpacity, overlayScale, onFinish, useNative]);

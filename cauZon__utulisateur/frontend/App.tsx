@@ -4,12 +4,14 @@ import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
+import * as ScreenCapture from 'expo-screen-capture';
 import NavigateurApp from './src/navigation/NavigateurApp';
 import { FournisseurApp, useApp } from './src/store/ContexteApp';
 import SplashScreenCauzon from './src/components/SplashScreenCauzon';
 import EcranChargementAuth from './src/components/EcranChargementAuth';
 import SasDesktopGatekeeper from './src/components/SasDesktopGatekeeper';
 import { initialiserGestionnaireNotifications, synchroniserNotificationsManquees } from './src/services/serviceNotifications';
+import { prechargerDonneesAccueil } from './src/services/serviceDocument';
 
 
 export const navigationRef = createNavigationContainerRef<any>();
@@ -29,8 +31,74 @@ function BarreDeStatutDynamique({ splashVisible }: { splashVisible: boolean }) {
 
 export default function App() {
   const [splashVisible, setSplashVisible] = useState(true);
+  const [estPret, setEstPret] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
+
+  // 🚀 Barrière de synchronisation UX : Préchargement synchronisé de l'accueil
+  useEffect(() => {
+    async function synchroniserDemarrage() {
+      try {
+        await Promise.all([
+          // Durée minimale d'animation élégante
+          new Promise((resolve) => setTimeout(resolve, 1200)),
+          // Préchargement immédiat du catalogue, des annonces et de la configuration promo
+          prechargerDonneesAccueil(),
+        ]);
+      } catch (err) {
+        console.warn('[Init] Erreur préchargement accueil accéléré (silencieux) :', err);
+      } finally {
+        setEstPret(true);
+      }
+    }
+    synchroniserDemarrage();
+  }, []);
+
+  useEffect(() => {
+    // 🛡️ Protection Anti-Capture sur Mobile (Android / iOS)
+    if (Platform.OS !== 'web') {
+      try {
+        ScreenCapture.preventScreenCaptureAsync().catch((err) => {
+          console.warn('Anti-Capture Mobile non supporté sur cette plateforme :', err);
+        });
+      } catch (err) {
+        console.warn('Erreur initialisation ScreenCapture :', err);
+      }
+    }
+
+    // 🛡️ Bouclier Anti-Inspection sur le Web (Sécurité runtime React)
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        // F12
+        if (e.key === 'F12' || e.keyCode === 123) {
+          e.preventDefault();
+          return false;
+        }
+        // Ctrl+U, Ctrl+S, Ctrl+Shift+I, Ctrl+Shift+J (ou équivalents Mac avec Cmd/Meta)
+        const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+        if (
+          (isCtrlOrMeta && (e.key === 'u' || e.key === 'U' || e.key === 's' || e.key === 'S')) ||
+          (isCtrlOrMeta && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J'))
+        ) {
+          e.preventDefault();
+          return false;
+        }
+      };
+
+      document.addEventListener('contextmenu', handleContextMenu);
+      document.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        document.removeEventListener('contextmenu', handleContextMenu);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, []);
 
   useEffect(() => {
     // 1. Configure le gestionnaire foreground + canal Android haute priorité
@@ -135,6 +203,8 @@ export default function App() {
           // @ts-ignore
           touchAction: 'auto',
           WebkitOverflowScrolling: 'touch',
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
         } as any),
       ]}
     >
@@ -144,7 +214,10 @@ export default function App() {
           <BarreDeStatutDynamique splashVisible={splashVisible} />
         </NavigationContainer>
         {splashVisible && (
-          <SplashScreenCauzon onFinish={() => setSplashVisible(false)} />
+          <SplashScreenCauzon 
+            onFinish={() => setSplashVisible(false)} 
+            estPret={estPret}
+          />
         )}
         <SasDesktopGatekeeper />
         <OverlayChargementAuth />

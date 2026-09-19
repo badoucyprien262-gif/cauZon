@@ -72,6 +72,10 @@ if (fs.existsSync(htmlFile)) {
     ` overflow-y: auto !important;` +
     ` touch-action: auto !important;` +
     ` -webkit-overflow-scrolling: touch !important;` +
+    ` -webkit-user-select: none !important;` +
+    ` -moz-user-select: none !important;` +
+    ` -ms-user-select: none !important;` +
+    ` user-select: none !important;` +
     `}` +
     `/* Empêcher React Native Web de tuer le défilement mobile */` +
     `div[style*="touch-action: none"] {` +
@@ -99,6 +103,7 @@ if (fs.existsSync(htmlFile)) {
   // Nettoyer d'éventuelles injections précédentes
   html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<script src="https:\/\/accounts\.google\.com\/gsi\/client" async defer><\/script>\n?/i, '');
   html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<meta name="apple-mobile-web-app-title" content="cauZon">\n?/i, '');
+  html = html.replace(/<script id="cauzon-security-shield">[\s\S]*?<\/script>/i, '');
 
   // Injection dans le <head>
   let headInjections = pwaMetaTags + scrollFixStyle;
@@ -109,6 +114,23 @@ if (fs.existsSync(htmlFile)) {
 
   html = html.replace('</head>', headInjections + '</head>');
   console.log('✅ Déblocage scroll Web (html, body, #root overflow-y: auto) injecté.');
+
+  // 🛡️ Bouclier Sécurité cauZon : Anti-Inspection & Anti-Fuite Web
+  const securityScript = `<script id="cauzon-security-shield">` +
+    `(function(){` +
+    `document.addEventListener('contextmenu',function(e){e.preventDefault();return false;});` +
+    `document.addEventListener('keydown',function(e){` +
+    `if(e.key==='F12'||e.keyCode===123){e.preventDefault();return false;}` +
+    `var isCtrlOrMeta=e.ctrlKey||e.metaKey;` +
+    `if((isCtrlOrMeta&&(e.key==='u'||e.key==='U'||e.key==='s'||e.key==='S'))||` +
+    `(isCtrlOrMeta&&e.shiftKey&&(e.key==='i'||e.key==='I'||e.key==='j'||e.key==='J'))){` +
+    `e.preventDefault();return false;}` +
+    `});` +
+    `})();` +
+    `</script>`;
+
+  html = html.replace('</body>', securityScript + '</body>');
+  console.log('🛡️ [Sécurité] Bouclier Anti-Inspection et Anti-Fuite Web injecté.');
 
   fs.writeFileSync(htmlFile, html, 'utf8');
 } else {
@@ -151,6 +173,23 @@ iconFiles.forEach(iconName => {
   }
 });
 console.log('✅ Icônes haute résolution PWA (192px, 512px, maskable) synchronisées dans dist/.');
+
+// ────────────────────────────────────────────────────────────────────────────
+// 2-bis. Copie des binaires WebAssembly (.wasm) pour EmbedPDF / PDFium
+// ────────────────────────────────────────────────────────────────────────────
+const wasmCandidates = [
+  path.join(rootDir, 'node_modules/@embedpdf/pdfium/dist/pdfium.wasm'),
+  path.join(rootDir, 'node_modules/@embedpdf/snippet/dist/pdfium.wasm'),
+];
+
+for (const wasmPath of wasmCandidates) {
+  if (fs.existsSync(wasmPath)) {
+    fs.copyFileSync(wasmPath, path.join(distDir, 'pdfium.wasm'));
+    fs.copyFileSync(wasmPath, path.join(distAssetsDir, 'pdfium.wasm'));
+    console.log(`✅ Binaire WebAssembly PDFium synchronisé depuis ${path.relative(rootDir, wasmPath)} (${Math.round(fs.statSync(wasmPath).size / 1024)} Ko)`);
+    break;
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // 3. Copie de vercel.json dans dist/

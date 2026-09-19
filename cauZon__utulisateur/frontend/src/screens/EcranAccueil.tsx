@@ -42,7 +42,12 @@ import AvatarDynamique from '../components/AvatarDynamique';
 import ModaleParametres from '../components/ModaleParametres';
 import ModaleDemandeNotification from '../components/ModaleDemandeNotification';
 import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexionRequise';
-import { fetchCatalogueDocuments, souscrireChangementsDocuments } from '../services/serviceDocument';
+import { 
+  fetchCatalogueDocuments, 
+  souscrireChangementsDocuments, 
+  getCacheAccueilInstantane, 
+  mapperDbDocVersDocument 
+} from '../services/serviceDocument';
 import { aDejaReponduInviteNotification } from '../services/serviceNotifications';
 import { supabase } from '../lib/supabase';
 
@@ -78,15 +83,31 @@ export default function EcranAccueil() {
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [notifInviteVisible, setNotifInviteVisible] = useState(false);
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [categories, setCategories] = useState<string[]>(['Tout']);
-  const [loading, setLoading] = useState<boolean>(true);
+
+  // 🚀 Initialisation instantanée depuis le cache de préchargement
+  const cacheInitial = getCacheAccueilInstantane();
+  const docsInitiaux = useMemo(() => {
+    if (cacheInitial.documents && cacheInitial.documents.length > 0) {
+      return cacheInitial.documents.map(mapperDbDocVersDocument);
+    }
+    return [];
+  }, []);
+
+  const [documents, setDocuments] = useState<Document[]>(docsInitiaux);
+  const [categories, setCategories] = useState<string[]>(() => {
+    if (docsInitiaux.length > 0) {
+      const matieres = Array.from(new Set(docsInitiaux.map((d: any) => d.categorie).filter(Boolean))) as string[];
+      return ['Tout', ...matieres];
+    }
+    return ['Tout'];
+  });
+  const [loading, setLoading] = useState<boolean>(() => docsInitiaux.length === 0);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [promoConfig, setPromoConfig] = useState<any>(null);
+  const [promoConfig, setPromoConfig] = useState<any>(() => cacheInitial.promoConfig);
 
   // États pour les bannières d'annonces dynamiques (Système de Pile / Swipe Stack)
-  const [annonces, setAnnonces] = useState<any[]>([]);
+  const [annonces, setAnnonces] = useState<any[]>(() => cacheInitial.annonces || []);
   const [selectedAnnonce, setSelectedAnnonce] = useState<any | null>(null);
   const [annonceModalVisible, setAnnonceModalVisible] = useState(false);
   const [activeBannerIndex, setActiveBannerIndex] = useState(0);
@@ -324,7 +345,9 @@ export default function EcranAccueil() {
 
   const loadDocuments = async () => {
     try {
-      setLoading(true);
+      if (documents.length === 0) {
+        setLoading(true);
+      }
       setError(null);
 
       // Si hors-ligne : fin immédiate sans attente inutile de réseau
@@ -336,55 +359,11 @@ export default function EcranAccueil() {
         return;
       }
 
-      // Timeout de 2.5 secondes pour les réseaux instables (remplace le timeout trop long de 5s)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('TIMEOUT_EXCEEDED')), 2500);
-      });
-
-      // Chargement réel
-      const fetchPromise = fetchCatalogueDocuments();
-
-      // Course contre la montre (timeout de 2.5 secondes)
-      const data = await Promise.race([fetchPromise, timeoutPromise]);
+      // Chargement réel des documents Supabase
+      const data = await fetchCatalogueDocuments();
 
       if (data && data.length > 0) {
-        // Mapper les documents Supabase (snake_case) vers le modèle frontend (camelCase)
-        const mapped = data.map((dbDoc: any) => {
-          const rawType = (dbDoc.limite_apercu_type || 'pourcentage').toLowerCase().trim();
-          let parsedType: 'page' | 'pourcentage' | 'fluide' | 'neutre' = 'pourcentage';
-          let parsedVal = dbDoc.limite_apercu_valeur ?? 30;
-
-          if (rawType.startsWith('fluide:') || rawType.startsWith('neutre:')) {
-            parsedType = 'fluide';
-            const dec = parseFloat(rawType.split(':')[1]);
-            if (!isNaN(dec)) parsedVal = dec;
-          } else if (rawType === 'fluide' || rawType === 'neutre') {
-            parsedType = 'fluide';
-          } else if (rawType === 'page') {
-            parsedType = 'page';
-          }
-
-          return {
-            id: dbDoc.id,
-            titre: dbDoc.titre,
-            categorie: dbDoc.categorie,
-            estCertifie: dbDoc.est_certifie ?? false,
-            estPretHorsLigne: dbDoc.est_pret_hors_ligne ?? false,
-            prix: dbDoc.prix ?? 100,
-            estVerrouille: dbDoc.est_verrouille ?? true,
-            nombrePages: dbDoc.total_pages || dbDoc.page_count || dbDoc.nombre_pages || dbDoc.pages || dbDoc.nombrePages || 1,
-            tailleMo: dbDoc.taille_mo ?? 1.5,
-            limiteApercuPages: dbDoc.limite_apercu_pages ?? 2,
-            limiteApercuType: parsedType,
-            limiteApercuValeur: parsedVal,
-            description: dbDoc.description ?? '',
-            tags: dbDoc.tags ?? '',
-            cheminLocal: dbDoc.file_path ?? '',
-            file_path: dbDoc.file_path ?? '',
-            coverUrl: dbDoc.cover_url ?? '',
-            statut: dbDoc.status === 'inactif' || dbDoc.status === 'archived' ? 'inactif' : 'actif',
-          };
-        });
+        const mapped = data.map(mapperDbDocVersDocument);
         setDocuments(mapped);
         
         // Extraire dynamiquement les matières uniques
@@ -396,11 +375,7 @@ export default function EcranAccueil() {
       }
     } catch (err: any) {
       console.error('Erreur Supabase, chargement des documents réels :', err);
-      if (err.message === 'TIMEOUT_EXCEEDED') {
-        setError("La connexion réseau a expiré (5s). Veuillez réessayer.");
-      } else {
-        setError("Impossible de charger les cours. Vérifiez votre connexion.");
-      }
+      setError("Impossible de charger les cours. Vérifiez votre connexion.");
       setDocuments([]);
       setCategories(['Tout']);
     } finally {

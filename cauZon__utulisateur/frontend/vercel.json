@@ -27,12 +27,28 @@
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
         { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
+    },
+    {
+      "source": "/(.*).wasm",
+      "headers": [
+        { "key": "Content-Type", "value": "application/wasm" },
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
     }
   ],
   "rewrites": [
     {
       "source": "/assets/(.*)",
       "destination": "/assets/$1"
+    },
+    {
+      "source": "/_expo/(.*)",
+      "destination": "/_expo/$1"
+    },
+    {
+      "source": "/(.*).wasm",
+      "destination": "/$1.wasm"
     },
     {
       "source": "/(.*)\\.ttf",

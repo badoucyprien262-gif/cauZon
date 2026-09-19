@@ -21,7 +21,7 @@
     <!-- Google Identity Services (GIS) Web -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
-      /* Empêche tout écran noir ou blanc pendant le chargement initial */
+      /* Empêche tout écran noir ou blanc pendant le chargement initial et verrouille la sélection de l'interface */
       html, body, #root {
         width: 100%;
         height: 100%;
@@ -31,10 +31,43 @@
         overflow-y: auto;
         touch-action: auto;
         -webkit-overflow-scrolling: touch;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
       }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // 🛡️ Bouclier Sécurité cauZon : Anti-Inspection & Anti-Fuite Web
+      (function() {
+        // 1. Désactiver le clic droit
+        document.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          return false;
+        });
+
+        // 2. Intercepter et bloquer les raccourcis d'inspection et de copie/sauvegarde
+        document.addEventListener('keydown', function(e) {
+          // F12 (DevTools)
+          if (e.key === 'F12' || e.keyCode === 123) {
+            e.preventDefault();
+            return false;
+          }
+
+          // Ctrl+U, Ctrl+S, Ctrl+Shift+I, Ctrl+Shift+J (ou équivalents Mac avec Cmd/Meta)
+          var isCtrlOrMeta = e.ctrlKey || e.metaKey;
+          if (
+            (isCtrlOrMeta && (e.key === 'u' || e.key === 'U' || e.key === 's' || e.key === 'S')) ||
+            (isCtrlOrMeta && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J'))
+          ) {
+            e.preventDefault();
+            return false;
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

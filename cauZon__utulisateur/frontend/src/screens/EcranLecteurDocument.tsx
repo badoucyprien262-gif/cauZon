@@ -23,6 +23,7 @@ import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersA
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
+import { LecteurPdfWeb } from '../components/PdfViewer';
 
 type DocumentViewerRouteProp = RouteProp<RootStackParamList, 'DocumentViewer'>;
 
@@ -335,7 +336,7 @@ export default function EcranLecteurDocument() {
       gap: 20px;
       transform-origin: top center;
       will-change: transform;
-      transition: transform 0.12s cubic-bezier(0.25, 1, 0.5, 1);
+      transition: none;
     }
     .page-wrapper {
       position: relative;
@@ -345,11 +346,17 @@ export default function EcranLecteurDocument() {
       border-radius: 6px;
       overflow: hidden;
       margin: 0 auto;
+      box-sizing: border-box;
+      contain: layout size paint;
+      content-visibility: auto;
     }
-    canvas {
-      display: block;
+    .page-wrapper canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
       width: 100% !important;
       height: 100% !important;
+      display: block;
       image-rendering: -webkit-optimize-contrast;
       image-rendering: crisp-edges;
       -webkit-font-smoothing: subpixel-antialiased;
@@ -357,6 +364,8 @@ export default function EcranLecteurDocument() {
       backface-visibility: hidden;
       transform: translateZ(0);
       -webkit-transform: translateZ(0);
+      pointer-events: none;
+      transition: opacity 0.05s linear;
     }
     #zoom-badge {
       position: fixed;
@@ -662,32 +671,89 @@ export default function EcranLecteurDocument() {
           }, 1200);
         }
 
-        function appliquerZoomCss(targetScale) {
+        function appliquerZoomCss(targetScale, focalX, focalY, animate) {
           currentZoom = bornerEchelle(targetScale);
           window._currentZoom = currentZoom;
           const tempScale = currentZoom / appliedZoom;
           const container = document.getElementById('canvas-container');
           if (container) {
+            if (animate) {
+              container.style.transition = 'transform 0.1s ease-out';
+            } else {
+              container.style.transition = 'none';
+            }
+            if (typeof focalX === 'number' && typeof focalY === 'number') {
+              const rect = container.getBoundingClientRect();
+              const originX = ((focalX - rect.left) / rect.width) * 100;
+              const originY = ((focalY - rect.top) / rect.height) * 100;
+              container.style.transformOrigin = originX.toFixed(2) + '% ' + originY.toFixed(2) + '%';
+            }
             container.style.transform = 'scale(' + tempScale.toFixed(4) + ')';
-            container.style.transformOrigin = 'top center';
           }
           afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
         }
 
         let renderSessionId = 0;
+        let isReRasterizing = false;
+
+        function annulerReRasterisationEnCours() {
+          if (!isReRasterizing) return;
+          renderSessionId++;
+          isReRasterizing = false;
+          const pageNums = Object.keys(pageRenderStates).map(Number);
+          pageNums.forEach(function(pageNum) {
+            const pState = pageRenderStates[pageNum];
+            if (pState && pState.offscreenTask) {
+              try {
+                pState.offscreenTask.cancel();
+              } catch (e) {}
+              pState.offscreenTask = null;
+            }
+          });
+        }
+
+        window._annulerReRasterisation = annulerReRasterisationEnCours;
+
+        function estPageDansViewport(wrapper) {
+          if (!wrapper) return false;
+          const rect = wrapper.getBoundingClientRect();
+          const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+          return (rect.bottom >= -350 && rect.top <= windowHeight + 350);
+        }
 
         function reRasteriserPagesDynamiques() {
           const currentSessionId = ++renderSessionId;
           const targetZoom = currentZoom;
-          const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+          const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
           const MAX_CANVAS_DIM = 4096;
 
           const pageNums = Object.keys(pageRenderStates).map(Number);
           if (pageNums.length === 0) return;
 
+          // 1. Détecter les pages actuellement visibles dans le viewport (+ marge de 350px)
+          const pagesVisibles = pageNums.filter(function(pageNum) {
+            const pState = pageRenderStates[pageNum];
+            return pState && estPageDansViewport(pState.wrapper);
+          });
+
+          // Fallback : cibler la page 1 si aucune n'est détectée
+          const cibles = pagesVisibles.length > 0 ? pagesVisibles : [1];
+
+          // 2. Filtrer uniquement les pages qui ne sont PAS encore rendues à targetZoom
+          const pagesARendre = cibles.filter(function(pageNum) {
+            const pState = pageRenderStates[pageNum];
+            return pState && pState.renderedZoom !== targetZoom;
+          });
+
+          // Si aucune page visible ne nécessite de rendu et que l'échelle est déjà synchronisée
+          if (pagesARendre.length === 0 && appliedZoom === targetZoom) {
+            return;
+          }
+
+          isReRasterizing = true;
           const renderTasks = [];
 
-          pageNums.forEach(function(pageNum) {
+          pagesARendre.forEach(function(pageNum) {
             const pState = pageRenderStates[pageNum];
             if (!pState || !pState.page) return;
 
@@ -701,10 +767,9 @@ export default function EcranLecteurDocument() {
 
             const unscaledViewport = pState.page.getViewport({ scale: 1.0 });
             const finalScale = pState.baseScale * targetZoom;
-            const displayViewport = pState.page.getViewport({ scale: finalScale });
 
-            // Garde-fou anti-crash mémoire GPU : plafonnement à 4096px
-            let effectiveRenderScale = finalScale * dpr;
+            // Plafonnement CPU / Échelle effective : 1.75 * dpr max pour garantir un rendu < 60ms
+            let effectiveRenderScale = Math.min(finalScale * dpr, 1.75 * dpr);
             const renderW = unscaledViewport.width * effectiveRenderScale;
             const renderH = unscaledViewport.height * effectiveRenderScale;
             if (renderW > MAX_CANVAS_DIM || renderH > MAX_CANVAS_DIM) {
@@ -714,16 +779,12 @@ export default function EcranLecteurDocument() {
 
             const renderViewport = pState.page.getViewport({ scale: effectiveRenderScale });
 
-            // Technique Double-Buffer : Création d'un canvas secondaire hors-champ
-            // Le canvas visible actuellement à l'écran reste intact et affiché sans aucun flicker
-            const offscreenCanvas = document.createElement('canvas');
-            offscreenCanvas.width = Math.round(renderViewport.width);
-            offscreenCanvas.height = Math.round(renderViewport.height);
-            offscreenCanvas.style.width = Math.round(displayViewport.width) + 'px';
-            offscreenCanvas.style.height = Math.round(displayViewport.height) + 'px';
-            offscreenCanvas.style.display = 'block';
+            // Zero-Allocation Buffer : Réutilisation directe du bufferCanvas existant
+            const targetBuffer = pState.bufferCanvas;
+            targetBuffer.width = Math.round(renderViewport.width);
+            targetBuffer.height = Math.round(renderViewport.height);
 
-            const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false, willReadFrequently: false });
+            const offscreenCtx = targetBuffer.getContext('2d', { alpha: false, willReadFrequently: false });
             offscreenCtx.imageSmoothingEnabled = true;
             offscreenCtx.imageSmoothingQuality = 'high';
 
@@ -736,9 +797,7 @@ export default function EcranLecteurDocument() {
             const promise = task.promise.then(function() {
               return {
                 pageNum: pageNum,
-                pState: pState,
-                offscreenCanvas: offscreenCanvas,
-                displayViewport: displayViewport
+                pState: pState
               };
             }).catch(function(err) {
               if (err && (err.name === 'RenderingCancelledException' || err.message === 'Rendering cancelled')) {
@@ -751,51 +810,99 @@ export default function EcranLecteurDocument() {
             renderTasks.push(promise);
           });
 
-          // Dès que les rendus hors-champ sont résolus : permutation atomique en 1 frame
+          // Dès que les rendus hors-champ sont résolus : permutation atomique synchrone en 1 frame
           Promise.all(renderTasks).then(function(results) {
-            // Abandonner si un geste plus récent a démarré une autre session
             if (currentSessionId !== renderSessionId) return;
 
             requestAnimationFrame(function() {
-              const container = document.getElementById('canvas-container');
-              if (container) {
-                container.style.transition = 'none';
-                container.style.transform = 'scale(1)';
-              }
-              appliedZoom = targetZoom;
+              if (currentSessionId !== renderSessionId) return;
 
+              const scrollEl = document.scrollingElement || document.documentElement || document.body;
+              const zoomChange = (appliedZoom !== targetZoom);
+
+              let scrollRatioY = 0;
+              let scrollRatioX = 0;
+              if (zoomChange) {
+                scrollRatioY = scrollEl.scrollTop / (scrollEl.scrollHeight - scrollEl.clientHeight || 1);
+                scrollRatioX = scrollEl.scrollLeft / (scrollEl.scrollWidth - scrollEl.clientWidth || 1);
+
+                // Découplage strict de la géométrie : mise à jour des dimensions stables de TOUS les wrappers
+                pageNums.forEach(function(num) {
+                  const ps = pageRenderStates[num];
+                  if (ps && ps.wrapper) {
+                    ps.wrapper.style.width = Math.round(ps.baseWidth * targetZoom) + 'px';
+                    ps.wrapper.style.height = Math.round(ps.baseHeight * targetZoom) + 'px';
+                  }
+                });
+              }
+
+              // Permutation de visibilité Zero-Allocation (0 createElement, 0 replaceChild, 0 garbage collection)
               results.forEach(function(res) {
                 if (!res) return;
                 const pState = res.pState;
-                const offCanvas = res.offscreenCanvas;
-                const dispVp = res.displayViewport;
+                const newlyRendered = pState.bufferCanvas;
+                const previouslyActive = pState.activeCanvas;
 
-                // 1. Adapter les dimensions du wrapper à la nouvelle taille
-                pState.wrapper.style.width = Math.round(dispVp.width) + 'px';
-                pState.wrapper.style.height = Math.round(dispVp.height) + 'px';
+                // Rendre le nouveau buffer visible
+                newlyRendered.style.zIndex = '2';
+                newlyRendered.style.opacity = '1';
 
-                // 2. Permuter instantanément le canvas sans vider l'écran (zéro sursaut)
-                offCanvas.id = pState.canvas.id;
-                offCanvas.className = pState.canvas.className;
-                pState.wrapper.replaceChild(offCanvas, pState.canvas);
-                pState.canvas = offCanvas;
+                // Masquer l'ancien canvas sans le détruire pour le réutiliser au prochain cycle
+                previouslyActive.style.zIndex = '1';
+                previouslyActive.style.opacity = '0';
+
+                // Inverser les rôles
+                pState.activeCanvas = newlyRendered;
+                pState.bufferCanvas = previouslyActive;
+                pState.renderedZoom = targetZoom;
                 pState.offscreenTask = null;
               });
 
-              // Réactiver la transition cinématique pour les interactions futures
-              requestAnimationFrame(function() {
+              if (zoomChange) {
+                const container = document.getElementById('canvas-container');
                 if (container) {
-                  container.style.transition = 'transform 0.12s cubic-bezier(0.25, 1, 0.5, 1)';
+                  container.style.transition = 'none';
+                  container.style.transformOrigin = 'top center';
+                  container.style.transform = 'scale(1)';
                 }
-              });
+                appliedZoom = targetZoom;
+
+                // Réalignement synchrone sans animation du scroll
+                const maxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
+                const maxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
+                if (maxScrollY > 0) {
+                  scrollEl.scrollTop = Math.round(scrollRatioY * maxScrollY);
+                }
+                if (maxScrollX > 0) {
+                  scrollEl.scrollLeft = Math.round(scrollRatioX * maxScrollX);
+                }
+              }
+
+              isReRasterizing = false;
             });
           });
         }
 
+        let idleHandle = null;
+
         function programmerReRasterisation(delaiMs) {
           if (debounceTimer) clearTimeout(debounceTimer);
+          if (idleHandle) {
+            if (window.cancelIdleCallback) {
+              window.cancelIdleCallback(idleHandle);
+            } else {
+              clearTimeout(idleHandle);
+            }
+            idleHandle = null;
+          }
+
           debounceTimer = setTimeout(function() {
-            reRasteriserPagesDynamiques();
+            // Décalage non-bloquant via requestIdleCallback pour ne jamais figer le thread principal
+            const planifierRendu = window.requestIdleCallback || function(cb) { return setTimeout(cb, 50); };
+            idleHandle = planifierRendu(function() {
+              idleHandle = null;
+              reRasteriserPagesDynamiques();
+            }, { timeout: 180 });
           }, delaiMs || 90);
         }
 
@@ -826,19 +933,40 @@ export default function EcranLecteurDocument() {
             wrapper.style.width = displayViewport.width + 'px';
             wrapper.style.height = displayViewport.height + 'px';
 
-            const canvas = document.createElement('canvas');
-            canvas.id = 'pdf-canvas-' + pageNum;
-            canvas.width = Math.round(renderViewport.width);
-            canvas.height = Math.round(renderViewport.height);
-            canvas.style.width = displayViewport.width + 'px';
-            canvas.style.height = displayViewport.height + 'px';
-            canvas.style.display = 'block';
+            // Canvas A (Actif visible)
+            const canvasA = document.createElement('canvas');
+            canvasA.id = 'pdf-canvas-' + pageNum + '-a';
+            canvasA.width = Math.round(renderViewport.width);
+            canvasA.height = Math.round(renderViewport.height);
+            canvasA.style.position = 'absolute';
+            canvasA.style.top = '0';
+            canvasA.style.left = '0';
+            canvasA.style.width = '100%';
+            canvasA.style.height = '100%';
+            canvasA.style.display = 'block';
+            canvasA.style.zIndex = '2';
+            canvasA.style.opacity = '1';
 
-            const context = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-            context.imageSmoothingEnabled = true;
-            context.imageSmoothingQuality = 'high';
+            // Canvas B (Tampon persistant hors-champ Zero-Allocation)
+            const canvasB = document.createElement('canvas');
+            canvasB.id = 'pdf-canvas-' + pageNum + '-b';
+            canvasB.width = 1;
+            canvasB.height = 1;
+            canvasB.style.position = 'absolute';
+            canvasB.style.top = '0';
+            canvasB.style.left = '0';
+            canvasB.style.width = '100%';
+            canvasB.style.height = '100%';
+            canvasB.style.display = 'block';
+            canvasB.style.zIndex = '1';
+            canvasB.style.opacity = '0';
 
-            wrapper.appendChild(canvas);
+            const contextA = canvasA.getContext('2d', { alpha: false, willReadFrequently: false });
+            contextA.imageSmoothingEnabled = true;
+            contextA.imageSmoothingQuality = 'high';
+
+            wrapper.appendChild(canvasA);
+            wrapper.appendChild(canvasB);
             container.appendChild(wrapper);
 
             // Coupure sur la page cible
@@ -861,16 +989,20 @@ export default function EcranLecteurDocument() {
             }
 
             const renderTask = page.render({
-              canvasContext: context,
+              canvasContext: contextA,
               viewport: renderViewport
             });
 
             pageRenderStates[pageNum] = {
               page: page,
               baseScale: baseScale,
-              canvas: canvas,
-              wrapper: wrapper,
-              renderTask: renderTask
+              baseWidth: displayViewport.width,
+              baseHeight: displayViewport.height,
+              activeCanvas: canvasA,
+              bufferCanvas: canvasB,
+              renderedZoom: 1.0,
+              renderTask: renderTask,
+              offscreenTask: null
             };
             
             renderTask.promise.then(function() {
@@ -883,7 +1015,7 @@ export default function EcranLecteurDocument() {
               if (loader) loader.style.display = 'none';
               
               // 2. Rendre le canvas visible
-              canvas.style.display = 'block';
+              canvasA.style.display = 'block';
               if (container) container.style.display = 'flex';
 
               // 3. Notifier React Native
@@ -949,61 +1081,93 @@ export default function EcranLecteurDocument() {
       initialiserLecteur();
     }
 
-    // --- Gestionnaires d'événements de zoom interactif (Web & Mobile) ---
-    let lastPinchDist = 0;
+    // --- Suivi cinématique tactile direct 1:1 & RAF Ticking 120 FPS ---
+    let initialPinchDist = 0;
+    let initialPinchScale = 1.0;
     let isPinching = false;
-    const DAMPING_FACTOR_TOUCH = 0.15; // Amortissement ultra-doux (15%)
+    let pinchFocalX = null;
+    let pinchFocalY = null;
+    let pinchRafId = null;
+    let pendingPinchDist = 0;
+    let pendingFocalX = null;
+    let pendingFocalY = null;
 
-    // 1. Zoom au pinch tactile à deux doigts feutré (Mobile / Tablettes)
+    // 1. Débrayage strict des transitions CSS & Capture du point focal (Mobile / Tablettes)
     window.addEventListener('touchstart', function(e) {
       if (e.touches && e.touches.length === 2) {
         isPinching = true;
+        const container = document.getElementById('canvas-container');
+        if (container) {
+          container.style.transition = 'none';
+        }
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastPinchDist = Math.hypot(dx, dy);
+        initialPinchDist = Math.hypot(dx, dy);
+        initialPinchScale = window._currentZoom || 1.0;
+
+        pinchFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pinchFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        pendingPinchDist = initialPinchDist;
+        pendingFocalX = pinchFocalX;
+        pendingFocalY = pinchFocalY;
       }
-    }, { passive: true });
+    }, { passive: false });
 
+    // 2. Découplage complet de l'écouteur tactile (RAF Ticking 120 FPS sans manipulation DOM directe)
     window.addEventListener('touchmove', function(e) {
-      if (isPinching && e.touches && e.touches.length === 2 && window._appliquerZoomCss) {
+      if (isPinching && e.touches && e.touches.length === 2) {
+        e.preventDefault(); // Bloquer impérativement le zoom natif WebView
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const currentDist = Math.hypot(dx, dy);
+        pendingPinchDist = Math.hypot(dx, dy);
+        pendingFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pendingFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
 
-        // Seuil de bruit (5px) pour lisser complètement les micro-tremblements
-        if (Math.abs(currentDist - lastPinchDist) < 5) return;
-
-        if (lastPinchDist > 0) {
-          // Calcul incrémental amorti ultra-doux (0.15)
-          const ratio = currentDist / lastPinchDist;
-          const delta = (ratio - 1.0) * DAMPING_FACTOR_TOUCH;
-          const currentZ = window._currentZoom || 1.0;
-          const nouvelleEchelle = currentZ * (1.0 + delta);
-          window._appliquerZoomCss(nouvelleEchelle);
-          lastPinchDist = currentDist;
+        if (!pinchRafId) {
+          pinchRafId = requestAnimationFrame(function() {
+            pinchRafId = null;
+            if (!isPinching || initialPinchDist <= 0 || !window._appliquerZoomCss) return;
+            const ratio = pendingPinchDist / initialPinchDist;
+            const targetScale = initialPinchScale * ratio;
+            window._appliquerZoomCss(targetScale, pendingFocalX, pendingFocalY, false);
+          });
         }
       }
-    }, { passive: true });
+    }, { passive: false });
 
     window.addEventListener('touchend', function(e) {
       if (isPinching && (!e.touches || e.touches.length < 2)) {
         isPinching = false;
-        lastPinchDist = 0;
+        if (pinchRafId) {
+          cancelAnimationFrame(pinchRafId);
+          pinchRafId = null;
+        }
+        initialPinchDist = 0;
+        // Rappel doux aux bornes si nécessaire
+        const currentZ = window._currentZoom || 1.0;
+        const clampedZ = Math.min(3.5, Math.max(1.0, currentZ));
+        if (clampedZ !== currentZ && window._appliquerZoomCss) {
+          window._appliquerZoomCss(clampedZ, undefined, undefined, true);
+        }
         if (window._programmerReRasterisation) {
           window._programmerReRasterisation(90);
         }
       }
     }, { passive: true });
 
-    // 2. Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web) au pas feutré de 3.5%
+    // 2. Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web)
     window.addEventListener('wheel', function(e) {
       if ((e.ctrlKey || e.metaKey) && window._appliquerZoomCss) {
         e.preventDefault();
-        // Pas doux millimétré de 3.5% par cran de molette
-        const delta = -Math.sign(e.deltaY) * 0.035;
+        const container = document.getElementById('canvas-container');
+        if (container) {
+          container.style.transition = 'none';
+        }
+        const pasZoom = 0.018;
+        const direction = -Math.sign(e.deltaY);
         const currentZ = window._currentZoom || 1.0;
-        const targetScale = currentZ + delta;
-        window._appliquerZoomCss(targetScale);
+        const cibleZoom = currentZ * (1 + direction * pasZoom);
+        window._appliquerZoomCss(cibleZoom, e.clientX, e.clientY, false);
         if (window._programmerReRasterisation) {
           window._programmerReRasterisation(90);
         }
@@ -1018,7 +1182,9 @@ export default function EcranLecteurDocument() {
       if (maintenant - dernierTouchEnd < 300 && e.changedTouches && e.changedTouches.length === 1 && window._appliquerZoomCss) {
         const currentZ = window._currentZoom || 1.0;
         const target = currentZ > 1.25 ? 1.0 : 2.0;
-        window._appliquerZoomCss(target);
+        const tapX = e.changedTouches[0].clientX;
+        const tapY = e.changedTouches[0].clientY;
+        window._appliquerZoomCss(target, tapX, tapY, true);
         if (window._programmerReRasterisation) {
           window._programmerReRasterisation(90);
         }
@@ -1026,7 +1192,15 @@ export default function EcranLecteurDocument() {
       dernierTouchEnd = maintenant;
     }, { passive: true });
 
+    // Priorité absolue au scroll : Interrompre tout calcul vectoriel lourd si l'utilisateur scroll
     window.addEventListener('scroll', () => {
+      if (window._annulerReRasterisation) {
+        window._annulerReRasterisation();
+      }
+      if (!isPinching && window._programmerReRasterisation) {
+        window._programmerReRasterisation(150);
+      }
+
       const scrollPos = window.scrollY + window.innerHeight / 3;
       const wrappers = document.querySelectorAll('.page-wrapper');
       wrappers.forEach((w, idx) => {
@@ -1036,7 +1210,7 @@ export default function EcranLecteurDocument() {
           notifyPageChange(idx + 1, wrappers.length);
         }
       });
-    });
+    }, { passive: true });
   </script>
   <div id="zoom-badge">100%</div>
 </body>
@@ -1145,17 +1319,26 @@ export default function EcranLecteurDocument() {
         ) : sourcePdfData && !hasError ? (
           <View style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
             {Platform.OS === 'web' ? (
-              // Sur PC/Web : Rendu PDF.js direct garantissant un fond blanc pur / clair adaptatif sans fond noir de navigateur
-              <iframe
-                srcDoc={webViewSource.html}
-                style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                  border: 'none', 
-                  display: 'block', 
-                  backgroundColor: couleurs.estSombre ? '#121212' : '#FFFFFF' 
+              <LecteurPdfWeb
+                documentId={document.id || docParams.id}
+                urlFichier={sourcePdfData}
+                estVerrouille={estVerrouille}
+                limiteApercuPages={limiteApercuPages}
+                limiteApercuType={limiteApercuType}
+                limiteApercuValeur={limiteApercuValeur}
+                prix={document.prix}
+                estSombre={couleurs.estSombre}
+                onAcheter={() => setModaleAchatVisible(true)}
+                onVip={() => setModaleVipVisible(true)}
+                onPageChange={(current, total) => {
+                  setPageState({ current, total });
+                  setNombrePagesReel(total);
                 }}
-                title={document.titre}
+                onDocumentLoad={(total) => {
+                  setNombrePagesReel(total);
+                  setPageState(prev => ({ ...prev, total }));
+                }}
+                onReessayer={() => setCleRechargement(prev => prev + 1)}
               />
             ) : (
               <WebView
@@ -1218,23 +1401,25 @@ export default function EcranLecteurDocument() {
               />
             )}
 
-            {/* Indicateur de Page Flottant */}
-            <View
-              style={[
-                styles.floatingPageIndicator,
-                {
-                  bottom:
-                    estVerrouille ||
-                    (estAbonneVIP && !docsDebloquesIds.includes(document.id) && !estDocumentImporte)
-                      ? 80
-                      : 24,
-                },
-              ]}
-            >
-              <Text style={styles.pageIndicatorText}>
-                Page {pageState.current} / {nombrePagesReel}
-              </Text>
-            </View>
+            {/* Indicateur de Page Flottant (Mobile uniquement, le Web disposant de sa barre d'outils Mozilla) */}
+            {Platform.OS !== 'web' && (
+              <View
+                style={[
+                  styles.floatingPageIndicator,
+                  {
+                    bottom:
+                      estVerrouille ||
+                      (estAbonneVIP && !docsDebloquesIds.includes(document.id) && !estDocumentImporte)
+                        ? 80
+                        : 24,
+                  },
+                ]}
+              >
+                <Text style={styles.pageIndicatorText}>
+                  Page {pageState.current} / {nombrePagesReel}
+                </Text>
+              </View>
+            )}
           </View>
         ) : (
           <View style={styles.emptyContainer}>
