@@ -241,16 +241,19 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           // Résolution physique haute définition
           const renderScale = baseScale * scale * dpr;
           const renderViewport = page.getViewport({ scale: renderScale });
+          const aspectRatioStr = `${renderViewport.width} / ${renderViewport.height}`;
 
-          // Conteneur de la page
+          // Conteneur de la page : affichage bloc naturel avec interdiction stricte de compression
           const wrapper = document.createElement('div');
           wrapper.className = 'cauzon-page-wrapper';
           wrapper.setAttribute('data-page', String(pageNum));
+          wrapper.style.display = 'block';
           wrapper.style.position = 'relative';
-          wrapper.style.width = `${displayWidth}px`;
-          wrapper.style.maxWidth = '100%';
-          wrapper.style.height = `${displayHeight}px`;
-          wrapper.style.marginBottom = isMobileScreen ? '10px' : '20px';
+          wrapper.style.width = '100%';
+          wrapper.style.maxWidth = `${Math.min(displayWidth, Math.round(800 * Math.max(scale, 1)))}px`;
+          wrapper.style.margin = isMobileScreen ? '0 auto 12px auto' : '0 auto 16px auto';
+          wrapper.style.flexShrink = '0';
+          wrapper.style.boxSizing = 'border-box';
           wrapper.style.backgroundColor = '#FFFFFF';
           wrapper.style.borderRadius = isMobileScreen ? '4px' : '8px';
           wrapper.style.boxShadow = isMobileScreen ? '0 2px 8px rgba(0,0,0,0.1)' : '0 4px 16px rgba(0,0,0,0.12)';
@@ -258,13 +261,15 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           wrapper.style.setProperty('-webkit-touch-callout', 'none');
           wrapper.style.setProperty('-webkit-user-select', 'none');
 
-          // Canvas pour le dessin vectoriel
+          // Canvas pour le dessin vectoriel : hauteur proportionnelle à la largeur (ratio A4 préservé)
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(renderViewport.width);
           canvas.height = Math.round(renderViewport.height);
-          canvas.style.width = '100%';
-          canvas.style.height = '100%';
           canvas.style.display = 'block';
+          canvas.style.width = '100%';
+          canvas.style.height = 'auto';
+          canvas.style.aspectRatio = aspectRatioStr;
+          canvas.style.flexShrink = '0';
 
           const ctx = canvas.getContext('2d', { alpha: false });
           if (ctx) {
@@ -397,26 +402,55 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         overscrollBehavior: 'none',
       }}
     >
+      {/* Règles CSS strictes garantissant le respect du ratio A4 et interdisant toute compression */}
+      <style>{`
+        .cauzon-pdf-scroll-container {
+          display: block !important;
+          width: 100% !important;
+          height: 100% !important;
+          overflow-y: scroll !important;
+          overflow-x: auto !important;
+          -webkit-overflow-scrolling: touch !important;
+          touch-action: pan-x pan-y pinch-zoom !important;
+          padding-bottom: 120px !important;
+          box-sizing: border-box !important;
+          overscroll-behavior-y: contain !important;
+        }
+        .cauzon-page-wrapper {
+          display: block !important;
+          width: 100% !important;
+          max-width: 800px;
+          margin: 0 auto 16px auto !important;
+          flex-shrink: 0 !important;
+          box-sizing: border-box !important;
+          position: relative !important;
+        }
+        .cauzon-page-wrapper canvas {
+          display: block !important;
+          width: 100% !important;
+          height: auto !important;
+          flex-shrink: 0 !important;
+        }
+        @keyframes cauzon-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
       {/* Conteneur de défilement des pages Canvas optimisé WebKit iOS & Android */}
       <div
         ref={containerRef}
         className="cauzon-pdf-scroll-container"
         style={{
-          flex: 1,
+          display: chargement || erreur ? 'none' : 'block',
           width: '100%',
-          maxWidth: '100vw',
           height: '100%',
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          overflowY: 'scroll',
+          overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
-          overscrollBehaviorY: 'contain',
-          overscrollBehaviorX: 'none',
-          touchAction: 'pan-y pinch-zoom',
-          display: chargement || erreur ? 'none' : 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          padding: '12px 0 80px 0',
+          touchAction: 'pan-x pan-y pinch-zoom',
+          padding: '12px 12px 120px 12px',
           boxSizing: 'border-box',
+          overscrollBehaviorY: 'contain',
         }}
       />
 
@@ -445,11 +479,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
               animation: 'cauzon-spin 0.8s linear infinite',
             }}
           />
-          <style>{`
-            @keyframes cauzon-spin {
-              to { transform: rotate(360deg); }
-            }
-          `}</style>
           <div style={{ color: '#6B1124', fontSize: '14px', fontWeight: 700 }}>
             Chargement direct du document...
           </div>
