@@ -96,6 +96,13 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
   // État local du Zoom interactif
   const [zoomActif, setZoomActif] = useState<number>(scale || 1.0);
 
+  // Références techniques pour la gestion de la re-rastérisation vectorielle dynamique
+  const pdfDocRef = useRef<any>(null);
+  const renderTasksRef = useRef<Map<number, any>>(new Map());
+  const pagesVisiblesRef = useRef<Set<number>>(new Set([1]));
+  const zoomRenduMapRef = useRef<Map<number, number>>(new Map());
+  const targetWidthRef = useRef<number>(800);
+
   useEffect(() => {
     if (scale && scale !== zoomActif) {
       setZoomActif(scale);
@@ -124,10 +131,102 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
     setZoomActif(1.0);
   }, []);
 
-  // Application instantanée du zoom sur tous les wrappers sans recharger le PDF
+  // Fonction centrale pour effectuer la re-rastérisation haute définition d'une page à un zoom donné
+  const rasteriserPage = useCallback(async (
+    pageNum: number,
+    wrapper: HTMLElement,
+    zoomScale: number,
+    pageInstance?: any
+  ) => {
+    const pdfDoc = pdfDocRef.current;
+    if (!pdfDoc) return;
+
+    // 1. Annuler toute tâche de rendu en cours sur cette page pour éviter les conflits
+    if (renderTasksRef.current.has(pageNum)) {
+      try {
+        renderTasksRef.current.get(pageNum)?.cancel();
+      } catch (_) {}
+      renderTasksRef.current.delete(pageNum);
+    }
+
+    try {
+      const page = pageInstance || (await pdfDoc.getPage(pageNum));
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+
+      const isWebKitIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      const rawDpr = window.devicePixelRatio || 1;
+      const dpr = isWebKitIOS ? Math.min(rawDpr, 1.75) : Math.min(rawDpr, 2.0);
+
+      const targetWidth = targetWidthRef.current || 800;
+      const baseScale = targetWidth / unscaledViewport.width;
+      
+      // Résolution réelle augmentée du facteur de zoom pour éliminer tout flou
+      const resolutionScale = baseScale * zoomScale * dpr;
+      const renderViewport = page.getViewport({ scale: resolutionScale });
+
+      // Retirer le placeholder
+      const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
+      if (placeholder) {
+        placeholder.remove();
+      }
+
+      // Créer ou récupérer l'élément canvas
+      let canvas = wrapper.querySelector('canvas') as HTMLCanvasElement;
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.style.display = 'block';
+        canvas.style.width = '100%';
+        canvas.style.height = 'auto';
+        canvas.style.aspectRatio = `${renderViewport.width} / ${renderViewport.height}`;
+        canvas.style.flexShrink = '0';
+        canvas.style.touchAction = 'pan-x pan-y pinch-zoom';
+        wrapper.appendChild(canvas);
+      }
+
+      // Dimensions physiques en pixels du canvas (buffer bitmap haute définition)
+      canvas.width = Math.floor(renderViewport.width);
+      canvas.height = Math.floor(renderViewport.height);
+
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        const renderTask = page.render({
+          canvasContext: ctx,
+          viewport: renderViewport,
+        });
+
+        renderTasksRef.current.set(pageNum, renderTask);
+
+        try {
+          await renderTask.promise;
+          zoomRenduMapRef.current.set(pageNum, zoomScale);
+        } catch (renderErr: any) {
+          if (renderErr?.name === 'RenderingCancelledException') {
+            // Annulation normale déclenchée par un zoom ou défilement plus récent
+            return;
+          }
+          throw renderErr;
+        } finally {
+          if (renderTasksRef.current.get(pageNum) === renderTask) {
+            renderTasksRef.current.delete(pageNum);
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.name !== 'RenderingCancelledException') {
+        console.warn(`[LecteurPdfWeb] Échec re-rastérisation page ${pageNum} :`, err);
+      }
+    }
+  }, []);
+
+  // 🚀 Réponse immédiate CSS (60/120 FPS) + Re-rastérisation vectorielle temporisée (Debounce 250ms)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // 1. Réponse visuelle instantanée : redimensionnement CSS des wrappers
     const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
       if (zoomActif > 1.0) {
@@ -141,8 +240,26 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         w.style.maxWidth = `${Math.round(800 * zoomActif)}px`;
       }
     });
-  }, [zoomActif]);
 
+    // 2. Debounce de 250ms : re-rastérisation vectorielle HD des pages visibles
+    const timer = setTimeout(() => {
+      if (!pdfDocRef.current) return;
+
+      pagesVisiblesRef.current.forEach(pNum => {
+        const wrapper = container.querySelector<HTMLElement>(`.cauzon-page-wrapper[data-page="${pNum}"]`);
+        if (wrapper) {
+          const dernierZoomRendu = zoomRenduMapRef.current.get(pNum) || 1.0;
+          if (dernierZoomRendu !== zoomActif) {
+            rasteriserPage(pNum, wrapper, zoomActif);
+          }
+        }
+      });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [zoomActif, rasteriserPage]);
+
+  // Chargement initial du PDF & Rendu Prioritaire Page 1
   useEffect(() => {
     let actif = true;
     let lazyObserver: IntersectionObserver | null = null;
@@ -217,6 +334,7 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         const pdf = await loadingTask.promise;
         if (!actif) return;
 
+        pdfDocRef.current = pdf;
         const totalPages = pdf.numPages;
         setNombrePagesTotal(totalPages);
         onDocumentLoad?.(totalPages);
@@ -256,14 +374,11 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         container.innerHTML = '';
 
         // 5. Calcul responsive de référence avec la Page 1
-        const isWebKitIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
         const availableWidth = container.clientWidth || window.innerWidth;
         const isMobileScreen = availableWidth < 640;
         const margeLaterale = isMobileScreen ? 12 : 32;
         const targetContainerWidth = Math.min(availableWidth - margeLaterale, 860);
-
-        const rawDpr = window.devicePixelRatio || 1;
-        const dpr = isWebKitIOS ? Math.min(rawDpr, 1.75) : Math.min(rawDpr, 2.0);
+        targetWidthRef.current = targetContainerWidth;
 
         // Récupérer la Page 1 immédiatement pour extraire le ratio universel
         const page1 = await pdf.getPage(1);
@@ -274,58 +389,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         const defaultDisplayWidth = Math.round(unscaledViewport1.width * baseScale);
         const defaultDisplayHeight = Math.round(unscaledViewport1.height * baseScale);
         const defaultAspectRatioStr = `${unscaledViewport1.width} / ${unscaledViewport1.height}`;
-
-        const pagesRendues = new Set<number>();
-        const pagesEnCours = new Set<number>();
-
-        // Fonction unitaire de rendu d'une page
-        const rendreUnePage = async (pageNum: number, wrapper: HTMLElement, pageInstance?: any) => {
-          if (pagesRendues.has(pageNum) || pagesEnCours.has(pageNum) || !actif) return;
-          pagesEnCours.add(pageNum);
-
-          try {
-            const page = pageInstance || (await pdf.getPage(pageNum));
-            if (!actif) return;
-
-            const unscaledViewport = page.getViewport({ scale: 1.0 });
-            const pScale = targetContainerWidth / unscaledViewport.width;
-            const renderScale = pScale * dpr;
-            const renderViewport = page.getViewport({ scale: renderScale });
-
-            // Supprimer le placeholder
-            const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
-            if (placeholder) {
-              placeholder.remove();
-            }
-
-            let canvas = wrapper.querySelector('canvas') as HTMLCanvasElement;
-            if (!canvas) {
-              canvas = document.createElement('canvas');
-              canvas.style.display = 'block';
-              canvas.style.width = '100%';
-              canvas.style.height = 'auto';
-              canvas.style.aspectRatio = `${renderViewport.width} / ${renderViewport.height}`;
-              canvas.style.flexShrink = '0';
-              wrapper.appendChild(canvas);
-            }
-
-            canvas.width = Math.round(renderViewport.width);
-            canvas.height = Math.round(renderViewport.height);
-
-            const ctx = canvas.getContext('2d', { alpha: false });
-            if (ctx) {
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = 'high';
-              await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-            }
-
-            pagesRendues.add(pageNum);
-            pagesEnCours.delete(pageNum);
-          } catch (pErr) {
-            console.warn(`[LecteurPdfWeb] Erreur rendu page ${pageNum} :`, pErr);
-            pagesEnCours.delete(pageNum);
-          }
-        };
 
         // 6. Création immédiate de la structure de tous les wrappers (Placeholders légers)
         const wrappersElements: HTMLElement[] = [];
@@ -347,6 +410,7 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           wrapper.style.overflow = 'hidden';
           wrapper.style.setProperty('-webkit-touch-callout', 'none');
           wrapper.style.setProperty('-webkit-user-select', 'none');
+          wrapper.style.touchAction = 'pan-x pan-y pinch-zoom';
 
           // Placeholder initial pour conserver la hauteur exacte avant rendu
           const placeholder = document.createElement('div');
@@ -426,10 +490,10 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         }
 
         // 🚀 8. RENDU PRIORITAIRE INSTANTANÉ DE LA PAGE 1 (< 800 ms)
-        await rendreUnePage(1, wrappersElements[0], page1);
+        await rasteriserPage(1, wrappersElements[0], zoomActif, page1);
         if (!actif) return;
 
-        // Déverrouillage immédiat de l'écran pour l'utilisateur
+        // Déverrouillage immédiat de l'affichage
         setChargement(false);
 
         // 9. LAZY-RENDERING DES PAGES SUIVANTES VIA INTERSECTION OBSERVER
@@ -440,8 +504,9 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
                 const pageAttr = entry.target.getAttribute('data-page');
                 if (pageAttr) {
                   const pNum = parseInt(pageAttr, 10);
-                  if (!pagesRendues.has(pNum)) {
-                    rendreUnePage(pNum, entry.target as HTMLElement);
+                  const dernierZoomRendu = zoomRenduMapRef.current.get(pNum);
+                  if (dernierZoomRendu === undefined || dernierZoomRendu !== zoomActif) {
+                    rasteriserPage(pNum, entry.target as HTMLElement, zoomActif);
                   }
                 }
               }
@@ -452,21 +517,24 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
 
         wrappersElements.forEach(w => lazyObserver?.observe(w));
 
-        // 10. OBSERVER DE SUIVI DU NUMÉRO DE PAGE COURANTE
+        // 10. OBSERVER DE SUIVI DES PAGES VISIBLES (POUR LE RE-ZOOM CIBLÉ & LA PASTILLE)
         pageObserver = new IntersectionObserver(
           (entries) => {
             for (const entry of entries) {
-              if (entry.isIntersecting) {
-                const pageAttr = entry.target.getAttribute('data-page');
-                if (pageAttr) {
-                  const pNum = parseInt(pageAttr, 10);
+              const pageAttr = entry.target.getAttribute('data-page');
+              if (pageAttr) {
+                const pNum = parseInt(pageAttr, 10);
+                if (entry.isIntersecting) {
+                  pagesVisiblesRef.current.add(pNum);
                   setPageCourante(pNum);
                   onPageChange?.(pNum, totalPages);
+                } else {
+                  pagesVisiblesRef.current.delete(pNum);
                 }
               }
             }
           },
-          { root: container, threshold: 0.3 }
+          { root: container, threshold: 0.1 }
         );
 
         wrappersElements.forEach(w => pageObserver?.observe(w));
@@ -486,11 +554,20 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
       actif = false;
       if (lazyObserver) lazyObserver.disconnect();
       if (pageObserver) pageObserver.disconnect();
+
+      // Annuler toutes les tâches de rendu en cours
+      renderTasksRef.current.forEach(task => {
+        try { task?.cancel(); } catch (_) {}
+      });
+      renderTasksRef.current.clear();
+      pagesVisiblesRef.current.clear();
+      zoomRenduMapRef.current.clear();
+
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
     };
-  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, tentativeKey]);
+  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, tentativeKey, rasteriserPage]);
 
   return (
     <div
