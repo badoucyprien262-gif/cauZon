@@ -40,7 +40,9 @@
           "backgroundColor": "#6B1124"
         }
       ],
-      "@react-native-google-signin/google-signin"
+      "@react-native-google-signin/google-signin",
+      "@config-plugins/react-native-blob-util",
+      "@config-plugins/react-native-pdf"
     ],
     "ios": {
       "bundleIdentifier": "com.cauzon.app",

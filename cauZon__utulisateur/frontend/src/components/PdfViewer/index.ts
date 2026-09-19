@@ -1,1 +1,2 @@
-﻿export * from './LecteurPdfWeb';
+export * from './LecteurPdfWeb';
+export * from './LecteurPdfMobile';

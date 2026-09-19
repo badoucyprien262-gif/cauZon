@@ -10,10 +10,10 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '../components/AppIcon';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as ScreenCapture from 'expo-screen-capture';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Accelerometer } from 'expo-sensors';
 import { useApp } from '../store/ContexteApp';
@@ -23,7 +23,7 @@ import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersA
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
-import { LecteurPdfWeb } from '../components/PdfViewer';
+import { LecteurPdfWeb, LecteurPdfMobile } from '../components/PdfViewer';
 
 type DocumentViewerRouteProp = RouteProp<RootStackParamList, 'DocumentViewer'>;
 
@@ -108,26 +108,19 @@ export default function EcranLecteurDocument() {
   const [modePaysageActif, setModePaysageActif] = useState(false);
   const [cleRechargement, setCleRechargement] = useState(0);
 
-  // Contrôles et persistance du zoom mobile
-  const webViewRef = useRef<WebView>(null);
+  // Contrôles et persistance du zoom mobile natif
   const [zoomMobileActif, setZoomMobileActif] = useState<number>(1.0);
 
   const handleZoomIn = () => {
-    const nextZoom = Math.min(3.5, Math.round((zoomMobileActif + 0.25) * 100) / 100);
-    setZoomMobileActif(nextZoom);
-    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+    setZoomMobileActif(prev => Math.min(4.0, Math.round((prev + 0.25) * 100) / 100));
   };
 
   const handleZoomOut = () => {
-    const nextZoom = Math.max(1.0, Math.round((zoomMobileActif - 0.25) * 100) / 100);
-    setZoomMobileActif(nextZoom);
-    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+    setZoomMobileActif(prev => Math.max(1.0, Math.round((prev - 0.25) * 100) / 100));
   };
 
   const handleResetZoom = () => {
-    const nextZoom = zoomMobileActif > 1.05 ? 1.0 : 1.5;
-    setZoomMobileActif(nextZoom);
-    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+    setZoomMobileActif(prev => (prev > 1.05 ? 1.0 : 1.5));
   };
 
   // Détection dynamique et fluide du mode Paysage (asservie au bouton)
@@ -275,6 +268,13 @@ export default function EcranLecteurDocument() {
     };
   }, [modePaysageActif]);
 
+  // 🛡️ Bouclier Anti-Capture d'écran sur mobile
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      ScreenCapture.preventScreenCaptureAsync().catch(() => {});
+    }
+  }, []);
+
   // Réinitialisation au démontage de l'écran
   useEffect(() => {
     return () => {
@@ -314,651 +314,6 @@ export default function EcranLecteurDocument() {
     } catch (err) {
       console.log('Erreur bascule orientation manuelle :', err);
     }
-  };
-
-  // Code HTML5/PDF.js cross-platform standard & ultra-robuste avec fond clair/blanc dynamique
-  const webViewSource = {
-    html: `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
-  <title>Lecteur PDF - cauZon</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-  <style>
-    * {
-      box-sizing: border-box;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      background-color: ${couleurs.estSombre ? '#121212' : '#FFFFFF'};
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: ${couleurs.estSombre ? '#FFFFFF' : '#0F172A'};
-    }
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      overflow-x: auto;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      padding: 16px 0 80px 0;
-      background-color: ${couleurs.estSombre ? '#121212' : '#FFFFFF'};
-      touch-action: pan-x pan-y pinch-zoom;
-    }
-    #canvas-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: max-content;
-      min-width: 100%;
-      margin: 0 auto;
-      gap: 20px;
-      transform-origin: top center;
-      will-change: transform;
-      transition: none;
-    }
-    .page-wrapper {
-      position: relative;
-      background-color: #FFFFFF;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
-      border: 1px solid ${couleurs.estSombre ? '#27272A' : '#E2E8F0'};
-      border-radius: 6px;
-      overflow: hidden;
-      margin: 0 auto;
-      box-sizing: border-box;
-      contain: layout size paint;
-      content-visibility: auto;
-    }
-    .page-wrapper canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100% !important;
-      height: 100% !important;
-      display: block;
-      image-rendering: -webkit-optimize-contrast;
-      image-rendering: crisp-edges;
-      -webkit-font-smoothing: subpixel-antialiased;
-      -webkit-backface-visibility: hidden;
-      backface-visibility: hidden;
-      transform: translateZ(0);
-      -webkit-transform: translateZ(0);
-      pointer-events: none;
-    }
-    #zoom-badge {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: rgba(15, 23, 42, 0.88);
-      color: #FFFFFF;
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.25s ease;
-      z-index: 9999;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    }
-
-
-    #loading {
-      text-align: center;
-      padding: 80px 20px;
-      font-size: 15px;
-      font-weight: 600;
-      color: ${couleurs.estSombre ? '#9CA3AF' : '#64748B'};
-    }
-    #limit-banner {
-      width: 90%;
-      max-width: 650px;
-      padding: 24px;
-      margin: 20px 0 60px 0;
-      background-color: ${couleurs.estSombre ? '#1E1B18' : '#FFFBEB'};
-      border: 1px solid ${couleurs.estSombre ? '#452A18' : '#FDE68A'};
-      color: ${couleurs.estSombre ? '#FCD34D' : '#92400E'};
-      border-radius: 16px;
-      font-size: 14px;
-      text-align: center;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
-    }
-    .blur-overlay {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: linear-gradient(to bottom, 
-        rgba(${couleurs.estSombre ? '18,18,18' : '255,255,255'}, 0) 0%, 
-        rgba(${couleurs.estSombre ? '18,18,18' : '255,255,255'}, 0.95) 20%, 
-        rgba(${couleurs.estSombre ? '18,18,18' : '255,255,255'}, 1) 100%
-      );
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justifyContent: center;
-      padding: 20px;
-      z-index: 20;
-    }
-    .overlay-card {
-      text-align: center;
-      max-width: 360px;
-      background: ${couleurs.estSombre ? '#1E1E1E' : '#FFFFFF'};
-      border: 1px solid ${couleurs.estSombre ? '#27272A' : '#E2E8F0'};
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 15px 35px rgba(0,0,0,0.2);
-    }
-    .overlay-lock-icon { font-size: 36px; margin-bottom: 12px; }
-    .overlay-title { font-size: 16px; font-weight: 800; margin-bottom: 6px; color: ${couleurs.estSombre ? '#FFFFFF' : '#0F172A'}; }
-    .overlay-subtitle { font-size: 12.5px; color: ${couleurs.estSombre ? '#9CA3AF' : '#64748B'}; margin-bottom: 20px; line-height: 1.5; }
-    .overlay-buttons { display: flex; gap: 10px; justify-content: center; }
-    .btn-buy {
-      background-color: #6B1124;
-      color: #FFFFFF;
-      border: none;
-      padding: 12px 18px;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .btn-vip {
-      background-color: #E5C158;
-      color: #6B1124;
-      border: none;
-      padding: 12px 18px;
-      border-radius: 10px;
-      font-weight: 800;
-      font-size: 13px;
-      cursor: pointer;
-    }
-  </style>
-</head>
-<body>
-  <div id="loading">📄 Chargement haute fidélité du document...</div>
-  <div id="canvas-container"></div>
-  
-  ${estVerrouille && limiteApercuType === 'page' ? `
-    <div id="limit-banner">
-      <div class="overlay-lock-icon">🔒</div>
-      <div class="overlay-title">Aperçu gratuit limité à ${limiteApercuValeur} page(s)</div>
-      <div class="overlay-subtitle" id="banner-pages-text">Débloquez le cours complet pour poursuivre votre lecture.</div>
-      <div class="overlay-buttons">
-        <button class="btn-buy" onclick="triggerPayment('buy')">🛒 Acheter (${document.prix ?? 100} F)</button>
-        <button class="btn-vip" onclick="triggerPayment('vip')">🎁 Pass VIP (500 F)</button>
-      </div>
-    </div>
-  ` : ''}
-
-  <script>
-    function initialiserLecteur() {
-      if (typeof pdfjsLib === 'undefined') {
-        setTimeout(initialiserLecteur, 50);
-        return;
-      }
-
-      try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-      } catch (wErr) {
-        console.warn('[PDF.js] Worker non instanciable :', wErr);
-      }
-
-      // Données PDF encodées en JSON pour éviter tout problème de guillemets dans le template literal
-      const rawPdfData = ${JSON.stringify(sourcePdfData)};
-
-      // Détection automatique : base64 brut ou URL HTTP/file
-      function construirePdfSource(data) {
-        if (!data) return null;
-        if (typeof data !== 'string') return data;
-        if (data.startsWith('http://') || data.startsWith('https://') || data.startsWith('file://') || data.startsWith('blob:')) {
-          return data;
-        }
-        let base64Str = data;
-        const idx = base64Str.indexOf('base64,');
-        if (idx !== -1) {
-          base64Str = base64Str.substring(idx + 7);
-        }
-        try {
-          const binaryStr = atob(base64Str);
-          const bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
-          return { data: bytes };
-        } catch (e) {
-          console.error('[PDF.js] Échec décodage base64:', e.message);
-          return null;
-        }
-      }
-
-      const pdfSource = construirePdfSource(rawPdfData);
-
-      function triggerPayment(type) {
-        const payload = JSON.stringify({ type: type });
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(payload);
-        } else if (window.parent) {
-          window.parent.postMessage(payload, '*');
-        }
-      }
-      window.triggerPayment = triggerPayment;
-
-      const notifyPageChange = (current, previewLimit, realTotalPages) => {
-        const payload = JSON.stringify({
-          type: 'pageChange',
-          currentPage: current,
-          totalPages: realTotalPages,
-          totalCount: realTotalPages,
-          previewLimitPages: previewLimit
-        });
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(payload);
-        } else if (window.parent) {
-          window.parent.postMessage(payload, '*');
-        }
-      };
-
-      if (!pdfSource) {
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) loadingEl.innerHTML = '<div style="text-align:center;padding:40px;"><p style="color:#DC2626;font-weight:bold;">⚠️ Source PDF vide ou invalide</p></div>';
-        return;
-      }
-
-      const docParams = typeof pdfSource === 'string'
-        ? { url: pdfSource, withCredentials: false, stopAtErrors: false }
-        : { data: pdfSource.data, stopAtErrors: false };
-
-      pdfjsLib.getDocument(docParams).promise.then(async (pdf) => {
-        // 1. Masquage proactif du loader HTML dès que le PDF est analysé
-        const initialLoader = document.getElementById('loading');
-        if (initialLoader) initialLoader.style.display = 'none';
-
-        const container = document.getElementById('canvas-container');
-        if (container) container.style.display = 'flex';
-        
-        const realTotalPages = pdf.numPages;
-        const bannerText = document.getElementById('banner-pages-text');
-        if (bannerText) {
-          bannerText.innerText = "Débloquez le cours complet de " + realTotalPages + " pages pour poursuivre votre lecture.";
-        }
-        
-        let maxPages = pdf.numPages;
-        let targetCutoffPage = 1;
-        let percentOnTargetPage = ${limiteApercuValeur};
-        let overlayTitle = "Aperçu limité";
-
-        const rawType = '${limiteApercuType}'.toLowerCase();
-
-        if (${estVerrouille}) {
-          if (rawType === 'page') {
-            const pageCount = Number(${limiteApercuValeur});
-            if (pageCount <= 0) {
-              maxPages = 1;
-              targetCutoffPage = 1;
-              percentOnTargetPage = 0;
-              overlayTitle = "Document verrouillé";
-            } else {
-              maxPages = Math.min(pdf.numPages, pageCount);
-              targetCutoffPage = -1;
-            }
-          } else if (rawType.startsWith('fluide') || rawType.startsWith('neutre')) {
-            let tPage = ${document.limiteApercuPages ?? 1};
-            let tOffset = Number(${limiteApercuValeur});
-
-            const parts = rawType.split(':');
-            if (parts.length >= 3) {
-              tPage = parseInt(parts[1]) || tPage;
-              tOffset = parseFloat(parts[2]) || tOffset;
-            } else if (parts.length === 2) {
-              tOffset = parseFloat(parts[1]) || tOffset;
-            }
-
-            if (tOffset <= 0 && tPage <= 1) {
-              maxPages = 1;
-              targetCutoffPage = 1;
-              percentOnTargetPage = 0;
-              overlayTitle = "Document verrouillé";
-            } else if (tOffset >= 100 && tPage >= pdf.numPages) {
-              maxPages = pdf.numPages;
-              targetCutoffPage = -1;
-            } else {
-              targetCutoffPage = Math.min(pdf.numPages, Math.max(1, tPage));
-              maxPages = targetCutoffPage;
-              percentOnTargetPage = Math.max(0, Math.min(100, tOffset));
-              overlayTitle = "Aperçu gratuit (Page " + targetCutoffPage + " à " + (tOffset % 1 === 0 ? tOffset : tOffset.toFixed(1)) + "%)";
-            }
-          } else {
-            const globalPercent = Number(${limiteApercuValeur});
-            if (globalPercent <= 0) {
-              maxPages = 1;
-              targetCutoffPage = 1;
-              percentOnTargetPage = 0;
-              overlayTitle = "Document verrouillé";
-            } else if (globalPercent >= 100) {
-              maxPages = pdf.numPages;
-              targetCutoffPage = -1;
-            } else {
-              const totalUnits = pdf.numPages;
-              const targetUnits = totalUnits * (globalPercent / 100);
-              targetCutoffPage = Math.min(pdf.numPages, Math.max(1, Math.ceil(targetUnits)));
-              maxPages = targetCutoffPage;
-              const fullPreviousPages = targetCutoffPage - 1;
-              const remainingUnitsOnPage = targetUnits - fullPreviousPages;
-              percentOnTargetPage = Math.max(0, Math.min(100, remainingUnitsOnPage * 100));
-              overlayTitle = "Aperçu limité à " + (globalPercent % 1 === 0 ? globalPercent : globalPercent.toFixed(1)) + "% du cours";
-            }
-          }
-        }
-
-        notifyPageChange(1, maxPages, realTotalPages);
-
-        const containerWidth = Math.min(window.innerWidth - 32, 860);
-
-        // Bornes du zoom CSS GPU
-        const MIN_SCALE = 1.0;
-        const MAX_SCALE = 3.5;
-
-        function bornerEchelle(valeur) {
-          return Math.min(MAX_SCALE, Math.max(MIN_SCALE, valeur));
-        }
-
-        let currentZoom = 1.0;
-        let badgeTimeout = null;
-
-        function afficherBadgeZoom(texte) {
-          const badge = document.getElementById('zoom-badge');
-          if (!badge) return;
-          badge.innerText = texte;
-          badge.style.opacity = '1';
-          if (badgeTimeout) clearTimeout(badgeTimeout);
-          badgeTimeout = setTimeout(function() {
-            badge.style.opacity = '0';
-          }, 1200);
-        }
-
-        // Zoom GPU pur : transformation CSS matérielle — jamais de re-rendu canvas
-        function appliquerZoomCss(targetScale, focalX, focalY) {
-          currentZoom = bornerEchelle(targetScale);
-          window._currentZoom = currentZoom;
-          const container = document.getElementById('canvas-container');
-          if (!container) return;
-          container.style.transition = 'none';
-          container.style.willChange = 'transform';
-          if (typeof focalX === 'number' && typeof focalY === 'number') {
-            const rect = container.getBoundingClientRect();
-            const ox = ((focalX - rect.left) / rect.width * 100).toFixed(2);
-            const oy = ((focalY - rect.top) / rect.height * 100).toFixed(2);
-            container.style.transformOrigin = ox + '% ' + oy + '%';
-          } else {
-            container.style.transformOrigin = 'top center';
-          }
-          container.style.transform = 'scale(' + currentZoom.toFixed(4) + ')';
-          afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ZOOM_CHANGE', zoom: currentZoom }));
-          }
-        }
-
-        window._appliquerZoomCss = appliquerZoomCss;
-
-        window._zoomIn = function() {
-          appliquerZoomCss(bornerEchelle(Math.round((currentZoom + 0.25) * 100) / 100));
-        };
-
-        window._zoomOut = function() {
-          appliquerZoomCss(bornerEchelle(Math.round((currentZoom - 0.25) * 100) / 100));
-        };
-
-        window._resetZoom = function() {
-          appliquerZoomCss(1.0);
-        };
-
-        window._setZoomLevel = function(level) {
-          appliquerZoomCss(bornerEchelle(Number(level) || 1.0));
-        };
-
-        // Rendu initial unique à 2× la résolution d'affichage — GPU CSS pour tout zoom ultérieur
-        for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-          try {
-            const page = await pdf.getPage(pageNum);
-            const unscaledViewport = page.getViewport({ scale: 1.0 });
-            const baseScale = containerWidth / unscaledViewport.width;
-            // Taille CSS logique (1×) — le wrapper conserve cette taille fixe à jamais
-            const displayViewport = page.getViewport({ scale: baseScale });
-            // Résolution physique 2× — netteté garantie jusqu'à 200% de zoom CSS GPU
-            let renderScale = baseScale * 2.0;
-            const renderW = unscaledViewport.width * renderScale;
-            const renderH = unscaledViewport.height * renderScale;
-            if (renderW > 4096 || renderH > 4096) {
-              const capRatio = Math.min(4096 / renderW, 4096 / renderH);
-              renderScale = renderScale * capRatio;
-            }
-            const renderViewport = page.getViewport({ scale: renderScale });
-
-            const wrapper = document.createElement('div');
-            wrapper.className = 'page-wrapper';
-            wrapper.id = 'page-wrapper-' + pageNum;
-            wrapper.style.width = displayViewport.width + 'px';
-            wrapper.style.height = displayViewport.height + 'px';
-
-            // Canvas unique — rastérisé une seule fois, zoom exclusivement via CSS GPU
-            const canvas = document.createElement('canvas');
-            canvas.id = 'pdf-canvas-' + pageNum;
-            canvas.width = Math.round(renderViewport.width);
-            canvas.height = Math.round(renderViewport.height);
-            canvas.style.position = 'absolute';
-            canvas.style.top = '0';
-            canvas.style.left = '0';
-            canvas.style.width = '100%';
-            canvas.style.height = '100%';
-            canvas.style.display = 'block';
-
-            const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-
-            wrapper.appendChild(canvas);
-            container.appendChild(wrapper);
-
-            // Coupure sur la page cible
-            if (${estVerrouille} && targetCutoffPage > 0 && pageNum === targetCutoffPage) {
-              const blurOverlay = document.createElement('div');
-              blurOverlay.className = 'blur-overlay';
-              blurOverlay.style.top = percentOnTargetPage + '%';
-              blurOverlay.innerHTML = \`
-                <div class="overlay-card">
-                  <div class="overlay-lock-icon">🔒</div>
-                  <div class="overlay-title">\${overlayTitle}</div>
-                  <div class="overlay-subtitle">Débloquez l'intégralité du cours de \${pdf.numPages} pages pour poursuivre votre apprentissage.</div>
-                  <div class="overlay-buttons">
-                    <button class="btn-buy" onclick="triggerPayment('buy')">🛒 Acheter (${document.prix ?? 100} F)</button>
-                    <button class="btn-vip" onclick="triggerPayment('vip')">🎁 Pass VIP (500 F)</button>
-                  </div>
-                </div>
-              \`;
-              wrapper.appendChild(blurOverlay);
-            }
-
-            const renderTask = page.render({ canvasContext: ctx, viewport: renderViewport });
-
-            renderTask.promise.then(function() {
-              const loader = document.getElementById('loading');
-              if (loader) loader.style.display = 'none';
-              canvas.style.display = 'block';
-              if (container) container.style.display = 'flex';
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RENDER_SUCCESS', page: pageNum }));
-              }
-            }).catch(function(error) {
-              if (error && (error.name === 'RenderingCancelledException' || error.message === 'Rendering cancelled')) return;
-              console.error('Erreur renderTask page ' + pageNum, error);
-              const loader = document.getElementById('loading');
-              if (loader && pageNum === 1) {
-                loader.innerHTML = "<p style='color:#6B1124; font-weight:bold;'>Erreur d'affichage de la page. Touchez pour réessayer.</p>";
-                loader.style.display = 'block';
-              }
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RENDER_ERROR', message: error ? error.message : 'Erreur de rendu' }));
-              }
-            });
-
-            await renderTask.promise.catch(function(e) {
-              if (e && (e.name === 'RenderingCancelledException' || e.message === 'Rendering cancelled')) return;
-              console.warn('Capture renderTask page ' + pageNum, e);
-            });
-
-          } catch (pageErr) {
-            console.warn('Erreur rendu page ' + pageNum, pageErr);
-          }
-        }
-      }).catch(err => {
-        console.error('Erreur getDocument:', err);
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) {
-          loadingEl.innerHTML = [
-            '<div style="text-align:center;padding:40px;">',
-              '<p style="color:#DC2626;font-weight:bold;margin-bottom:8px;">⚠️ Impossible de charger le PDF</p>',
-              '<p style="color:#6B7280;font-size:13px;margin-bottom:20px;">' + (err && err.message ? err.message : 'Erreur réseau ou fichier inaccessible') + '</p>',
-            '</div>'
-          ].join('');
-          loadingEl.style.display = 'block';
-        }
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ 
-            type: 'RENDER_ERROR', 
-            message: err ? err.message : 'Erreur chargement PDF' 
-          }));
-        }
-      });
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initialiserLecteur);
-    } else {
-      initialiserLecteur();
-    }
-
-    // --- Suivi cinématique tactile direct 1:1 & RAF Ticking 120 FPS ---
-    let initialPinchDist = 0;
-    let initialPinchScale = 1.0;
-    let isPinching = false;
-    let pinchFocalX = null;
-    let pinchFocalY = null;
-    let pinchRafId = null;
-    let pendingPinchDist = 0;
-    let pendingFocalX = null;
-    let pendingFocalY = null;
-
-    // 1. Débrayage strict des transitions CSS & Capture du point focal (Mobile / Tablettes)
-    window.addEventListener('touchstart', function(e) {
-      if (e.touches && e.touches.length === 2) {
-        isPinching = true;
-        const container = document.getElementById('canvas-container');
-        if (container) {
-          container.style.transition = 'none';
-          container.style.willChange = 'transform';
-        }
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        initialPinchDist = Math.hypot(dx, dy);
-        initialPinchScale = window._currentZoom || 1.0;
-        pendingPinchDist = initialPinchDist;
-        pendingFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        pendingFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      }
-    }, { passive: false });
-
-    // 2. Découplage RAF — suivi cinématique 120 FPS sans manipulation DOM directe
-    window.addEventListener('touchmove', function(e) {
-      if (isPinching && e.touches && e.touches.length === 2) {
-        e.preventDefault();
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        pendingPinchDist = Math.hypot(dx, dy);
-        pendingFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        pendingFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        if (!pinchRafId) {
-          pinchRafId = requestAnimationFrame(function() {
-            pinchRafId = null;
-            if (!isPinching || initialPinchDist <= 0) return;
-            const ratio = pendingPinchDist / initialPinchDist;
-            const targetScale = initialPinchScale * ratio;
-            if (window._appliquerZoomCss) window._appliquerZoomCss(targetScale, pendingFocalX, pendingFocalY);
-          });
-        }
-      }
-    }, { passive: false });
-
-    window.addEventListener('touchend', function(e) {
-      if (isPinching && (!e.touches || e.touches.length < 2)) {
-        isPinching = false;
-        if (pinchRafId) { cancelAnimationFrame(pinchRafId); pinchRafId = null; }
-        initialPinchDist = 0;
-        // Stabiliser le zoom final — CSS GPU uniquement, jamais de re-rendu
-        if (window._appliquerZoomCss) window._appliquerZoomCss(window._currentZoom || 1.0);
-        // Libérer le layer GPU composite après 300 ms
-        setTimeout(function() {
-          const container = document.getElementById('canvas-container');
-          if (container) container.style.willChange = 'auto';
-        }, 300);
-      }
-    }, { passive: true });
-
-    // Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web)
-    window.addEventListener('wheel', function(e) {
-      if ((e.ctrlKey || e.metaKey) && window._appliquerZoomCss) {
-        e.preventDefault();
-        const pasZoom = 0.018;
-        const direction = -Math.sign(e.deltaY);
-        const currentZ = window._currentZoom || 1.0;
-        const cibleZoom = currentZ * (1 + direction * pasZoom);
-        window._appliquerZoomCss(cibleZoom, e.clientX, e.clientY);
-      }
-    }, { passive: false });
-
-    // Double-tap pour bascule rapide 1.0× ↔ 2.0×
-    let dernierTouchEnd = 0;
-    window.addEventListener('touchend', function(e) {
-      if (isPinching) return;
-      const maintenant = Date.now();
-      if (maintenant - dernierTouchEnd < 300 && e.changedTouches && e.changedTouches.length === 1) {
-        const currentZ = window._currentZoom || 1.0;
-        const target = currentZ > 1.25 ? 1.0 : 2.0;
-        if (window._appliquerZoomCss) window._appliquerZoomCss(target);
-      }
-      dernierTouchEnd = maintenant;
-    }, { passive: true });
-
-    // Scroll : notification de page courante uniquement
-    window.addEventListener('scroll', function() {
-      const scrollPos = window.scrollY + window.innerHeight / 3;
-      const wrappers = document.querySelectorAll('.page-wrapper');
-      wrappers.forEach(function(w, idx) {
-        const top = w.offsetTop;
-        const height = w.offsetHeight;
-        if (scrollPos >= top && scrollPos < top + height) {
-          notifyPageChange(idx + 1, wrappers.length);
-        }
-      });
-    }, { passive: true });
-  </script>
-  <div id="zoom-badge">100%</div>
-</body>
-</html>
-    `,
-    baseUrl: 'https://localhost'
   };
 
   return (
@@ -1083,69 +438,34 @@ export default function EcranLecteurDocument() {
                 onReessayer={() => setCleRechargement(prev => prev + 1)}
               />
             ) : (
-              <WebView
-                originWhitelist={['*']}
-                source={webViewSource}
-                onMessage={(event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
-                    if (data.type === 'pageChange') {
-                      const total = data.totalCount || data.totalPages || data.total;
-                      if (total && total > 0) {
-                        setNombrePagesReel(total);
-                        setPageState({
-                          current: data.currentPage || 1,
-                          total: total
-                        });
-                      }
-                    } else if (data.type === 'ZOOM_CHANGE') {
-                      if (typeof data.zoom === 'number') {
-                        setZoomMobileActif(Math.round(data.zoom * 100) / 100);
-                      }
-                    } else if (data.type === 'buy') {
-                      setModaleAchatVisible(true);
-                    } else if (data.type === 'vip') {
-                      setModaleVipVisible(true);
-                    } else if (data.type === 'RENDER_SUCCESS') {
-                      // Le canvas a été rendu avec succès
-                      setChargementLocal(false);
-                      setHasError(false);
-                    } else if (data.type === 'RENDER_ERROR') {
-                      // Erreur lors du rendu du canvas
-                      setHasError(true);
-                      setChargementLocal(false);
-                    } else if (event.nativeEvent.data === 'error') {
-                      setHasError(true);
-                    }
-                  } catch (err) {
-                    if (event.nativeEvent.data === 'error') {
-                      setHasError(true);
-                    }
-                  }
+              <LecteurPdfMobile
+                documentId={document.id || docParams.id}
+                urlFichier={sourcePdfData}
+                estVerrouille={estVerrouille}
+                limiteApercuPages={limiteApercuPages}
+                limiteApercuType={limiteApercuType}
+                limiteApercuValeur={limiteApercuValeur}
+                prix={document.prix}
+                estSombre={couleurs.estSombre}
+                scale={zoomMobileActif}
+                onAcheter={() => setModaleAchatVisible(true)}
+                onVip={() => setModaleVipVisible(true)}
+                onPageChange={(current, total) => {
+                  setPageState({ current, total });
+                  setNombrePagesReel(total);
                 }}
-                ref={webViewRef}
-                bounces={false}
-                overScrollMode="never"
-                style={{ flex: 1, backgroundColor: couleurs.estSombre ? '#121212' : '#FFFFFF' }}
-                startInLoadingState={true}
-                domStorageEnabled={true}
-                javaScriptEnabled={true}
-                scalesPageToFit={true}
-                androidLayerType="hardware"
-                useSharedProcessPool={true}
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={true}
-                textZoom={100}
-                allowFileAccess={true}
-                allowUniversalAccessFromFileURLs={true}
-                allowFileAccessFromFileURLs={true}
-                mixedContentMode="always"
-                onError={() => setHasError(true)}
-                renderLoading={() => (
-                  <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: couleurs.fond }}>
-                    <ActivityIndicator size="large" color={couleurs.primaire} />
-                  </View>
-                )}
+                onDocumentLoad={(total) => {
+                  setNombrePagesReel(total);
+                  setPageState(prev => ({ ...prev, total }));
+                  setChargementLocal(false);
+                  setHasError(false);
+                }}
+                onError={(err) => {
+                  console.error('[EcranLecteurDocument] Erreur lecteur PDF natif :', err);
+                  setHasError(true);
+                  setChargementLocal(false);
+                }}
+                onReessayer={() => setCleRechargement(prev => prev + 1)}
               />
             )}
 
