@@ -66,8 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const OFFICIAL_APP_URL = 'https://app.cauzon.ci';
 
   // 📞 Configuration Support WhatsApp Officiel CauZon
-  const WHATSAPP_PHONE_NUMBER = '22501XXXXXXXX'; // Remplacer par le vrai numéro ivoirien (format international sans + ni espaces)
-  const WHATSAPP_DEFAULT_TEXT = "Bonjour l'équipe CauZon, j'ai une question concernant les cours";
+  const WHATSAPP_PHONE_NUMBER = '2250585988248';
+  const WHATSAPP_DEFAULT_TEXT = "Bonjour cauZon, j'aimerais avoir des informations.";
   const WHATSAPP_URL = `https://wa.me/${WHATSAPP_PHONE_NUMBER}?text=${encodeURIComponent(WHATSAPP_DEFAULT_TEXT)}`;
 
   // Détection URL de l'application Web (Dev Local / Production PWA)
