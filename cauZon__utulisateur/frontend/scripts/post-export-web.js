@@ -84,36 +84,105 @@ if (fs.existsSync(htmlFile)) {
     `</style>`;
 
   // ────────────────────────────────────────────────────────────────────────────
-  // Injection PWA et icônes haute résolution (Android & iOS)
+  // Injection Pack Référencement & SEO Google, Open Graph, Schema.org et PWA
   // ────────────────────────────────────────────────────────────────────────────
-  const pwaMetaTags = `\n    <!-- PWA & Haute Résolution Android & iOS Icons -->\n` +
-    `    <meta name="description" content="Vos cours et ressources académiques partout avec vous. Épreuves, annales corrigées et cours universitaires certifiés.">\n` +
+  // Assurer la langue française sur la balise html
+  html = html.replace(/<html(\s[^>]*)?>/i, '<html lang="fr">');
+
+  // Nettoyer les balises SEO / Meta existantes pour éviter les doublons lors de l'export
+  html = html.replace(/<title>[\s\S]*?<\/title>/i, '');
+  html = html.replace(/<meta\s+name=["']description["'][^>]*>/gi, '');
+  html = html.replace(/<meta\s+name=["']keywords["'][^>]*>/gi, '');
+  html = html.replace(/<meta\s+name=["']viewport["'][^>]*>/gi, '');
+  html = html.replace(/<link\s+rel=["']canonical["'][^>]*>/gi, '');
+  html = html.replace(/<meta\s+property=["']og:[^"']*["'][^>]*>/gi, '');
+  html = html.replace(/<meta\s+name=["']twitter:[^"']*["'][^>]*>/gi, '');
+  html = html.replace(/<script\s+type=["']application\/ld\+json["']>[\s\S]*?<\/script>/gi, '');
+  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<script src="https:\/\/accounts\.google\.com\/gsi\/client" async defer><\/script>\n?/i, '');
+  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<meta name="apple-mobile-web-app-title" content="cauZon">\n?/i, '');
+  html = html.replace(/<!-- 🔍 Métadonnées SEO Essentielles[\s\S]*?<script src="https:\/\/accounts\.google\.com\/gsi\/client" async defer><\/script>\n?/i, '');
+  html = html.replace(/<script id="cauzon-security-shield">[\s\S]*?<\/script>/i, '');
+
+  const fullSeoAndPwaBlock = `\n    <!-- 🔍 Métadonnées SEO Essentielles Google -->\n` +
+    `    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">\n` +
+    `    <title>cauZon — Cours, TD & Sujets d'Examens Certifiés en Côte d'Ivoire</title>\n` +
+    `    <meta name="description" content="Révisez et réussissez vos examens avec cauZon. Plateforme éducative leader en Côte d'Ivoire : accédez à des cours, fiches, TD et annales certifiés par vos enseignants.">\n` +
+    `    <meta name="keywords" content="cauZon, cours Côte d'Ivoire, sujets BAC CI, BEPC CI, révisions université Abidjan, examens Côte d'Ivoire, annales, devoirs, fiches de révision">\n` +
+    `    <link rel="canonical" href="https://cauzon.app">\n` +
+    `    <meta name="theme-color" content="#6B1124">\n` +
+    `\n    <!-- 🌐 Balises Open Graph (WhatsApp, Facebook, LinkedIn) -->\n` +
+    `    <meta property="og:type" content="website">\n` +
+    `    <meta property="og:site_name" content="cauZon">\n` +
+    `    <meta property="og:url" content="https://cauzon.app">\n` +
+    `    <meta property="og:title" content="cauZon — L'excellence académique à portée de main">\n` +
+    `    <meta property="og:description" content="Accédez à la bibliothèque de cours, TD et sujets corrigés certifiés en Côte d'Ivoire. Disponible sur Web et Mobile.">\n` +
+    `    <meta property="og:image" content="https://cauzon.app/assets/og-preview.png">\n` +
+    `    <meta property="og:image:secure_url" content="https://cauzon.app/assets/og-preview.png">\n` +
+    `    <meta property="og:image:type" content="image/png">\n` +
+    `    <meta property="og:image:width" content="1200">\n` +
+    `    <meta property="og:image:height" content="630">\n` +
+    `    <meta property="og:image:alt" content="Logo et aperçu de la plateforme cauZon">\n` +
+    `\n    <!-- 🐦 Twitter Card -->\n` +
+    `    <meta name="twitter:card" content="summary_large_image">\n` +
+    `    <meta name="twitter:title" content="cauZon — L'excellence académique à portée de main">\n` +
+    `    <meta name="twitter:description" content="Accédez à la bibliothèque de cours, TD et sujets corrigés certifiés en Côte d'Ivoire. Disponible sur Web et Mobile.">\n` +
+    `    <meta name="twitter:image" content="https://cauzon.app/assets/og-preview.png">\n` +
+    `\n    <!-- 📱 PWA & Haute Résolution Android & iOS Icons -->\n` +
     `    <link rel="manifest" href="/manifest.json">\n` +
     `    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">\n` +
     `    <link rel="icon" type="image/png" sizes="512x512" href="/assets/icon-512.png">\n` +
     `    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">\n` +
     `    <link rel="icon" type="image/png" sizes="64x64" href="/assets/favicon.png">\n` +
+    `    <link rel="icon" href="/favicon.png">\n` +
     `    <meta name="mobile-web-app-capable" content="yes">\n` +
     `    <meta name="apple-mobile-web-app-capable" content="yes">\n` +
     `    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n` +
     `    <meta name="apple-mobile-web-app-title" content="cauZon">\n` +
-    `    <!-- Google Identity Services (GIS) Web -->\n` +
+    `\n    <!-- 📊 Données Structurées Google Schema.org (JSON-LD) -->\n` +
+    `    <script type="application/ld+json">\n` +
+    `    {\n` +
+    `      "@context": "https://schema.org",\n` +
+    `      "@graph": [\n` +
+    `        {\n` +
+    `          "@type": "WebApplication",\n` +
+    `          "@id": "https://cauzon.app/#app",\n` +
+    `          "name": "cauZon",\n` +
+    `          "url": "https://cauzon.app",\n` +
+    `          "applicationCategory": "EducationalApplication",\n` +
+    `          "operatingSystem": "All",\n` +
+    `          "inLanguage": "fr",\n` +
+    `          "description": "Plateforme éducative pour la consultation et le partage sécurisé de documents académiques et cours en Côte d'Ivoire.",\n` +
+    `          "offers": {\n` +
+    `            "@type": "Offer",\n` +
+    `            "price": "100",\n` +
+    `            "priceCurrency": "XOF"\n` +
+    `          }\n` +
+    `        },\n` +
+    `        {\n` +
+    `          "@type": "EducationalOrganization",\n` +
+    `          "@id": "https://cauzon.app/#organization",\n` +
+    `          "name": "cauZon",\n` +
+    `          "url": "https://cauzon.app",\n` +
+    `          "areaServed": {\n` +
+    `            "@type": "Country",\n` +
+    `            "name": "Côte d'Ivoire"\n` +
+    `          }\n` +
+    `        }\n` +
+    `      ]\n` +
+    `    }\n` +
+    `    </script>\n` +
+    `\n    <!-- Google Identity Services (GIS) Web -->\n` +
     `    <script src="https://accounts.google.com/gsi/client" async defer></script>\n`;
 
-  // Nettoyer d'éventuelles injections précédentes
-  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<script src="https:\/\/accounts\.google\.com\/gsi\/client" async defer><\/script>\n?/i, '');
-  html = html.replace(/<!-- PWA & Haute Résolution[\s\S]*?<meta name="apple-mobile-web-app-title" content="cauZon">\n?/i, '');
-  html = html.replace(/<script id="cauzon-security-shield">[\s\S]*?<\/script>/i, '');
-
   // Injection dans le <head>
-  let headInjections = pwaMetaTags + scrollFixStyle;
+  let headInjections = fullSeoAndPwaBlock + scrollFixStyle;
   if (fontFaceStyle) {
     headInjections += fontFaceStyle;
     console.log('✅ Police Ionicons injectée en Base64 dans dist/index.html.');
   }
 
   html = html.replace('</head>', headInjections + '</head>');
-  console.log('✅ Déblocage scroll Web (html, body, #root overflow-y: auto) injecté.');
+  console.log('✅ Pack Référencement & SEO Google, Open Graph et Schema.org injecté dans dist/index.html.');
 
   // 🛡️ Bouclier Sécurité cauZon : Anti-Inspection & Anti-Fuite Web
   const securityScript = `<script id="cauzon-security-shield">` +
@@ -155,13 +224,15 @@ if (fs.existsSync(sourceManifest)) {
   console.log('✅ Manifest PWA copié dans dist/manifest.json.');
 }
 
-// Copie des icônes haute résolution dans dist/assets/ et dist/
+// Copie des icônes haute résolution et assets SEO Open Graph dans dist/assets/ et dist/
 const iconFiles = [
   'icon-192.png',
   'icon-512.png',
   'apple-touch-icon.png',
   'favicon.png',
   'icon.png',
+  'og-preview.png',
+  'logo-cauzon.png',
 ];
 
 const sourceAssetsDir = path.join(rootDir, 'assets');
@@ -172,7 +243,21 @@ iconFiles.forEach(iconName => {
     fs.copyFileSync(src, path.join(distDir, iconName));
   }
 });
-console.log('✅ Icônes haute résolution PWA (192px, 512px, maskable) synchronisées dans dist/.');
+console.log('✅ Icônes haute résolution et aperçu Open Graph synchronisés dans dist/.');
+
+// ────────────────────────────────────────────────────────────────────────────
+// 2-bis. Copie des fichiers SEO Google (robots.txt et sitemap.xml)
+// ────────────────────────────────────────────────────────────────────────────
+const publicDir = path.join(rootDir, 'public');
+['robots.txt', 'sitemap.xml'].forEach(fileName => {
+  const src = path.join(publicDir, fileName);
+  if (fs.existsSync(src)) {
+    fs.copyFileSync(src, path.join(distDir, fileName));
+    console.log(`✅ Fichier SEO ${fileName} copié dans dist/${fileName}.`);
+  } else {
+    console.warn(`⚠️ Fichier SEO ${fileName} introuvable dans public/.`);
+  }
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // 2-bis. Copie des binaires WebAssembly (.wasm) pour EmbedPDF / PDFium

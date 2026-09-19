@@ -72,9 +72,9 @@
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
-      "name": "cauZon — Documents & Épreuves Académiques",
+      "name": "cauZon — Cours, TD & Sujets d'Examens Certifiés en Côte d'Ivoire",
       "shortName": "cauZon",
-      "description": "Vos cours et ressources académiques partout avec vous. Épreuves, annales corrigées et cours universitaires certifiés.",
+      "description": "Révisez et réussissez vos examens avec cauZon. Plateforme éducative leader en Côte d'Ivoire : accédez à des cours, fiches, TD et annales certifiés par vos enseignants.",
       "themeColor": "#6B1124",
       "backgroundColor": "#6B1124",
       "display": "standalone",
