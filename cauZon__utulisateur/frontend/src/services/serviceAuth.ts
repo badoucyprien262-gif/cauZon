@@ -3,6 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
+import { avecTimeoutSecurise } from './serviceReseau';
 
 // Complète la session de navigateur si l'authentification s'exécute dans une popup (Web uniquement)
 try {
@@ -317,42 +318,84 @@ export const gererUrlRetourAuth = async (url: string): Promise<boolean> => {
     // 1. Fragment hash / jetons (#access_token=...&refresh_token=...)
     if (params.access_token && params.refresh_token) {
       console.log('🔑 Jetons access_token et refresh_token extraits avec succès.');
-      const { data: sessionData, error } = await supabase.auth.setSession({
-        access_token: params.access_token,
-        refresh_token: params.refresh_token,
-      });
+      const res = await avecTimeoutSecurise(
+        supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        }),
+        3500,
+        { data: { session: null, user: null }, error: new Error('Timeout setSession') } as any
+      );
 
-      if (error) {
-        console.error('❌ Erreur supabase.auth.setSession :', error.message);
+      if (res?.error) {
+        console.error('❌ Erreur supabase.auth.setSession :', res.error.message);
         return false;
       }
 
-      if (sessionData?.user) {
-        console.log('✅ Session Supabase établie avec succès pour :', sessionData.user.email);
-        await synchroniserProfilGoogle(sessionData.user);
+      const sessionUser = res?.data?.session?.user || res?.data?.user;
+      if (sessionUser) {
+        console.log('✅ Session Supabase établie avec succès pour :', sessionUser.email);
+        synchroniserProfilGoogle(sessionUser).catch(() => {});
+        return true;
       }
-      return true;
+      return false;
     }
 
     // 2. Code PKCE (?code=...)
     if (params.code) {
       console.log('🔐 Code PKCE extrait. Échange du code...');
-      const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(params.code);
-      if (error) {
-        const fallback = await supabase.auth.exchangeCodeForSession(url);
-        if (fallback.data?.user) {
-          await synchroniserProfilGoogle(fallback.data.user);
-          return true;
-        }
-        console.error('❌ Erreur échange code PKCE :', error.message);
-        return false;
+
+      // Vérifier si la session est déjà établie (notamment via detectSessionInUrl automatique de Supabase)
+      const sessionExistante = await avecTimeoutSecurise(
+        supabase.auth.getSession(),
+        1000,
+        { data: { session: null }, error: null } as any
+      );
+      if (sessionExistante?.data?.session?.user) {
+        console.log('✅ Session déjà active via Supabase detectSessionInUrl :', sessionExistante.data.session.user.email);
+        synchroniserProfilGoogle(sessionExistante.data.session.user).catch(() => {});
+        return true;
       }
 
-      if (sessionData?.user) {
-        console.log('✅ Session PKCE établie pour :', sessionData.user.email);
-        await synchroniserProfilGoogle(sessionData.user);
+      const res = await avecTimeoutSecurise(
+        supabase.auth.exchangeCodeForSession(params.code),
+        3500,
+        { data: { session: null, user: null }, error: new Error('Timeout exchangeCodeForSession') } as any
+      );
+
+      const pkceUser = res?.data?.session?.user || res?.data?.user;
+      if (!res?.error && pkceUser) {
+        console.log('✅ Session PKCE établie pour :', pkceUser.email);
+        synchroniserProfilGoogle(pkceUser).catch(() => {});
+        return true;
       }
-      return true;
+
+      // Tentative fallback avec URL complète si le code seul a retourné une erreur
+      if (res?.error) {
+        console.log('Tentative fallback échange code avec URL complète...');
+        const fallbackRes = await avecTimeoutSecurise(
+          supabase.auth.exchangeCodeForSession(url),
+          2500,
+          { data: { session: null, user: null }, error: null } as any
+        );
+        const fallbackUser = fallbackRes?.data?.session?.user || fallbackRes?.data?.user;
+        if (fallbackUser) {
+          synchroniserProfilGoogle(fallbackUser).catch(() => {});
+          return true;
+        }
+      }
+
+      // Contrôle final getSession() au cas où l'événement a été géré en tâche de fond
+      const sessionFinale = await avecTimeoutSecurise(
+        supabase.auth.getSession(),
+        1000,
+        { data: { session: null }, error: null } as any
+      );
+      if (sessionFinale?.data?.session?.user) {
+        return true;
+      }
+
+      return false;
     }
 
     return false;

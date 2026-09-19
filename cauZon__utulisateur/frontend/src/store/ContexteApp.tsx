@@ -227,6 +227,22 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     let heartbeatInterval: any = null;
     let userRealtimeChannel: any = null;
 
+    // ⏱️ Timeout de sécurité absolu (4s) : garantit le déblocage inconditionnel du Sas Web / Auth Guard
+    const watchdogTimer = setTimeout(() => {
+      setChargementAuth((chargement) => {
+        if (chargement) {
+          console.warn('⏱️ [Auth Watchdog] 4s écoulées : désactivation forcée de chargementAuth.');
+        }
+        return false;
+      });
+      setSessionVerifiee((verifiee) => {
+        if (!verifiee) {
+          console.warn('⏱️ [Auth Watchdog] 4s écoulées : validation forcée de la session pour libérer l\'interface.');
+        }
+        return true;
+      });
+    }, 4000);
+
     const initialiserApplication = async () => {
       try {
         // 1. Toujours charger le profil et statut VIP/Stockage depuis le cache local immédiatement
@@ -298,10 +314,11 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
                   AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
                 }
                 setUtilisateur(session.user);
-                await synchroniserProfilGoogle(session.user);
-                await chargerStatutVIP();
-                await chargerAcquisitionsReelles();
-                await chargerEligibiliteBienvenue();
+                AsyncStorage.setItem('cauzon_user_session', JSON.stringify(session.user)).catch(() => {});
+                synchroniserProfilGoogle(session.user).catch(() => {});
+                chargerStatutVIP().catch(() => {});
+                chargerAcquisitionsReelles().catch(() => {});
+                chargerEligibiliteBienvenue().catch(() => {});
               }
             }
           } catch (errDeepLink) {
@@ -325,7 +342,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
           if (Platform.OS === 'web' && typeof window !== 'undefined' && window?.location) {
             const currentUrl = window.location?.href || '';
             const storedUrl = typeof window.sessionStorage !== 'undefined' ? window.sessionStorage?.getItem('cauzon_oauth_redirect_url') : null;
-            const hasAuthParams = currentUrl.includes('access_token=') || currentUrl.includes('code=');
+            const hasAuthParams = currentUrl.includes('access_token=') || currentUrl.includes('code=') || currentUrl.includes('error=');
             const authUrl = storedUrl || (hasAuthParams ? currentUrl : null);
 
             if (authUrl) {
@@ -334,15 +351,10 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
                 if (typeof window.sessionStorage !== 'undefined') {
                   window.sessionStorage?.removeItem('cauzon_oauth_redirect_url');
                 }
-                // Nettoie les paramètres d'authentification de l'URL pour éviter toute boucle infinie au rechargement
+                // Nettoie IMMÉDIATEMENT les paramètres d'authentification de l'URL pour éviter toute boucle infinie au rechargement
                 if (window?.history?.replaceState) {
-                  const cleanUrl = new URL(currentUrl);
-                  cleanUrl.hash = '';
-                  cleanUrl.searchParams.delete('code');
-                  cleanUrl.searchParams.delete('state');
-                  cleanUrl.searchParams.delete('error');
-                  cleanUrl.searchParams.delete('error_description');
-                  window.history.replaceState({}, (typeof document !== 'undefined' ? document.title : '') || '', cleanUrl.toString());
+                  const cleanUrl = window.location.origin + window.location.pathname;
+                  window.history.replaceState({}, (typeof document !== 'undefined' ? document.title : '') || '', cleanUrl);
                 }
               } catch (_) {}
               await gererUrlRetourAuth(authUrl);
@@ -351,128 +363,162 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
 
           const { data: { session }, error } = await avecTimeoutSecurise(
             supabase.auth.getSession(),
-            2500,
+            2000,
             { data: { session: null }, error: null } as any
           );
-        if (!error && session?.user) {
-          console.log('✅ Session Supabase active restaurée :', session.user.email);
-          setEstConnecteGoogle(true);
-          if (session.user.email) setEmailUtilisateur(session.user.email);
 
-          // 1. Récupération du profil Supabase associé pour gestion Soft Delete / Réactivation
-          const { data: profilExistant } = await supabase
-            .from('profiles')
-            .select('est_actif, desactive_le, username, avatar_url, phone_number')
-            .eq('id', session.user.id)
-            .maybeSingle();
+          if (!error && session?.user) {
+            console.log('✅ Session Supabase active restaurée :', session.user.email);
+            setEstConnecteGoogle(true);
+            if (session.user.email) setEmailUtilisateur(session.user.email);
+            setUtilisateur(session.user);
+            AsyncStorage.setItem('cauzon_user_session', JSON.stringify(session.user)).catch(() => {});
 
-          // Si le profil était désactivé (est_actif === false), réactivation automatique immédiate
-          if (profilExistant && profilExistant.est_actif === false) {
-            console.log('🔄 Compte désactivé détecté lors de la restauration -> Réactivation automatique...');
-            await supabase
-              .from('profiles')
-              .update({
-                est_actif: true,
-                desactive_le: null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', session.user.id);
+            // Dès que la session est restaurée, libérer immédiatement l'attente sans bloquer sur les requêtes annexes
+            setChargementAuth(false);
+            setSessionVerifiee(true);
+
+            // Synchronisation profil et droits en tâche de fond (non bloquante)
+            (async () => {
+              try {
+                const { data: profilExistant } = await avecTimeoutSecurise(
+                  Promise.resolve(
+                    supabase
+                      .from('profiles')
+                      .select('est_actif, desactive_le, username, avatar_url, phone_number')
+                      .eq('id', session.user.id)
+                      .maybeSingle()
+                  ),
+                  2000,
+                  { data: null, error: null } as any
+                );
+
+                if (profilExistant && profilExistant.est_actif === false) {
+                  console.log('🔄 Compte désactivé détecté lors de la restauration -> Réactivation automatique...');
+                  await supabase
+                    .from('profiles')
+                    .update({
+                      est_actif: true,
+                      desactive_le: null,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', session.user.id);
+                }
+
+                const meta = session.user.user_metadata || {};
+                const nomG = profilExistant?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
+                setNomUtilisateur(nomG);
+                AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
+
+                const photoG = profilExistant?.avatar_url || meta.avatar_url || meta.picture;
+                if (photoG) {
+                  setPhotoProfil(photoG);
+                  AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
+                }
+
+                await avecTimeoutSecurise(synchroniserProfilGoogle(session.user), 2500, undefined).catch(() => {});
+                await avecTimeoutSecurise(chargerStatutVIP(), 2500, undefined).catch(() => {});
+                await avecTimeoutSecurise(chargerAcquisitionsReelles(), 2500, undefined).catch(() => {});
+                await avecTimeoutSecurise(chargerEligibiliteBienvenue(), 2500, undefined).catch(() => {});
+                verifierEtRenouvelerPushToken().catch(() => {});
+              } catch (errBg) {
+                console.warn('Note synchronisation profil arrière-plan :', errBg);
+              }
+            })();
+          } else {
+            setUtilisateur(null);
+            AsyncStorage.removeItem('cauzon_user_session').catch(() => {});
+            setChargementAuth(false);
+            setSessionVerifiee(true);
+            chargerStatutVIP().catch(() => {});
+            chargerAcquisitionsReelles().catch(() => {});
+            chargerEligibiliteBienvenue().catch(() => {});
           }
-
-          const meta = session.user.user_metadata || {};
-          const nomG = profilExistant?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
-          setNomUtilisateur(nomG);
-          AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
-
-          const photoG = profilExistant?.avatar_url || meta.avatar_url || meta.picture;
-          if (photoG) {
-            setPhotoProfil(photoG);
-            AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
-          }
-
-          setUtilisateur(session.user);
-          await synchroniserProfilGoogle(session.user);
-          await chargerStatutVIP();
-          await chargerAcquisitionsReelles();
-          await chargerEligibiliteBienvenue();
-
-          // Vérifier et resynchroniser le push token de l'appareil avec le profil et Supabase
-          verifierEtRenouvelerPushToken().catch(() => {});
-        } else {
-          setUtilisateur(null);
-          await chargerStatutVIP();
-          await chargerAcquisitionsReelles();
-          await chargerEligibiliteBienvenue();
-        }
-      } catch (errSession) {
-        console.warn('⚠️ Info vérification session initiale :', errSession);
-      } finally {
-        setChargementAuth(false);
-        setSessionVerifiee(true);
-      }
-    };
-
-    initialiserSession();
-
-    // 2. Écouter les changements d'authentification Supabase de façon ciblée
-    const authSubRes = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session?.user) {
-          setEstConnecteGoogle(true);
-          if (session.user.email) setEmailUtilisateur(session.user.email);
-
-          // Vérification du statut Soft Delete à la connexion
-          let userProf: any = null;
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('est_actif, desactive_le, username, avatar_url')
-              .eq('id', session.user.id)
-              .maybeSingle();
-            userProf = data;
-
-            if (userProf && userProf.est_actif === false) {
-              console.log('🔄 Réactivation automatique du compte utilisateur suite à SIGNED_IN');
-              await supabase
-                .from('profiles')
-                .update({
-                  est_actif: true,
-                  desactive_le: null,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', session.user.id);
-            }
-          } catch (reactivErr) {
-            console.warn('Note réactivation profil :', reactivErr);
-          }
-          
-          const meta = session.user.user_metadata || {};
-          const nomG = userProf?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
-          setNomUtilisateur(nomG);
-          AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
-
-          const photoG = userProf?.avatar_url || meta.avatar_url || meta.picture;
-          if (photoG) {
-            setPhotoProfil(photoG);
-            AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
-          }
-          
-          setUtilisateur(session.user);
-          await synchroniserProfilGoogle(session.user);
-          await chargerStatutVIP();
-          await chargerAcquisitionsReelles();
-          await chargerEligibiliteBienvenue();
-
-          // Resynchroniser immédiatement le push token de l'appareil dès la connexion
-          verifierEtRenouvelerPushToken().catch(() => {});
-          // Rattrapage des notifications & réponses administratives ciblées
-          synchroniserNotificationsManquees({
-            afficherToast: (opts) => afficherToast(opts.message, opts.titre, opts.type as any, opts.dureeMs),
-          }).catch(() => {});
+        } catch (errSession) {
+          console.warn('⚠️ Info vérification session initiale :', errSession);
+        } finally {
           setChargementAuth(false);
           setSessionVerifiee(true);
         }
-      } else if (event === 'SIGNED_OUT') {
+      };
+
+      await initialiserSession();
+
+      // 2. Écouter les changements d'authentification Supabase de façon ciblée
+      const authSubRes = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          if (session?.user) {
+            setEstConnecteGoogle(true);
+            if (session.user.email) setEmailUtilisateur(session.user.email);
+            setUtilisateur(session.user);
+            AsyncStorage.setItem('cauzon_user_session', JSON.stringify(session.user)).catch(() => {});
+
+            // Libération instantanée de l'attente du sas / spinner
+            setChargementAuth(false);
+            setSessionVerifiee(true);
+
+            try {
+              // Vérification du statut Soft Delete à la connexion
+              let userProf: any = null;
+              try {
+                const { data } = await avecTimeoutSecurise(
+                  Promise.resolve(
+                    supabase
+                      .from('profiles')
+                      .select('est_actif, desactive_le, username, avatar_url')
+                      .eq('id', session.user.id)
+                      .maybeSingle()
+                  ),
+                  2000,
+                  { data: null, error: null } as any
+                );
+                userProf = data;
+
+                if (userProf && userProf.est_actif === false) {
+                  console.log('🔄 Réactivation automatique du compte utilisateur suite à SIGNED_IN');
+                  await supabase
+                    .from('profiles')
+                    .update({
+                      est_actif: true,
+                      desactive_le: null,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', session.user.id);
+                }
+              } catch (reactivErr) {
+                console.warn('Note réactivation profil :', reactivErr);
+              }
+              
+              const meta = session.user.user_metadata || {};
+              const nomG = userProf?.username || meta.full_name || meta.name || meta.given_name || session.user.email?.split('@')[0] || 'Étudiant cauZon';
+              setNomUtilisateur(nomG);
+              AsyncStorage.setItem(STORAGE_KEY_NOM, nomG).catch(() => {});
+
+              const photoG = userProf?.avatar_url || meta.avatar_url || meta.picture;
+              if (photoG) {
+                setPhotoProfil(photoG);
+                AsyncStorage.setItem(STORAGE_KEY_PHOTO, photoG).catch(() => {});
+              }
+              
+              await avecTimeoutSecurise(synchroniserProfilGoogle(session.user), 2500, undefined).catch(() => {});
+              await avecTimeoutSecurise(chargerStatutVIP(), 2500, undefined).catch(() => {});
+              await avecTimeoutSecurise(chargerAcquisitionsReelles(), 2500, undefined).catch(() => {});
+              await avecTimeoutSecurise(chargerEligibiliteBienvenue(), 2500, undefined).catch(() => {});
+
+              // Resynchroniser immédiatement le push token de l'appareil dès la connexion
+              verifierEtRenouvelerPushToken().catch(() => {});
+              // Rattrapage des notifications & réponses administratives ciblées
+              synchroniserNotificationsManquees({
+                afficherToast: (opts) => afficherToast(opts.message, opts.titre, opts.type as any, opts.dureeMs),
+              }).catch(() => {});
+            } catch (errBgAuth) {
+              console.warn('Note post-connexion arrière-plan :', errBgAuth);
+            } finally {
+              setChargementAuth(false);
+              setSessionVerifiee(true);
+            }
+          }
+        } else if (event === 'SIGNED_OUT') {
         setEstConnecteGoogle(false);
         setUtilisateur(null);
         setEmailUtilisateur('');
@@ -494,6 +540,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
           STORAGE_KEY_PHOTO,
           STORAGE_KEY_NOM,
           STORAGE_KEY_TELEPHONE,
+          'cauzon_user_session',
           'CAUZON_PHOTO_PROFIL',
           'CAUZON_NOM_UTILISATEUR',
           'CAUZON_TELEPHONE',
@@ -634,15 +681,30 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         'cauzon_vip_status',
         'cauzon_storage_status',
         STORAGE_KEY_THEME,
+        'cauzon_user_session',
       ]);
       const photo = stored[0][1];
       const nom = stored[1][1];
       const telephone = stored[2][1];
       const savedTheme = stored[5]?.[1] as PreferenceTheme | null;
+      const savedUser = stored[6]?.[1];
 
       if (photo) setPhotoProfil(photo);
       if (nom) setNomUtilisateur(nom);
       if (telephone) setTelephoneFacturation(telephone);
+
+      // ⚡ Hydratation instantanée de la session utilisateur en cache
+      if (savedUser) {
+        try {
+          const userObj = JSON.parse(savedUser);
+          if (userObj && userObj.id) {
+            setUtilisateur(userObj);
+            setEstConnecteGoogle(true);
+            if (userObj.email) setEmailUtilisateur(userObj.email);
+            console.log('⚡ [Fast-Path Cache] Utilisateur hydraté immédiatement depuis le stockage local :', userObj.email);
+          }
+        } catch (_) {}
+      }
 
       // 🎨 Hydratation pérenne prioritaire de la préférence Thème (Clair / Sombre / Système)
       if (savedTheme && (savedTheme === 'clair' || savedTheme === 'sombre' || savedTheme === 'systeme')) {
@@ -1004,6 +1066,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
       STORAGE_KEY_PHOTO,
       STORAGE_KEY_NOM,
       STORAGE_KEY_TELEPHONE,
+      'cauzon_user_session',
       'CAUZON_PHOTO_PROFIL',
       'CAUZON_NOM_UTILISATEUR',
       'CAUZON_TELEPHONE',

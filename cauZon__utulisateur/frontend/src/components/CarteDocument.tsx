@@ -1,4 +1,4 @@
-﻿import React, { useRef } from 'react';
+import React, { useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -91,7 +91,7 @@ export default function CarteDocument({
         <View style={styles.enteteCarte}>
           <View style={styles.badgeCategorie}>
             <View style={styles.dotCategorie} />
-            <Text style={styles.texteBadgeCategorie} numberOfLines={1}>
+            <Text style={styles.texteBadgeCategorie} numberOfLines={1} ellipsizeMode="tail">
               {document.categorie || 'Général'}
             </Text>
           </View>
@@ -262,6 +262,8 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      width: '100%',
+      overflow: 'hidden',
       marginBottom: 10,
       gap: 4,
     },
@@ -274,7 +276,8 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       paddingHorizontal: 7,
       paddingVertical: 3,
       borderRadius: 6,
-      maxWidth: '65%',
+      maxWidth: '60%',
+      flexShrink: 1,
     },
     dotCategorie: {
       width: 5,
@@ -282,6 +285,7 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       borderRadius: 2.5,
       backgroundColor: categorieColor,
       marginRight: 5,
+      flexShrink: 0,
     },
     texteBadgeCategorie: {
       fontSize: 9.5,
@@ -289,22 +293,25 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       color: couleurs.texte,
       textTransform: 'uppercase',
       letterSpacing: 0.3,
+      flexShrink: 1,
     },
     badgeCertifie: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 6,
-      paddingVertical: 3,
+      paddingHorizontal: 5,
+      paddingVertical: 2.5,
       borderRadius: 6,
       backgroundColor: 'rgba(16, 185, 129, 0.12)',
       borderWidth: 0.5,
       borderColor: 'rgba(16, 185, 129, 0.3)',
       gap: 3,
+      flexShrink: 0,
     },
     texteBadgeCertifie: {
       fontSize: 9,
       fontWeight: '800',
       color: '#10B981',
+      flexShrink: 0,
     },
     conteneurMiniature: {
       height: 84,
