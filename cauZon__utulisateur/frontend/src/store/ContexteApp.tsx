@@ -1035,12 +1035,18 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const connexionGoogle = async (customRedirectUrl?: string) => {
-    setChargementAuth(true);
-    const res = await connexionAvecGoogle(customRedirectUrl);
-    if (!res.success) {
+    try {
+      setChargementAuth(true);
+      const res = await connexionAvecGoogle(customRedirectUrl);
+      if (!res.success) {
+        setChargementAuth(false);
+      }
+      return res;
+    } catch (err) {
+      console.error('❌ Erreur globale connexionGoogle :', err);
       setChargementAuth(false);
+      return { success: false, error: 'Erreur inattendue de connexion' };
     }
-    return res;
   };
 
   const deconnexion = async () => {

@@ -75,6 +75,43 @@ export const GOOGLE_WEB_CLIENT_ID =
   '843173177415-rsjoi9cto15k6kfh80ko94g5uhqrghdj.apps.googleusercontent.com';
 
 /**
+ * Déclencheur direct et garanti de l'authentification Google OAuth pour le Web.
+ * Redirige explicitement vers le sélecteur de compte Google via Supabase Auth.
+ */
+export const seConnecterAvecGoogleWeb = async (customRedirectUrl?: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const redirectUrl = customRedirectUrl || (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://app.cauzon.ci');
+    console.log('🌐 [Google OAuth Web] Initialisation redirection Supabase vers :', redirectUrl);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error) {
+      console.error('❌ Erreur signInWithOAuth Web :', error.message);
+      return { success: false, error: error.message };
+    }
+
+    if (data?.url && typeof window !== 'undefined') {
+      console.log('🔄 Redirection du navigateur vers :', data.url);
+      window.location.href = data.url;
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('❌ Exception seConnecterAvecGoogleWeb :', err);
+    return { success: false, error: err?.message || 'Erreur de connexion Google' };
+  }
+};
+
+/**
  * Lance la connexion rapide via Google avec Supabase.
  * - Sur Web : Redirection OAuth dynamique capturant l'URL exacte du cours/page en cours.
  * - Sur Android : Boîte de dialogue native Google Play Services / One Tap (GoogleSignin + signInWithIdToken)
@@ -82,61 +119,9 @@ export const GOOGLE_WEB_CLIENT_ID =
  */
 export const connexionAvecGoogle = async (customRedirectUrl?: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    // 1. Plateforme Web : Authentification Google Identity Services (GIS) sans redirection
+    // 1. Plateforme Web : Authentification Google OAuth directe avec redirection vers les comptes Google
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
-        return new Promise((resolve) => {
-          (window as any).google.accounts.id.initialize({
-            client_id: GOOGLE_WEB_CLIENT_ID,
-            callback: async (response: any) => {
-              try {
-                if (!response?.credential) {
-                  console.error('Aucun credential reçu de Google');
-                  resolve({ success: false, error: 'Aucun jeton reçu de Google' });
-                  return;
-                }
-                const { data, error } = await supabase.auth.signInWithIdToken({
-                  provider: 'google',
-                  token: response.credential,
-                });
-                if (error) {
-                  console.error('Erreur session Supabase :', error);
-                  resolve({ success: false, error: error.message });
-                  return;
-                }
-                if (data?.user) {
-                  await synchroniserProfilGoogle(data.user);
-                }
-                resolve({ success: true });
-              } catch (err: any) {
-                console.error('Erreur session Supabase :', err);
-                resolve({ success: false, error: err?.message || 'Erreur de connexion' });
-              }
-            },
-          });
-          // Réinitialiser le cookie g_state pour réautoriser l'affichage immédiat du prompt One Tap
-          try {
-            document.cookie = 'g_state=;path=/;expires=Thu, 01 Jan 1970 00:00:01 GMT';
-          } catch (_) {}
-          (window as any).google.accounts.id.prompt();
-          resolve({ success: true });
-        });
-      }
-
-      // Fallback OAuth si le script GIS n'est pas encore prêt ou chargé
-      const redirectUrl = obtenirUrlRedirectionOAuth(customRedirectUrl);
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'select_account',
-          },
-        },
-      });
-      if (error) throw error;
-      return { success: true };
+      return await seConnecterAvecGoogleWeb(customRedirectUrl);
     }
 
     // 2. Plateforme Native Android : Authentification Google Native (Play Services / One Tap)
