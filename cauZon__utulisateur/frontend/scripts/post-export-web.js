@@ -133,7 +133,7 @@ if (fs.existsSync(htmlFile)) {
   html = html.replace(/<script id="cauzon-security-shield">[\s\S]*?<\/script>/i, '');
 
   const fullSeoAndPwaBlock = `\n    <!-- 🔍 Métadonnées SEO Essentielles Google -->\n` +
-    `    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">\n` +
+    `    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">\n` +
     `    <title>cauZon — Cours, TD & Sujets d'Examens Certifiés en Côte d'Ivoire</title>\n` +
     `    <meta name="description" content="Révisez et réussissez vos examens avec cauZon. Plateforme éducative leader en Côte d'Ivoire : accédez à des cours, fiches, TD et annales certifiés par vos enseignants.">\n` +
     `    <meta name="keywords" content="cauZon, cours Côte d'Ivoire, sujets BAC CI, BEPC CI, révisions université Abidjan, examens Côte d'Ivoire, annales, devoirs, fiches de révision">\n` +

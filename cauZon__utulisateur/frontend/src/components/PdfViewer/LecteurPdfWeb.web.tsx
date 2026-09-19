@@ -39,7 +39,6 @@ function chargerPdfJs(): Promise<any> {
   }
 
   return new Promise((resolve, reject) => {
-    // Vérifier si un script existe déjà
     const existing = document.querySelector(`script[src="${PDFJS_SCRIPT_SRC}"]`);
     if (existing) {
       existing.addEventListener('load', () => {
@@ -94,6 +93,15 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
   const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(0);
   const [tentativeKey, setTentativeKey] = useState<number>(0);
 
+  // État local du Zoom interactif
+  const [zoomActif, setZoomActif] = useState<number>(scale || 1.0);
+
+  useEffect(() => {
+    if (scale && scale !== zoomActif) {
+      setZoomActif(scale);
+    }
+  }, [scale]);
+
   const sourceCible = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
   const reessayerChargement = useCallback(() => {
@@ -103,9 +111,42 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
     onReessayer?.();
   }, [onReessayer]);
 
+  // Contrôles de zoom fluides
+  const zoomer = useCallback(() => {
+    setZoomActif(prev => Math.min(Number((prev + 0.25).toFixed(2)), 2.5));
+  }, []);
+
+  const dezoomer = useCallback(() => {
+    setZoomActif(prev => Math.max(Number((prev - 0.25).toFixed(2)), 0.75));
+  }, []);
+
+  const reinitialiserZoom = useCallback(() => {
+    setZoomActif(1.0);
+  }, []);
+
+  // Application instantanée du zoom sur tous les wrappers sans recharger le PDF
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
+    wrappers.forEach(w => {
+      if (zoomActif > 1.0) {
+        w.style.width = `${Math.round(zoomActif * 100)}%`;
+        w.style.maxWidth = 'none';
+      } else if (zoomActif === 1.0) {
+        w.style.width = '100%';
+        w.style.maxWidth = '800px';
+      } else {
+        w.style.width = `${Math.round(zoomActif * 100)}%`;
+        w.style.maxWidth = `${Math.round(800 * zoomActif)}px`;
+      }
+    });
+  }, [zoomActif]);
+
   useEffect(() => {
     let actif = true;
-    let observer: IntersectionObserver | null = null;
+    let lazyObserver: IntersectionObserver | null = null;
+    let pageObserver: IntersectionObserver | null = null;
 
     async function rendrePdf() {
       try {
@@ -125,7 +166,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           const source = sourceCible || URL_DOCUMENT_SECOURS;
 
           if (source.startsWith('data:application/pdf') || (!source.startsWith('http') && !source.startsWith('blob:') && source.length > 500)) {
-            // Décodage Base64
             const clean = source.replace(/^data:application\/pdf;base64,/i, '').trim();
             const binary = atob(clean);
             pdfData = new Uint8Array(binary.length);
@@ -133,7 +173,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
               pdfData[i] = binary.charCodeAt(i);
             }
           } else {
-            // Téléchargement sécurisé en ArrayBuffer (évite les restrictions CORS des workers)
             try {
               const res = await fetch(source);
               if (!res.ok) {
@@ -216,41 +255,89 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         if (!container) return;
         container.innerHTML = '';
 
-        // 5. Calcul responsive de la largeur d'affichage & détection WebKit iOS
+        // 5. Calcul responsive de référence avec la Page 1
         const isWebKitIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
         const availableWidth = container.clientWidth || window.innerWidth;
         const isMobileScreen = availableWidth < 640;
         const margeLaterale = isMobileScreen ? 12 : 32;
         const targetContainerWidth = Math.min(availableWidth - margeLaterale, 860);
 
-        // Facteur de netteté haute résolution optimisé (évite le dépassement mémoire WebKit sur iOS tout en restant ultra-net)
         const rawDpr = window.devicePixelRatio || 1;
         const dpr = isWebKitIOS ? Math.min(rawDpr, 1.75) : Math.min(rawDpr, 2.0);
 
-        // 6. Rendu de chaque page dans un canvas HTML5 dédié
+        // Récupérer la Page 1 immédiatement pour extraire le ratio universel
+        const page1 = await pdf.getPage(1);
+        if (!actif) return;
+
+        const unscaledViewport1 = page1.getViewport({ scale: 1.0 });
+        const baseScale = targetContainerWidth / unscaledViewport1.width;
+        const defaultDisplayWidth = Math.round(unscaledViewport1.width * baseScale);
+        const defaultDisplayHeight = Math.round(unscaledViewport1.height * baseScale);
+        const defaultAspectRatioStr = `${unscaledViewport1.width} / ${unscaledViewport1.height}`;
+
+        const pagesRendues = new Set<number>();
+        const pagesEnCours = new Set<number>();
+
+        // Fonction unitaire de rendu d'une page
+        const rendreUnePage = async (pageNum: number, wrapper: HTMLElement, pageInstance?: any) => {
+          if (pagesRendues.has(pageNum) || pagesEnCours.has(pageNum) || !actif) return;
+          pagesEnCours.add(pageNum);
+
+          try {
+            const page = pageInstance || (await pdf.getPage(pageNum));
+            if (!actif) return;
+
+            const unscaledViewport = page.getViewport({ scale: 1.0 });
+            const pScale = targetContainerWidth / unscaledViewport.width;
+            const renderScale = pScale * dpr;
+            const renderViewport = page.getViewport({ scale: renderScale });
+
+            // Supprimer le placeholder
+            const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
+            if (placeholder) {
+              placeholder.remove();
+            }
+
+            let canvas = wrapper.querySelector('canvas') as HTMLCanvasElement;
+            if (!canvas) {
+              canvas = document.createElement('canvas');
+              canvas.style.display = 'block';
+              canvas.style.width = '100%';
+              canvas.style.height = 'auto';
+              canvas.style.aspectRatio = `${renderViewport.width} / ${renderViewport.height}`;
+              canvas.style.flexShrink = '0';
+              wrapper.appendChild(canvas);
+            }
+
+            canvas.width = Math.round(renderViewport.width);
+            canvas.height = Math.round(renderViewport.height);
+
+            const ctx = canvas.getContext('2d', { alpha: false });
+            if (ctx) {
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
+            }
+
+            pagesRendues.add(pageNum);
+            pagesEnCours.delete(pageNum);
+          } catch (pErr) {
+            console.warn(`[LecteurPdfWeb] Erreur rendu page ${pageNum} :`, pErr);
+            pagesEnCours.delete(pageNum);
+          }
+        };
+
+        // 6. Création immédiate de la structure de tous les wrappers (Placeholders légers)
+        const wrappersElements: HTMLElement[] = [];
+
         for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-          if (!actif) return;
-
-          const page = await pdf.getPage(pageNum);
-          const unscaledViewport = page.getViewport({ scale: 1.0 });
-
-          const baseScale = targetContainerWidth / unscaledViewport.width;
-          const displayWidth = Math.round(unscaledViewport.width * baseScale * scale);
-          const displayHeight = Math.round(unscaledViewport.height * baseScale * scale);
-
-          // Résolution physique haute définition
-          const renderScale = baseScale * scale * dpr;
-          const renderViewport = page.getViewport({ scale: renderScale });
-          const aspectRatioStr = `${renderViewport.width} / ${renderViewport.height}`;
-
-          // Conteneur de la page : affichage bloc naturel avec interdiction stricte de compression
           const wrapper = document.createElement('div');
           wrapper.className = 'cauzon-page-wrapper';
           wrapper.setAttribute('data-page', String(pageNum));
           wrapper.style.display = 'block';
           wrapper.style.position = 'relative';
-          wrapper.style.width = '100%';
-          wrapper.style.maxWidth = `${Math.min(displayWidth, Math.round(800 * Math.max(scale, 1)))}px`;
+          wrapper.style.width = zoomActif > 1.0 ? `${Math.round(zoomActif * 100)}%` : '100%';
+          wrapper.style.maxWidth = zoomActif > 1.0 ? 'none' : `${Math.min(defaultDisplayWidth, 800)}px`;
           wrapper.style.margin = isMobileScreen ? '0 auto 12px auto' : '0 auto 16px auto';
           wrapper.style.flexShrink = '0';
           wrapper.style.boxSizing = 'border-box';
@@ -261,31 +348,23 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           wrapper.style.setProperty('-webkit-touch-callout', 'none');
           wrapper.style.setProperty('-webkit-user-select', 'none');
 
-          // Canvas pour le dessin vectoriel : hauteur proportionnelle à la largeur (ratio A4 préservé)
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.round(renderViewport.width);
-          canvas.height = Math.round(renderViewport.height);
-          canvas.style.display = 'block';
-          canvas.style.width = '100%';
-          canvas.style.height = 'auto';
-          canvas.style.aspectRatio = aspectRatioStr;
-          canvas.style.flexShrink = '0';
+          // Placeholder initial pour conserver la hauteur exacte avant rendu
+          const placeholder = document.createElement('div');
+          placeholder.className = 'cauzon-page-placeholder';
+          placeholder.style.display = 'flex';
+          placeholder.style.alignItems = 'center';
+          placeholder.style.justifyContent = 'center';
+          placeholder.style.width = '100%';
+          placeholder.style.minHeight = `${defaultDisplayHeight}px`;
+          placeholder.style.aspectRatio = defaultAspectRatioStr;
+          placeholder.style.color = '#94A3B8';
+          placeholder.style.fontSize = '13px';
+          placeholder.style.fontWeight = '600';
+          placeholder.style.backgroundColor = '#FAFAFA';
+          placeholder.innerHTML = `<span>Page ${pageNum}...</span>`;
+          wrapper.appendChild(placeholder);
 
-          const ctx = canvas.getContext('2d', { alpha: false });
-          if (ctx) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-          }
-
-          wrapper.appendChild(canvas);
-          container.appendChild(wrapper);
-
-          // Rendu asynchrone de la page
-          if (ctx) {
-            await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-          }
-
-          // 7. Calque Paywall sur la dernière page autorisée si le document est verrouillé
+          // 7. Calque Paywall si applicable sur la page cutoff
           if (estVerrouille && pageNum === targetCutoffPage) {
             const overlay = document.createElement('div');
             overlay.style.position = 'absolute';
@@ -334,7 +413,6 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
             overlay.appendChild(card);
             wrapper.appendChild(overlay);
 
-            // Connecter les boutons d'achat
             setTimeout(() => {
               const btnAchat = document.getElementById('cauzon-btn-achat-web');
               const btnVip = document.getElementById('cauzon-btn-vip-web');
@@ -342,10 +420,40 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
               if (btnVip && onVip) btnVip.onclick = onVip;
             }, 50);
           }
+
+          container.appendChild(wrapper);
+          wrappersElements.push(wrapper);
         }
 
-        // 8. Observer pour détection automatique du numéro de page au scroll
-        observer = new IntersectionObserver(
+        // 🚀 8. RENDU PRIORITAIRE INSTANTANÉ DE LA PAGE 1 (< 800 ms)
+        await rendreUnePage(1, wrappersElements[0], page1);
+        if (!actif) return;
+
+        // Déverrouillage immédiat de l'écran pour l'utilisateur
+        setChargement(false);
+
+        // 9. LAZY-RENDERING DES PAGES SUIVANTES VIA INTERSECTION OBSERVER
+        lazyObserver = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                const pageAttr = entry.target.getAttribute('data-page');
+                if (pageAttr) {
+                  const pNum = parseInt(pageAttr, 10);
+                  if (!pagesRendues.has(pNum)) {
+                    rendreUnePage(pNum, entry.target as HTMLElement);
+                  }
+                }
+              }
+            }
+          },
+          { root: container, rootMargin: '600px 0px 600px 0px' }
+        );
+
+        wrappersElements.forEach(w => lazyObserver?.observe(w));
+
+        // 10. OBSERVER DE SUIVI DU NUMÉRO DE PAGE COURANTE
+        pageObserver = new IntersectionObserver(
           (entries) => {
             for (const entry of entries) {
               if (entry.isIntersecting) {
@@ -358,13 +466,10 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
               }
             }
           },
-          { root: container, threshold: 0.4 }
+          { root: container, threshold: 0.3 }
         );
 
-        const wrappers = container.querySelectorAll('.cauzon-page-wrapper');
-        wrappers.forEach(w => observer?.observe(w));
-
-        setChargement(false);
+        wrappersElements.forEach(w => pageObserver?.observe(w));
       } catch (err: any) {
         console.error('[LecteurPdfWeb] Erreur lors du rendu Canvas PDF.js :', err);
         if (actif) {
@@ -379,14 +484,13 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
 
     return () => {
       actif = false;
-      if (observer) {
-        observer.disconnect();
-      }
+      if (lazyObserver) lazyObserver.disconnect();
+      if (pageObserver) pageObserver.disconnect();
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
     };
-  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, scale, tentativeKey]);
+  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, tentativeKey]);
 
   return (
     <div
@@ -402,7 +506,7 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         overscrollBehavior: 'none',
       }}
     >
-      {/* Règles CSS strictes garantissant le respect du ratio A4 et interdisant toute compression */}
+      {/* Règles CSS strictes garantissant le respect du ratio A4, lazy rendering et touch-action pour le zoom */}
       <style>{`
         .cauzon-pdf-scroll-container {
           display: block !important;
@@ -424,12 +528,14 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           flex-shrink: 0 !important;
           box-sizing: border-box !important;
           position: relative !important;
+          touch-action: pan-x pan-y pinch-zoom !important;
         }
         .cauzon-page-wrapper canvas {
           display: block !important;
           width: 100% !important;
           height: auto !important;
           flex-shrink: 0 !important;
+          touch-action: pan-x pan-y pinch-zoom !important;
         }
         @keyframes cauzon-spin {
           to { transform: rotate(360deg); }
@@ -480,10 +586,10 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
             }}
           />
           <div style={{ color: '#6B1124', fontSize: '14px', fontWeight: 700 }}>
-            Chargement direct du document...
+            Ouverture immédiate du cours...
           </div>
           <div style={{ color: '#64748B', fontSize: '12px' }}>
-            Rendu haute définition en cours
+            Rendu haute fidélité vectoriel
           </div>
         </div>
       )}
@@ -532,28 +638,112 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         </div>
       )}
 
-      {/* Pillule Flottante de Page sur Web Mobile / Desktop */}
+      {/* Barre d'Outils Flottante Unifiée : Pagination & Contrôles de Zoom */}
       {!chargement && !erreur && nombrePagesTotal > 0 && (
         <div
           style={{
             position: 'fixed',
-            bottom: '24px',
+            bottom: '20px',
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(15, 23, 42, 0.88)',
+            backgroundColor: 'rgba(15, 23, 42, 0.90)',
             color: '#FFFFFF',
-            padding: '7px 18px',
-            borderRadius: '24px',
-            fontSize: '12px',
-            fontWeight: 800,
-            letterSpacing: '0.5px',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
-            pointerEvents: 'none',
+            padding: '4px 8px',
+            borderRadius: '28px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
             zIndex: 30,
-            backdropFilter: 'blur(6px)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
           }}
         >
-          Page {pageCourante} / {nombrePagesTotal}
+          {/* Bouton Dézoomer */}
+          <button
+            onClick={dezoomer}
+            disabled={zoomActif <= 0.75}
+            style={{
+              background: 'rgba(255, 255, 255, 0.12)',
+              border: 'none',
+              color: zoomActif <= 0.75 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: zoomActif <= 0.75 ? 'default' : 'pointer',
+              fontSize: '17px',
+              fontWeight: 800,
+              lineHeight: 1,
+            }}
+            title="Dézoomer (-)"
+          >
+            −
+          </button>
+
+          {/* Pastille Page & Indicateur de Zoom Réinitialisable */}
+          <button
+            onClick={reinitialiserZoom}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#FFFFFF',
+              padding: '4px 10px',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              letterSpacing: '0.3px',
+              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            title="Cliquer pour réinitialiser à 100%"
+          >
+            <span>Page {pageCourante} / {nombrePagesTotal}</span>
+            {zoomActif !== 1.0 && (
+              <span
+                style={{
+                  backgroundColor: 'rgba(56, 189, 248, 0.20)',
+                  color: '#38BDF8',
+                  padding: '1px 6px',
+                  borderRadius: '8px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                }}
+              >
+                {Math.round(zoomActif * 100)}%
+              </span>
+            )}
+          </button>
+
+          {/* Bouton Zoomer */}
+          <button
+            onClick={zoomer}
+            disabled={zoomActif >= 2.5}
+            style={{
+              background: 'rgba(255, 255, 255, 0.12)',
+              border: 'none',
+              color: zoomActif >= 2.5 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: zoomActif >= 2.5 ? 'default' : 'pointer',
+              fontSize: '17px',
+              fontWeight: 800,
+              lineHeight: 1,
+            }}
+            title="Zoomer (+)"
+          >
+            +
+          </button>
         </div>
       )}
     </div>
