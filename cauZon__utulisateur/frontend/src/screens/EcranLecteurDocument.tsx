@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -107,6 +107,28 @@ export default function EcranLecteurDocument() {
   const [sourcePdfData, setSourcePdfData] = useState<string>(sourcePreteEnCache ? sourceInitialeCache!.source : '');
   const [modePaysageActif, setModePaysageActif] = useState(false);
   const [cleRechargement, setCleRechargement] = useState(0);
+
+  // Contrôles et persistance du zoom mobile
+  const webViewRef = useRef<WebView>(null);
+  const [zoomMobileActif, setZoomMobileActif] = useState<number>(1.0);
+
+  const handleZoomIn = () => {
+    const nextZoom = Math.min(3.5, Math.round((zoomMobileActif + 0.25) * 100) / 100);
+    setZoomMobileActif(nextZoom);
+    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+  };
+
+  const handleZoomOut = () => {
+    const nextZoom = Math.max(1.0, Math.round((zoomMobileActif - 0.25) * 100) / 100);
+    setZoomMobileActif(nextZoom);
+    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+  };
+
+  const handleResetZoom = () => {
+    const nextZoom = zoomMobileActif > 1.05 ? 1.0 : 1.5;
+    setZoomMobileActif(nextZoom);
+    webViewRef.current?.injectJavaScript(`window._setZoomLevel && window._setZoomLevel(${nextZoom}); true;`);
+  };
 
   // Détection dynamique et fluide du mode Paysage (asservie au bouton)
   const estPaysage = Platform.OS === 'web' ? (modePaysageActif || screenWidth > screenHeight) : modePaysageActif;
@@ -301,7 +323,7 @@ export default function EcranLecteurDocument() {
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
   <title>Lecteur PDF - cauZon</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
@@ -327,12 +349,15 @@ export default function EcranLecteurDocument() {
       -webkit-overflow-scrolling: touch;
       padding: 16px 0 80px 0;
       background-color: ${couleurs.estSombre ? '#121212' : '#FFFFFF'};
+      touch-action: pan-x pan-y pinch-zoom;
     }
     #canvas-container {
       display: flex;
       flex-direction: column;
       align-items: center;
-      width: 100%;
+      width: max-content;
+      min-width: 100%;
+      margin: 0 auto;
       gap: 20px;
       transform-origin: top center;
       will-change: transform;
@@ -693,6 +718,51 @@ export default function EcranLecteurDocument() {
           afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
         }
 
+        function fixerZoomEtDimensions(targetZoom) {
+          currentZoom = bornerEchelle(targetZoom);
+          window._currentZoom = currentZoom;
+
+          const scrollEl = document.scrollingElement || document.documentElement || document.body;
+          const maxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
+          const maxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
+          const scrollRatioY = maxScrollY > 0 ? (scrollEl.scrollTop / maxScrollY) : 0;
+          const scrollRatioX = maxScrollX > 0 ? (scrollEl.scrollLeft / maxScrollX) : 0;
+
+          const pageNums = Object.keys(pageRenderStates).map(Number);
+          pageNums.forEach(function(num) {
+            const ps = pageRenderStates[num];
+            const w = (ps && ps.wrapper) || document.getElementById('page-wrapper-' + num);
+            if (w && ps && ps.baseWidth && ps.baseHeight) {
+              w.style.width = Math.round(ps.baseWidth * currentZoom) + 'px';
+              w.style.height = Math.round(ps.baseHeight * currentZoom) + 'px';
+            }
+          });
+
+          const container = document.getElementById('canvas-container');
+          if (container) {
+            container.style.transition = 'none';
+            container.style.transformOrigin = 'top center';
+            container.style.transform = 'scale(1)';
+          }
+          appliedZoom = currentZoom;
+
+          requestAnimationFrame(function() {
+            const newMaxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
+            const newMaxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
+            if (newMaxScrollY > 0) scrollEl.scrollTop = Math.round(scrollRatioY * newMaxScrollY);
+            if (newMaxScrollX > 0) scrollEl.scrollLeft = Math.round(scrollRatioX * newMaxScrollX);
+          });
+
+          afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
+
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'ZOOM_CHANGE',
+              zoom: currentZoom
+            }));
+          }
+        }
+
         let renderSessionId = 0;
         let isReRasterizing = false;
 
@@ -829,9 +899,10 @@ export default function EcranLecteurDocument() {
                 // Découplage strict de la géométrie : mise à jour des dimensions stables de TOUS les wrappers
                 pageNums.forEach(function(num) {
                   const ps = pageRenderStates[num];
-                  if (ps && ps.wrapper) {
-                    ps.wrapper.style.width = Math.round(ps.baseWidth * targetZoom) + 'px';
-                    ps.wrapper.style.height = Math.round(ps.baseHeight * targetZoom) + 'px';
+                  const w = (ps && ps.wrapper) || document.getElementById('page-wrapper-' + num);
+                  if (w && ps && ps.baseWidth && ps.baseHeight) {
+                    w.style.width = Math.round(ps.baseWidth * targetZoom) + 'px';
+                    w.style.height = Math.round(ps.baseHeight * targetZoom) + 'px';
                   }
                 });
               }
@@ -907,7 +978,31 @@ export default function EcranLecteurDocument() {
         }
 
         window._appliquerZoomCss = appliquerZoomCss;
+        window._fixerZoomEtDimensions = fixerZoomEtDimensions;
         window._programmerReRasterisation = programmerReRasterisation;
+
+        window._zoomIn = function() {
+          const nextZ = bornerEchelle(Math.round((currentZoom + 0.25) * 100) / 100);
+          fixerZoomEtDimensions(nextZ);
+          programmerReRasterisation(60);
+        };
+
+        window._zoomOut = function() {
+          const nextZ = bornerEchelle(Math.round((currentZoom - 0.25) * 100) / 100);
+          fixerZoomEtDimensions(nextZ);
+          programmerReRasterisation(60);
+        };
+
+        window._resetZoom = function() {
+          fixerZoomEtDimensions(1.0);
+          programmerReRasterisation(60);
+        };
+
+        window._setZoomLevel = function(level) {
+          const nextZ = bornerEchelle(Number(level) || 1.0);
+          fixerZoomEtDimensions(nextZ);
+          programmerReRasterisation(60);
+        };
 
         // Rendu asynchrone fluide de chaque page (rendu progressif initial)
         for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
@@ -998,6 +1093,7 @@ export default function EcranLecteurDocument() {
               baseScale: baseScale,
               baseWidth: displayViewport.width,
               baseHeight: displayViewport.height,
+              wrapper: wrapper,
               activeCanvas: canvasA,
               bufferCanvas: canvasB,
               renderedZoom: 1.0,
@@ -1143,14 +1239,11 @@ export default function EcranLecteurDocument() {
           pinchRafId = null;
         }
         initialPinchDist = 0;
-        // Rappel doux aux bornes si nécessaire
         const currentZ = window._currentZoom || 1.0;
-        const clampedZ = Math.min(3.5, Math.max(1.0, currentZ));
-        if (clampedZ !== currentZ && window._appliquerZoomCss) {
-          window._appliquerZoomCss(clampedZ, undefined, undefined, true);
-        }
+        const clampedZ = bornerEchelle(currentZ);
+        fixerZoomEtDimensions(clampedZ);
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(90);
+          window._programmerReRasterisation(60);
         }
       }
     }, { passive: true });
@@ -1179,14 +1272,12 @@ export default function EcranLecteurDocument() {
     window.addEventListener('touchend', function(e) {
       if (isPinching) return;
       const maintenant = Date.now();
-      if (maintenant - dernierTouchEnd < 300 && e.changedTouches && e.changedTouches.length === 1 && window._appliquerZoomCss) {
+      if (maintenant - dernierTouchEnd < 300 && e.changedTouches && e.changedTouches.length === 1) {
         const currentZ = window._currentZoom || 1.0;
         const target = currentZ > 1.25 ? 1.0 : 2.0;
-        const tapX = e.changedTouches[0].clientX;
-        const tapY = e.changedTouches[0].clientY;
-        window._appliquerZoomCss(target, tapX, tapY, true);
+        fixerZoomEtDimensions(target);
         if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(90);
+          window._programmerReRasterisation(60);
         }
       }
       dernierTouchEnd = maintenant;
@@ -1356,6 +1447,10 @@ export default function EcranLecteurDocument() {
                           total: total
                         });
                       }
+                    } else if (data.type === 'ZOOM_CHANGE') {
+                      if (typeof data.zoom === 'number') {
+                        setZoomMobileActif(Math.round(data.zoom * 100) / 100);
+                      }
                     } else if (data.type === 'buy') {
                       setModaleAchatVisible(true);
                     } else if (data.type === 'vip') {
@@ -1377,12 +1472,14 @@ export default function EcranLecteurDocument() {
                     }
                   }
                 }}
+                ref={webViewRef}
+                bounces={false}
+                overScrollMode="never"
                 style={{ flex: 1, backgroundColor: couleurs.estSombre ? '#121212' : '#FFFFFF' }}
                 startInLoadingState={true}
                 domStorageEnabled={true}
                 javaScriptEnabled={true}
                 scalesPageToFit={true}
-                androidHardwareAccelerationDisabled={false}
                 androidLayerType="hardware"
                 useSharedProcessPool={true}
                 showsHorizontalScrollIndicator={false}
@@ -1401,11 +1498,11 @@ export default function EcranLecteurDocument() {
               />
             )}
 
-            {/* Indicateur de Page Flottant (Mobile uniquement, le Web disposant de sa barre d'outils Mozilla) */}
+            {/* Barre flottante mobile : Indicateur de Page & Contrôles Zoom */}
             {Platform.OS !== 'web' && (
               <View
                 style={[
-                  styles.floatingPageIndicator,
+                  styles.floatingControlsContainer,
                   {
                     bottom:
                       estVerrouille ||
@@ -1415,9 +1512,44 @@ export default function EcranLecteurDocument() {
                   },
                 ]}
               >
-                <Text style={styles.pageIndicatorText}>
-                  Page {pageState.current} / {nombrePagesReel}
-                </Text>
+                {/* Indicateur de Page */}
+                <View style={styles.floatingPagePill}>
+                  <Text style={styles.pageIndicatorText}>
+                    Page {pageState.current} / {nombrePagesReel}
+                  </Text>
+                </View>
+
+                {/* Contrôles d'Accessibilité Zoom */}
+                <View style={styles.floatingZoomPill}>
+                  <TouchableOpacity
+                    style={styles.zoomButton}
+                    onPress={handleZoomOut}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Dézoomer"
+                  >
+                    <Ionicons name="remove" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.zoomResetButton}
+                    onPress={handleResetZoom}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Réinitialiser le zoom"
+                  >
+                    <Text style={styles.zoomResetText}>
+                      {Math.round(zoomMobileActif * 100)}%
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.zoomButton}
+                    onPress={handleZoomIn}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Zoomer"
+                  >
+                    <Ionicons name="add" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </View>
@@ -1643,6 +1775,60 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     marginTop: 8,
     color: couleurs.texteSecondaire,
     fontSize: 14,
+  },
+  floatingControlsContainer: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 100,
+  },
+  floatingPagePill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.80)',
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  floatingZoomPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.80)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 20,
+    elevation: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    gap: 4,
+  },
+  zoomButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomResetButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.20)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomResetText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
   floatingPageIndicator: {
     position: 'absolute',
