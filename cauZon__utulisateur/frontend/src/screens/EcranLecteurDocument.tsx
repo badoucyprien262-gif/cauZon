@@ -390,7 +390,6 @@ export default function EcranLecteurDocument() {
       transform: translateZ(0);
       -webkit-transform: translateZ(0);
       pointer-events: none;
-      transition: opacity 0.05s linear;
     }
     #zoom-badge {
       position: fixed;
@@ -666,23 +665,16 @@ export default function EcranLecteurDocument() {
         notifyPageChange(1, maxPages, realTotalPages);
 
         const containerWidth = Math.min(window.innerWidth - 32, 860);
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
 
-        // Bornes strictes de sécurité et constantes d'amortissement
+        // Bornes du zoom CSS GPU
         const MIN_SCALE = 1.0;
         const MAX_SCALE = 3.5;
-        const MAX_CANVAS_DIM = 4096; // Plafond matériel GPU anti-crash
 
         function bornerEchelle(valeur) {
           return Math.min(MAX_SCALE, Math.max(MIN_SCALE, valeur));
         }
 
-        // Registre de re-rastérisation vectorielle dynamique à la volée
-        window._pageRenderStates = window._pageRenderStates || {};
-        const pageRenderStates = window._pageRenderStates;
         let currentZoom = 1.0;
-        let appliedZoom = 1.0;
-        let debounceTimer = null;
         let badgeTimeout = null;
 
         function afficherBadgeZoom(texte) {
@@ -696,333 +688,64 @@ export default function EcranLecteurDocument() {
           }, 1200);
         }
 
-        function appliquerZoomCss(targetScale, focalX, focalY, animate) {
+        // Zoom GPU pur : transformation CSS matérielle — jamais de re-rendu canvas
+        function appliquerZoomCss(targetScale, focalX, focalY) {
           currentZoom = bornerEchelle(targetScale);
           window._currentZoom = currentZoom;
-          const tempScale = currentZoom / appliedZoom;
           const container = document.getElementById('canvas-container');
-          if (container) {
-            if (animate) {
-              container.style.transition = 'transform 0.1s ease-out';
-            } else {
-              container.style.transition = 'none';
-            }
-            if (typeof focalX === 'number' && typeof focalY === 'number') {
-              const rect = container.getBoundingClientRect();
-              const originX = ((focalX - rect.left) / rect.width) * 100;
-              const originY = ((focalY - rect.top) / rect.height) * 100;
-              container.style.transformOrigin = originX.toFixed(2) + '% ' + originY.toFixed(2) + '%';
-            }
-            container.style.transform = 'scale(' + tempScale.toFixed(4) + ')';
-          }
-          afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
-        }
-
-        function fixerZoomEtDimensions(targetZoom) {
-          currentZoom = bornerEchelle(targetZoom);
-          window._currentZoom = currentZoom;
-
-          const scrollEl = document.scrollingElement || document.documentElement || document.body;
-          const maxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
-          const maxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
-          const scrollRatioY = maxScrollY > 0 ? (scrollEl.scrollTop / maxScrollY) : 0;
-          const scrollRatioX = maxScrollX > 0 ? (scrollEl.scrollLeft / maxScrollX) : 0;
-
-          const pageNums = Object.keys(pageRenderStates).map(Number);
-          pageNums.forEach(function(num) {
-            const ps = pageRenderStates[num];
-            const w = (ps && ps.wrapper) || document.getElementById('page-wrapper-' + num);
-            if (w && ps && ps.baseWidth && ps.baseHeight) {
-              w.style.width = Math.round(ps.baseWidth * currentZoom) + 'px';
-              w.style.height = Math.round(ps.baseHeight * currentZoom) + 'px';
-            }
-          });
-
-          const container = document.getElementById('canvas-container');
-          if (container) {
-            container.style.transition = 'none';
+          if (!container) return;
+          container.style.transition = 'none';
+          container.style.willChange = 'transform';
+          if (typeof focalX === 'number' && typeof focalY === 'number') {
+            const rect = container.getBoundingClientRect();
+            const ox = ((focalX - rect.left) / rect.width * 100).toFixed(2);
+            const oy = ((focalY - rect.top) / rect.height * 100).toFixed(2);
+            container.style.transformOrigin = ox + '% ' + oy + '%';
+          } else {
             container.style.transformOrigin = 'top center';
-            container.style.transform = 'scale(1)';
           }
-          appliedZoom = currentZoom;
-
-          requestAnimationFrame(function() {
-            const newMaxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
-            const newMaxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
-            if (newMaxScrollY > 0) scrollEl.scrollTop = Math.round(scrollRatioY * newMaxScrollY);
-            if (newMaxScrollX > 0) scrollEl.scrollLeft = Math.round(scrollRatioX * newMaxScrollX);
-          });
-
+          container.style.transform = 'scale(' + currentZoom.toFixed(4) + ')';
           afficherBadgeZoom(Math.round(currentZoom * 100) + '%');
-
           if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'ZOOM_CHANGE',
-              zoom: currentZoom
-            }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ZOOM_CHANGE', zoom: currentZoom }));
           }
-        }
-
-        let renderSessionId = 0;
-        let isReRasterizing = false;
-
-        function annulerReRasterisationEnCours() {
-          if (!isReRasterizing) return;
-          renderSessionId++;
-          isReRasterizing = false;
-          const pageNums = Object.keys(pageRenderStates).map(Number);
-          pageNums.forEach(function(pageNum) {
-            const pState = pageRenderStates[pageNum];
-            if (pState && pState.offscreenTask) {
-              try {
-                pState.offscreenTask.cancel();
-              } catch (e) {}
-              pState.offscreenTask = null;
-            }
-          });
-        }
-
-        window._annulerReRasterisation = annulerReRasterisationEnCours;
-
-        function estPageDansViewport(wrapper) {
-          if (!wrapper) return false;
-          const rect = wrapper.getBoundingClientRect();
-          const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-          return (rect.bottom >= -350 && rect.top <= windowHeight + 350);
-        }
-
-        function reRasteriserPagesDynamiques() {
-          const currentSessionId = ++renderSessionId;
-          const targetZoom = currentZoom;
-          const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
-          const MAX_CANVAS_DIM = 4096;
-
-          const pageNums = Object.keys(pageRenderStates).map(Number);
-          if (pageNums.length === 0) return;
-
-          // 1. Détecter les pages actuellement visibles dans le viewport (+ marge de 350px)
-          const pagesVisibles = pageNums.filter(function(pageNum) {
-            const pState = pageRenderStates[pageNum];
-            return pState && estPageDansViewport(pState.wrapper);
-          });
-
-          // Fallback : cibler la page 1 si aucune n'est détectée
-          const cibles = pagesVisibles.length > 0 ? pagesVisibles : [1];
-
-          // 2. Filtrer uniquement les pages qui ne sont PAS encore rendues à targetZoom
-          const pagesARendre = cibles.filter(function(pageNum) {
-            const pState = pageRenderStates[pageNum];
-            return pState && pState.renderedZoom !== targetZoom;
-          });
-
-          // Si aucune page visible ne nécessite de rendu et que l'échelle est déjà synchronisée
-          if (pagesARendre.length === 0 && appliedZoom === targetZoom) {
-            return;
-          }
-
-          isReRasterizing = true;
-          const renderTasks = [];
-
-          pagesARendre.forEach(function(pageNum) {
-            const pState = pageRenderStates[pageNum];
-            if (!pState || !pState.page) return;
-
-            // Annuler la tâche offscreen précédente si encore en cours
-            if (pState.offscreenTask) {
-              try {
-                pState.offscreenTask.cancel();
-              } catch (e) {}
-              pState.offscreenTask = null;
-            }
-
-            const unscaledViewport = pState.page.getViewport({ scale: 1.0 });
-            const finalScale = pState.baseScale * targetZoom;
-
-            // Plafonnement CPU / Échelle effective : 1.75 * dpr max pour garantir un rendu < 60ms
-            let effectiveRenderScale = Math.min(finalScale * dpr, 1.75 * dpr);
-            const renderW = unscaledViewport.width * effectiveRenderScale;
-            const renderH = unscaledViewport.height * effectiveRenderScale;
-            if (renderW > MAX_CANVAS_DIM || renderH > MAX_CANVAS_DIM) {
-              const capRatio = Math.min(MAX_CANVAS_DIM / renderW, MAX_CANVAS_DIM / renderH);
-              effectiveRenderScale = effectiveRenderScale * capRatio;
-            }
-
-            const renderViewport = pState.page.getViewport({ scale: effectiveRenderScale });
-
-            // Zero-Allocation Buffer : Réutilisation directe du bufferCanvas existant
-            const targetBuffer = pState.bufferCanvas;
-            targetBuffer.width = Math.round(renderViewport.width);
-            targetBuffer.height = Math.round(renderViewport.height);
-
-            const offscreenCtx = targetBuffer.getContext('2d', { alpha: false, willReadFrequently: false });
-            offscreenCtx.imageSmoothingEnabled = true;
-            offscreenCtx.imageSmoothingQuality = 'high';
-
-            const task = pState.page.render({
-              canvasContext: offscreenCtx,
-              viewport: renderViewport
-            });
-            pState.offscreenTask = task;
-
-            const promise = task.promise.then(function() {
-              return {
-                pageNum: pageNum,
-                pState: pState
-              };
-            }).catch(function(err) {
-              if (err && (err.name === 'RenderingCancelledException' || err.message === 'Rendering cancelled')) {
-                return null;
-              }
-              console.warn('[PDF.js] Erreur offscreen render page ' + pageNum, err);
-              return null;
-            });
-
-            renderTasks.push(promise);
-          });
-
-          // Dès que les rendus hors-champ sont résolus : permutation atomique synchrone en 1 frame
-          Promise.all(renderTasks).then(function(results) {
-            if (currentSessionId !== renderSessionId) return;
-
-            requestAnimationFrame(function() {
-              if (currentSessionId !== renderSessionId) return;
-
-              const scrollEl = document.scrollingElement || document.documentElement || document.body;
-              const zoomChange = (appliedZoom !== targetZoom);
-
-              let scrollRatioY = 0;
-              let scrollRatioX = 0;
-              if (zoomChange) {
-                scrollRatioY = scrollEl.scrollTop / (scrollEl.scrollHeight - scrollEl.clientHeight || 1);
-                scrollRatioX = scrollEl.scrollLeft / (scrollEl.scrollWidth - scrollEl.clientWidth || 1);
-
-                // Découplage strict de la géométrie : mise à jour des dimensions stables de TOUS les wrappers
-                pageNums.forEach(function(num) {
-                  const ps = pageRenderStates[num];
-                  const w = (ps && ps.wrapper) || document.getElementById('page-wrapper-' + num);
-                  if (w && ps && ps.baseWidth && ps.baseHeight) {
-                    w.style.width = Math.round(ps.baseWidth * targetZoom) + 'px';
-                    w.style.height = Math.round(ps.baseHeight * targetZoom) + 'px';
-                  }
-                });
-              }
-
-              // Permutation de visibilité Zero-Allocation (0 createElement, 0 replaceChild, 0 garbage collection)
-              results.forEach(function(res) {
-                if (!res) return;
-                const pState = res.pState;
-                const newlyRendered = pState.bufferCanvas;
-                const previouslyActive = pState.activeCanvas;
-
-                // Micro-transition d'opacité 100 ms sur le canvas entrant — élimine le saut visuel brutal
-                newlyRendered.style.transition = 'opacity 0.1s ease-in';
-                newlyRendered.style.zIndex = '2';
-                newlyRendered.style.opacity = '1';
-
-                // Masquer l'ancien canvas sans le détruire pour le réutiliser au prochain cycle
-                previouslyActive.style.transition = 'none';
-                previouslyActive.style.zIndex = '1';
-                previouslyActive.style.opacity = '0';
-
-                // Inverser les rôles
-                pState.activeCanvas = newlyRendered;
-                pState.bufferCanvas = previouslyActive;
-                pState.renderedZoom = targetZoom;
-                pState.offscreenTask = null;
-              });
-
-              if (zoomChange) {
-                const container = document.getElementById('canvas-container');
-                if (container) {
-                  container.style.transition = 'none';
-                  container.style.transformOrigin = 'top center';
-                  container.style.transform = 'scale(1)';
-                }
-                appliedZoom = targetZoom;
-
-                // Réalignement synchrone sans animation du scroll
-                const maxScrollY = scrollEl.scrollHeight - scrollEl.clientHeight;
-                const maxScrollX = scrollEl.scrollWidth - scrollEl.clientWidth;
-                if (maxScrollY > 0) {
-                  scrollEl.scrollTop = Math.round(scrollRatioY * maxScrollY);
-                }
-                if (maxScrollX > 0) {
-                  scrollEl.scrollLeft = Math.round(scrollRatioX * maxScrollX);
-                }
-              }
-
-              isReRasterizing = false;
-            });
-          });
-        }
-
-        let idleHandle = null;
-
-        function programmerReRasterisation(delaiMs) {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          if (idleHandle) {
-            if (window.cancelIdleCallback) {
-              window.cancelIdleCallback(idleHandle);
-            } else {
-              clearTimeout(idleHandle);
-            }
-            idleHandle = null;
-          }
-
-          debounceTimer = setTimeout(function() {
-            // Décalage non-bloquant via requestIdleCallback pour ne jamais figer le thread principal
-            const planifierRendu = window.requestIdleCallback || function(cb) { return setTimeout(cb, 50); };
-            idleHandle = planifierRendu(function() {
-              idleHandle = null;
-              reRasteriserPagesDynamiques();
-            }, { timeout: 180 });
-          }, delaiMs || 90);
         }
 
         window._appliquerZoomCss = appliquerZoomCss;
-        window._fixerZoomEtDimensions = fixerZoomEtDimensions;
-        window._programmerReRasterisation = programmerReRasterisation;
 
         window._zoomIn = function() {
-          const nextZ = bornerEchelle(Math.round((currentZoom + 0.25) * 100) / 100);
-          fixerZoomEtDimensions(nextZ);
-          programmerReRasterisation(60);
+          appliquerZoomCss(bornerEchelle(Math.round((currentZoom + 0.25) * 100) / 100));
         };
 
         window._zoomOut = function() {
-          const nextZ = bornerEchelle(Math.round((currentZoom - 0.25) * 100) / 100);
-          fixerZoomEtDimensions(nextZ);
-          programmerReRasterisation(60);
+          appliquerZoomCss(bornerEchelle(Math.round((currentZoom - 0.25) * 100) / 100));
         };
 
         window._resetZoom = function() {
-          fixerZoomEtDimensions(1.0);
-          programmerReRasterisation(60);
+          appliquerZoomCss(1.0);
         };
 
         window._setZoomLevel = function(level) {
-          const nextZ = bornerEchelle(Number(level) || 1.0);
-          fixerZoomEtDimensions(nextZ);
-          programmerReRasterisation(60);
+          appliquerZoomCss(bornerEchelle(Number(level) || 1.0));
         };
 
-        // Rendu asynchrone fluide de chaque page (rendu progressif initial)
+        // Rendu initial unique à 2× la résolution d'affichage — GPU CSS pour tout zoom ultérieur
         for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
           try {
             const page = await pdf.getPage(pageNum);
             const unscaledViewport = page.getViewport({ scale: 1.0 });
             const baseScale = containerWidth / unscaledViewport.width;
+            // Taille CSS logique (1×) — le wrapper conserve cette taille fixe à jamais
             const displayViewport = page.getViewport({ scale: baseScale });
-
-            // Garde-fou GPU initial
-            let initRenderScale = baseScale * dpr;
-            const initW = unscaledViewport.width * initRenderScale;
-            const initH = unscaledViewport.height * initRenderScale;
-            if (initW > MAX_CANVAS_DIM || initH > MAX_CANVAS_DIM) {
-              const capRatio = Math.min(MAX_CANVAS_DIM / initW, MAX_CANVAS_DIM / initH);
-              initRenderScale = initRenderScale * capRatio;
+            // Résolution physique 2× — netteté garantie jusqu'à 200% de zoom CSS GPU
+            let renderScale = baseScale * 2.0;
+            const renderW = unscaledViewport.width * renderScale;
+            const renderH = unscaledViewport.height * renderScale;
+            if (renderW > 4096 || renderH > 4096) {
+              const capRatio = Math.min(4096 / renderW, 4096 / renderH);
+              renderScale = renderScale * capRatio;
             }
-            const renderViewport = page.getViewport({ scale: initRenderScale });
+            const renderViewport = page.getViewport({ scale: renderScale });
 
             const wrapper = document.createElement('div');
             wrapper.className = 'page-wrapper';
@@ -1030,40 +753,23 @@ export default function EcranLecteurDocument() {
             wrapper.style.width = displayViewport.width + 'px';
             wrapper.style.height = displayViewport.height + 'px';
 
-            // Canvas A (Actif visible)
-            const canvasA = document.createElement('canvas');
-            canvasA.id = 'pdf-canvas-' + pageNum + '-a';
-            canvasA.width = Math.round(renderViewport.width);
-            canvasA.height = Math.round(renderViewport.height);
-            canvasA.style.position = 'absolute';
-            canvasA.style.top = '0';
-            canvasA.style.left = '0';
-            canvasA.style.width = '100%';
-            canvasA.style.height = '100%';
-            canvasA.style.display = 'block';
-            canvasA.style.zIndex = '2';
-            canvasA.style.opacity = '1';
+            // Canvas unique — rastérisé une seule fois, zoom exclusivement via CSS GPU
+            const canvas = document.createElement('canvas');
+            canvas.id = 'pdf-canvas-' + pageNum;
+            canvas.width = Math.round(renderViewport.width);
+            canvas.height = Math.round(renderViewport.height);
+            canvas.style.position = 'absolute';
+            canvas.style.top = '0';
+            canvas.style.left = '0';
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            canvas.style.display = 'block';
 
-            // Canvas B (Tampon persistant hors-champ Zero-Allocation)
-            const canvasB = document.createElement('canvas');
-            canvasB.id = 'pdf-canvas-' + pageNum + '-b';
-            canvasB.width = 1;
-            canvasB.height = 1;
-            canvasB.style.position = 'absolute';
-            canvasB.style.top = '0';
-            canvasB.style.left = '0';
-            canvasB.style.width = '100%';
-            canvasB.style.height = '100%';
-            canvasB.style.display = 'block';
-            canvasB.style.zIndex = '1';
-            canvasB.style.opacity = '0';
+            const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: false });
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
 
-            const contextA = canvasA.getContext('2d', { alpha: false, willReadFrequently: false });
-            contextA.imageSmoothingEnabled = true;
-            contextA.imageSmoothingQuality = 'high';
-
-            wrapper.appendChild(canvasA);
-            wrapper.appendChild(canvasB);
+            wrapper.appendChild(canvas);
             container.appendChild(wrapper);
 
             // Coupure sur la page cible
@@ -1085,48 +791,18 @@ export default function EcranLecteurDocument() {
               wrapper.appendChild(blurOverlay);
             }
 
-            const renderTask = page.render({
-              canvasContext: contextA,
-              viewport: renderViewport
-            });
+            const renderTask = page.render({ canvasContext: ctx, viewport: renderViewport });
 
-            pageRenderStates[pageNum] = {
-              page: page,
-              baseScale: baseScale,
-              baseWidth: displayViewport.width,
-              baseHeight: displayViewport.height,
-              wrapper: wrapper,
-              activeCanvas: canvasA,
-              bufferCanvas: canvasB,
-              renderedZoom: 1.0,
-              renderTask: renderTask,
-              offscreenTask: null
-            };
-            
             renderTask.promise.then(function() {
-              if (pageRenderStates[pageNum] && pageRenderStates[pageNum].renderTask === renderTask) {
-                pageRenderStates[pageNum].renderTask = null;
-              }
-
-              // 1. Masquer explicitement le message de chargement
               const loader = document.getElementById('loading');
               if (loader) loader.style.display = 'none';
-              
-              // 2. Rendre le canvas visible
-              canvasA.style.display = 'block';
+              canvas.style.display = 'block';
               if (container) container.style.display = 'flex';
-
-              // 3. Notifier React Native
               if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                  type: 'RENDER_SUCCESS', 
-                  page: pageNum 
-                }));
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RENDER_SUCCESS', page: pageNum }));
               }
             }).catch(function(error) {
-              if (error && (error.name === 'RenderingCancelledException' || error.message === 'Rendering cancelled')) {
-                return;
-              }
+              if (error && (error.name === 'RenderingCancelledException' || error.message === 'Rendering cancelled')) return;
               console.error('Erreur renderTask page ' + pageNum, error);
               const loader = document.getElementById('loading');
               if (loader && pageNum === 1) {
@@ -1134,17 +810,12 @@ export default function EcranLecteurDocument() {
                 loader.style.display = 'block';
               }
               if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                  type: 'RENDER_ERROR', 
-                  message: error ? error.message : 'Erreur de rendu' 
-                }));
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RENDER_ERROR', message: error ? error.message : 'Erreur de rendu' }));
               }
             });
 
             await renderTask.promise.catch(function(e) {
-              if (e && (e.name === 'RenderingCancelledException' || e.message === 'Rendering cancelled')) {
-                return;
-              }
+              if (e && (e.name === 'RenderingCancelledException' || e.message === 'Rendering cancelled')) return;
               console.warn('Capture renderTask page ' + pageNum, e);
             });
 
@@ -1194,44 +865,37 @@ export default function EcranLecteurDocument() {
     window.addEventListener('touchstart', function(e) {
       if (e.touches && e.touches.length === 2) {
         isPinching = true;
-        // Annuler immédiatement tout re-rendu offscreen en cours — libère le CPU pour le geste
-        if (window._annulerReRasterisation) window._annulerReRasterisation();
         const container = document.getElementById('canvas-container');
         if (container) {
           container.style.transition = 'none';
-          // Activer le layer GPU composite dédié pour la transformation CSS — élimine le reflow
           container.style.willChange = 'transform';
         }
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         initialPinchDist = Math.hypot(dx, dy);
         initialPinchScale = window._currentZoom || 1.0;
-
-        pinchFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        pinchFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
         pendingPinchDist = initialPinchDist;
-        pendingFocalX = pinchFocalX;
-        pendingFocalY = pinchFocalY;
+        pendingFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pendingFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       }
     }, { passive: false });
 
-    // 2. Découplage complet de l'écouteur tactile (RAF Ticking 120 FPS sans manipulation DOM directe)
+    // 2. Découplage RAF — suivi cinématique 120 FPS sans manipulation DOM directe
     window.addEventListener('touchmove', function(e) {
       if (isPinching && e.touches && e.touches.length === 2) {
-        e.preventDefault(); // Bloquer impérativement le zoom natif WebView
+        e.preventDefault();
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         pendingPinchDist = Math.hypot(dx, dy);
         pendingFocalX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         pendingFocalY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-
         if (!pinchRafId) {
           pinchRafId = requestAnimationFrame(function() {
             pinchRafId = null;
-            if (!isPinching || initialPinchDist <= 0 || !window._appliquerZoomCss) return;
+            if (!isPinching || initialPinchDist <= 0) return;
             const ratio = pendingPinchDist / initialPinchDist;
             const targetScale = initialPinchScale * ratio;
-            window._appliquerZoomCss(targetScale, pendingFocalX, pendingFocalY, false);
+            if (window._appliquerZoomCss) window._appliquerZoomCss(targetScale, pendingFocalX, pendingFocalY);
           });
         }
       }
@@ -1240,44 +904,31 @@ export default function EcranLecteurDocument() {
     window.addEventListener('touchend', function(e) {
       if (isPinching && (!e.touches || e.touches.length < 2)) {
         isPinching = false;
-        if (pinchRafId) {
-          cancelAnimationFrame(pinchRafId);
-          pinchRafId = null;
-        }
+        if (pinchRafId) { cancelAnimationFrame(pinchRafId); pinchRafId = null; }
         initialPinchDist = 0;
-        const currentZ = window._currentZoom || 1.0;
-        const clampedZ = bornerEchelle(currentZ);
-        fixerZoomEtDimensions(clampedZ);
-        // Libérer le layer GPU après fixation — la re-rastérisation se fait hors-geste
-        const container = document.getElementById('canvas-container');
-        if (container) container.style.willChange = 'auto';
-        // Debounce strict : 280 ms post-touchend pour laisser l'animation de scroll se stabiliser
-        if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(280);
-        }
+        // Stabiliser le zoom final — CSS GPU uniquement, jamais de re-rendu
+        if (window._appliquerZoomCss) window._appliquerZoomCss(window._currentZoom || 1.0);
+        // Libérer le layer GPU composite après 300 ms
+        setTimeout(function() {
+          const container = document.getElementById('canvas-container');
+          if (container) container.style.willChange = 'auto';
+        }, 300);
       }
     }, { passive: true });
 
-    // 2. Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web)
+    // Zoom Ctrl + Molette ou Trackpad Pinch (PC / Navigateurs Web)
     window.addEventListener('wheel', function(e) {
       if ((e.ctrlKey || e.metaKey) && window._appliquerZoomCss) {
         e.preventDefault();
-        const container = document.getElementById('canvas-container');
-        if (container) {
-          container.style.transition = 'none';
-        }
         const pasZoom = 0.018;
         const direction = -Math.sign(e.deltaY);
         const currentZ = window._currentZoom || 1.0;
         const cibleZoom = currentZ * (1 + direction * pasZoom);
-        window._appliquerZoomCss(cibleZoom, e.clientX, e.clientY, false);
-        if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(90);
-        }
+        window._appliquerZoomCss(cibleZoom, e.clientX, e.clientY);
       }
     }, { passive: false });
 
-    // 3. Double-tap pour bascule rapide amortie (1.0x <-> 2.0x)
+    // Double-tap pour bascule rapide 1.0× ↔ 2.0×
     let dernierTouchEnd = 0;
     window.addEventListener('touchend', function(e) {
       if (isPinching) return;
@@ -1285,26 +936,16 @@ export default function EcranLecteurDocument() {
       if (maintenant - dernierTouchEnd < 300 && e.changedTouches && e.changedTouches.length === 1) {
         const currentZ = window._currentZoom || 1.0;
         const target = currentZ > 1.25 ? 1.0 : 2.0;
-        fixerZoomEtDimensions(target);
-        if (window._programmerReRasterisation) {
-          window._programmerReRasterisation(60);
-        }
+        if (window._appliquerZoomCss) window._appliquerZoomCss(target);
       }
       dernierTouchEnd = maintenant;
     }, { passive: true });
 
-    // Priorité absolue au scroll : Interrompre tout calcul vectoriel lourd si l'utilisateur scroll
-    window.addEventListener('scroll', () => {
-      if (window._annulerReRasterisation) {
-        window._annulerReRasterisation();
-      }
-      if (!isPinching && window._programmerReRasterisation) {
-        window._programmerReRasterisation(150);
-      }
-
+    // Scroll : notification de page courante uniquement
+    window.addEventListener('scroll', function() {
       const scrollPos = window.scrollY + window.innerHeight / 3;
       const wrappers = document.querySelectorAll('.page-wrapper');
-      wrappers.forEach((w, idx) => {
+      wrappers.forEach(function(w, idx) {
         const top = w.offsetTop;
         const height = w.offsetHeight;
         if (scrollPos >= top && scrollPos < top + height) {
