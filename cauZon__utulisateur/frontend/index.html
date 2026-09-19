@@ -96,6 +96,16 @@
         -moz-user-select: none;
         -ms-user-select: none;
         user-select: none;
+        overscroll-behavior-y: none;
+      }
+      /* Fluidité et anti-bounce WebKit iOS / Blink pour le lecteur PDF */
+      .cauzon-pdf-scroll-container {
+        width: 100% !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior-y: contain !important;
+        -webkit-touch-callout: none !important;
       }
     </style>
   </head>

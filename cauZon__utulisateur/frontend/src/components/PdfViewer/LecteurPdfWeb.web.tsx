@@ -216,15 +216,16 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         if (!container) return;
         container.innerHTML = '';
 
-        // 5. Calcul responsive de la largeur d'affichage
-        // Sur smartphone (ex: 360-420px), la marge est minimale (12px) pour maximiser la lisibilité
-        const windowWidth = window.innerWidth;
-        const isMobileScreen = windowWidth < 640;
+        // 5. Calcul responsive de la largeur d'affichage & détection WebKit iOS
+        const isWebKitIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+        const availableWidth = container.clientWidth || window.innerWidth;
+        const isMobileScreen = availableWidth < 640;
         const margeLaterale = isMobileScreen ? 12 : 32;
-        const targetContainerWidth = Math.min(windowWidth - margeLaterale, 860);
+        const targetContainerWidth = Math.min(availableWidth - margeLaterale, 860);
 
-        // Facteur de netteté haute résolution (DPR bridé à 2 pour préserver les performances GPU)
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+        // Facteur de netteté haute résolution optimisé (évite le dépassement mémoire WebKit sur iOS tout en restant ultra-net)
+        const rawDpr = window.devicePixelRatio || 1;
+        const dpr = isWebKitIOS ? Math.min(rawDpr, 1.75) : Math.min(rawDpr, 2.0);
 
         // 6. Rendu de chaque page dans un canvas HTML5 dédié
         for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
@@ -254,6 +255,8 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
           wrapper.style.borderRadius = isMobileScreen ? '4px' : '8px';
           wrapper.style.boxShadow = isMobileScreen ? '0 2px 8px rgba(0,0,0,0.1)' : '0 4px 16px rgba(0,0,0,0.12)';
           wrapper.style.overflow = 'hidden';
+          wrapper.style.setProperty('-webkit-touch-callout', 'none');
+          wrapper.style.setProperty('-webkit-user-select', 'none');
 
           // Canvas pour le dessin vectoriel
           const canvas = document.createElement('canvas');
@@ -374,6 +377,9 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
       if (observer) {
         observer.disconnect();
       }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
     };
   }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, scale, tentativeKey]);
 
@@ -388,20 +394,24 @@ export const LecteurPdfWeb: React.FC<LecteurPdfWebProps> = ({
         backgroundColor: estSombre ? '#0F172A' : '#F1F5F9',
         display: 'flex',
         flexDirection: 'column',
+        overscrollBehavior: 'none',
       }}
     >
-      {/* Conteneur de défilement des pages Canvas */}
+      {/* Conteneur de défilement des pages Canvas optimisé WebKit iOS & Android */}
       <div
         ref={containerRef}
+        className="cauzon-pdf-scroll-container"
         style={{
           flex: 1,
           width: '100%',
           maxWidth: '100vw',
           height: '100%',
           overflowY: 'auto',
-          overflowX: 'auto',
+          overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
-          touchAction: 'pan-x pan-y pinch-zoom',
+          overscrollBehaviorY: 'contain',
+          overscrollBehaviorX: 'none',
+          touchAction: 'pan-y pinch-zoom',
           display: chargement || erreur ? 'none' : 'flex',
           flexDirection: 'column',
           alignItems: 'center',

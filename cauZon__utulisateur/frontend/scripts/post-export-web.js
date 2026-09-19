@@ -76,10 +76,20 @@ if (fs.existsSync(htmlFile)) {
     ` -moz-user-select: none !important;` +
     ` -ms-user-select: none !important;` +
     ` user-select: none !important;` +
+    ` overscroll-behavior-y: none !important;` +
     `}` +
     `/* Empêcher React Native Web de tuer le défilement mobile */` +
     `div[style*="touch-action: none"] {` +
     ` touch-action: pan-y !important;` +
+    `}` +
+    `/* Fluidité et anti-bounce WebKit iOS / Blink pour le lecteur PDF */` +
+    `.cauzon-pdf-scroll-container {` +
+    ` width: 100% !important;` +
+    ` overflow-y: auto !important;` +
+    ` overflow-x: hidden !important;` +
+    ` -webkit-overflow-scrolling: touch !important;` +
+    ` overscroll-behavior-y: contain !important;` +
+    ` -webkit-touch-callout: none !important;` +
     `}` +
     `</style>`;
 
