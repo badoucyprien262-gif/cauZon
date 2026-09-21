@@ -26,6 +26,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   onError,
   onReessayer,
 }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [chargement, setChargement] = useState<boolean>(true);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
   // État de zoom explicite Desktop
   const [desktopZoom, setDesktopZoom] = useState<number>(scale || 1.0);
+  const prevPropScaleRef = useRef<number | undefined>(scale);
 
   // Références techniques
   const pdfDocRef = useRef<any>(null);
@@ -44,12 +46,15 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const renderedScalesMap = useRef<Map<number, number>>(new Map());
   const pagesVisiblesRef = useRef<Set<number>>(new Set([1]));
   const targetWidthRef = useRef<number>(860);
+  const baseWidthRef = useRef<number>(860);
+  const baseHeightRef = useRef<number>(1216);
   const desktopZoomRef = useRef<number>(scale || 1.0);
   const pageCouranteRef = useRef<number>(1);
   const zoomDebounceTimerRef = useRef<any>(null);
 
   useEffect(() => {
-    if (scale && scale !== desktopZoom) {
+    if (scale !== undefined && scale !== null && scale !== prevPropScaleRef.current) {
+      prevPropScaleRef.current = scale;
       setDesktopZoom(scale);
     }
   }, [scale]);
@@ -118,6 +123,13 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       const targetWidth = targetWidthRef.current || 860;
       const baseScale = targetWidth / unscaledViewport.width;
 
+      const pageBaseWidth = Math.round(unscaledViewport.width * baseScale);
+      const pageBaseHeight = Math.round(unscaledViewport.height * baseScale);
+      if (wrapper) {
+        wrapper.setAttribute('data-base-width', String(pageBaseWidth));
+        wrapper.setAttribute('data-base-height', String(pageBaseHeight));
+      }
+
       // Échelle globale = échelle de base (ajustée à la largeur conteneur PC) * zoom utilisateur
       const effectiveScale = baseScale * targetZoom;
 
@@ -127,8 +139,9 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
       const targetCanvasWidth = Math.floor(viewport.width);
       const targetCanvasHeight = Math.floor(viewport.height);
-      const cssWidth = Math.floor(viewport.width / dpr);
-      const cssHeight = Math.floor(viewport.height / dpr);
+      const currentZoom = desktopZoomRef.current;
+      const cssWidth = Math.floor(pageBaseWidth * currentZoom);
+      const cssHeight = Math.floor(pageBaseHeight * currentZoom);
 
       // Retirer le placeholder si encore présent
       if (wrapper) {
@@ -178,7 +191,9 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
         if (wrapper) {
           wrapper.style.width = `${cssWidth}px`;
+          wrapper.style.minWidth = `${cssWidth}px`;
           wrapper.style.height = `${cssHeight}px`;
+          wrapper.style.minHeight = `${cssHeight}px`;
           wrapper.style.maxWidth = 'none';
         }
       } else {
@@ -200,7 +215,9 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
         wrapper.appendChild(tempCanvas);
         wrapper.style.width = `${cssWidth}px`;
+        wrapper.style.minWidth = `${cssWidth}px`;
         wrapper.style.height = `${cssHeight}px`;
+        wrapper.style.minHeight = `${cssHeight}px`;
         wrapper.style.maxWidth = 'none';
 
         // Déclencher le fondu progressif de 120ms
@@ -213,10 +230,14 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         // Après la transition optique (130ms) : permutation finale et retrait propre du buffer
         setTimeout(() => {
           if (wrapper.contains(tempCanvas)) {
+            const latestZoom = desktopZoomRef.current;
+            const latestW = Math.floor(pageBaseWidth * latestZoom);
+            const latestH = Math.floor(pageBaseHeight * latestZoom);
+
             canvas.width = targetCanvasWidth;
             canvas.height = targetCanvasHeight;
-            canvas.style.width = `${cssWidth}px`;
-            canvas.style.height = `${cssHeight}px`;
+            canvas.style.width = `${latestW}px`;
+            canvas.style.height = `${latestH}px`;
 
             const mainCtx = canvas.getContext('2d', { alpha: false });
             if (mainCtx) {
@@ -283,23 +304,34 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    const targetWidth = targetWidthRef.current || 860;
-    const immediateWidth = Math.floor(targetWidth * desktopZoom);
-
-    // Mise à l'échelle CSS fluide immédiate pour éviter tout à-coup visuel
+    // Mise à l'échelle CSS fluide immédiate pour agrandissement/rétrécissement en temps réel à 60 FPS
     const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
+      const baseW = Number(w.getAttribute('data-base-width')) || baseWidthRef.current || targetWidthRef.current || 860;
+      const baseH = Number(w.getAttribute('data-base-height')) || baseHeightRef.current || Math.floor(baseW * 1.414);
+      const immediateWidth = Math.floor(baseW * desktopZoom);
+      const immediateHeight = Math.floor(baseH * desktopZoom);
+
       w.style.width = `${immediateWidth}px`;
+      w.style.minWidth = `${immediateWidth}px`;
       w.style.maxWidth = 'none';
+      w.style.height = `${immediateHeight}px`;
+      w.style.minHeight = `${immediateHeight}px`;
+
       const c = w.querySelector('canvas:not(.cauzon-crossfade-canvas)') as HTMLCanvasElement;
       if (c) {
         c.style.width = `${immediateWidth}px`;
-        c.style.height = 'auto';
+        c.style.height = `${immediateHeight}px`;
+      }
+      const crossfade = w.querySelector('.cauzon-crossfade-canvas') as HTMLCanvasElement;
+      if (crossfade) {
+        crossfade.style.width = `${immediateWidth}px`;
+        crossfade.style.height = `${immediateHeight}px`;
       }
       const tl = w.querySelector<HTMLElement>('.cauzon-text-layer');
       if (tl) {
         tl.style.width = `${immediateWidth}px`;
-        tl.style.height = 'auto';
+        tl.style.height = `${immediateHeight}px`;
       }
     });
 
@@ -327,19 +359,34 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     };
   }, [desktopZoom, rasteriserPage]);
 
-  // Support du zoom Ctrl+Molette et des raccourcis clavier
+  // Support du zoom Trackpad (pincement), Ctrl+Molette et des raccourcis clavier
   useEffect(() => {
+    const root = rootRef.current;
     const container = containerRef.current;
 
-    const onWheel = (e: WheelEvent) => {
+    const handleWheel = (e: WheelEvent) => {
+      // Si Ctrl ou Meta est enfoncé (comportement natif sous Windows/macOS pour le pincement trackpad à 2 doigts et Ctrl + Molette)
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.15 : -0.15;
-        setDesktopZoom(prev => Number(Math.min(Math.max(prev + delta, 0.5), 3.0).toFixed(2)));
+        const currentRoot = rootRef.current;
+        const currentContainer = containerRef.current;
+        const targetNode = e.target as Node;
+
+        const isInsideReader =
+          (currentRoot && (currentRoot.contains(targetNode) || (e.composedPath && e.composedPath().includes(currentRoot)))) ||
+          (currentContainer && (currentContainer.contains(targetNode) || (e.composedPath && e.composedPath().includes(currentContainer))));
+
+        if (isInsideReader) {
+          e.preventDefault();
+          const zoomDelta = e.deltaY < 0 ? 0.1 : -0.1;
+          setDesktopZoom((prevZoom) => {
+            const nextZoom = Math.min(Math.max(prevZoom + zoomDelta, 0.5), 3.0);
+            return Number(nextZoom.toFixed(2));
+          });
+        }
       }
     };
 
-    const onKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '+' || e.key === '=') {
           e.preventDefault();
@@ -354,16 +401,24 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
     };
 
-    if (container) {
-      container.addEventListener('wheel', onWheel, { passive: false });
+    if (root) {
+      root.addEventListener('wheel', handleWheel, { passive: false });
     }
-    window.addEventListener('keydown', onKeyDown);
+    if (container) {
+      container.addEventListener('wheel', handleWheel, { passive: false });
+    }
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      if (container) {
-        container.removeEventListener('wheel', onWheel);
+      if (root) {
+        root.removeEventListener('wheel', handleWheel);
       }
-      window.removeEventListener('keydown', onKeyDown);
+      if (container) {
+        container.removeEventListener('wheel', handleWheel);
+      }
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
@@ -436,6 +491,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         const baseScale = targetContainerWidth / unscaledViewport1.width;
         const defaultDisplayWidth = Math.round(unscaledViewport1.width * baseScale);
         const defaultDisplayHeight = Math.round(unscaledViewport1.height * baseScale);
+        baseWidthRef.current = defaultDisplayWidth;
+        baseHeightRef.current = defaultDisplayHeight;
         const defaultAspectRatioStr = `${unscaledViewport1.width} / ${unscaledViewport1.height}`;
 
         const wrappersElements: HTMLElement[] = [];
@@ -444,10 +501,14 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           const wrapper = document.createElement('div');
           wrapper.className = 'cauzon-page-wrapper';
           wrapper.setAttribute('data-page', String(pageNum));
+          wrapper.setAttribute('data-base-width', String(defaultDisplayWidth));
+          wrapper.setAttribute('data-base-height', String(defaultDisplayHeight));
           wrapper.style.display = 'block';
           wrapper.style.position = 'relative';
-          wrapper.style.width = `${Math.round(defaultDisplayWidth * desktopZoom)}px`;
-          wrapper.style.height = `${Math.round(defaultDisplayHeight * desktopZoom)}px`;
+          wrapper.style.width = `${Math.floor(defaultDisplayWidth * desktopZoom)}px`;
+          wrapper.style.minWidth = `${Math.floor(defaultDisplayWidth * desktopZoom)}px`;
+          wrapper.style.height = `${Math.floor(defaultDisplayHeight * desktopZoom)}px`;
+          wrapper.style.minHeight = `${Math.floor(defaultDisplayHeight * desktopZoom)}px`;
           wrapper.style.margin = '0 auto 20px auto';
           wrapper.style.backgroundColor = '#FFFFFF';
           wrapper.style.borderRadius = '8px';
@@ -613,6 +674,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
   return (
     <div
+      ref={rootRef}
       style={{
         width: '100%',
         height: '100%',
