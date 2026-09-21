@@ -107,7 +107,9 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     }
     if (!canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const rawDpr = window.devicePixelRatio || 1;
+    // Réserve de netteté initiale (sur-échantillonnage léger pour absorber sans flou les petits zooms)
+    const dpr = Math.min(Math.max(rawDpr, 1.25), 2.25);
 
     try {
       const page = pageInstance || (await pdfDoc.getPage(pageNumber));
@@ -135,7 +137,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
 
       // =========================================================================
-      // 🛡️ 1. DOUBLE-BUFFERING (Rendu hors-champ) : Ne pas effacer le canvas visible
+      // 🛡️ 1. DOUBLE-BUFFERING (Rendu hors-champ) : Tracé sur tempCanvas
       // =========================================================================
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = targetCanvasWidth;
@@ -156,27 +158,75 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       await renderTask.promise;
 
       // =========================================================================
-      // ⚡ 2. PERMUTATION INSTANTANÉE (Swap sans clignotement / zéro écran noir)
+      // ⚡ 2. TRANSITION CROSS-FADE OPTIQUE (Fondu 120ms sans effet de snap)
       // =========================================================================
-      // Ajustement des dimensions physiques et visuelles du canvas visible
-      canvas.width = targetCanvasWidth;
-      canvas.height = targetCanvasHeight;
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
+      const isPremierRendu = !renderedScalesMap.current.has(pageNumber);
 
-      // Transfert atomique en une seule passe instantanée via drawImage
-      const mainCtx = canvas.getContext('2d', { alpha: false });
-      if (mainCtx) {
-        mainCtx.imageSmoothingEnabled = true;
-        mainCtx.imageSmoothingQuality = 'high';
-        mainCtx.drawImage(tempCanvas, 0, 0);
-      }
+      if (isPremierRendu || !wrapper) {
+        // Premier affichage immédiat
+        canvas.width = targetCanvasWidth;
+        canvas.height = targetCanvasHeight;
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
 
-      // Synchroniser le wrapper de la page
-      if (wrapper) {
+        const mainCtx = canvas.getContext('2d', { alpha: false });
+        if (mainCtx) {
+          mainCtx.imageSmoothingEnabled = true;
+          mainCtx.imageSmoothingQuality = 'high';
+          mainCtx.drawImage(tempCanvas, 0, 0);
+        }
+
+        if (wrapper) {
+          wrapper.style.width = `${cssWidth}px`;
+          wrapper.style.height = `${cssHeight}px`;
+          wrapper.style.maxWidth = 'none';
+        }
+      } else {
+        // Nettoyer tout ancien canvas de transition résiduel
+        wrapper.querySelectorAll('.cauzon-crossfade-canvas').forEach(el => el.remove());
+
+        // Configurer le canvas HD pour la superposition en fondu optique
+        tempCanvas.className = 'cauzon-crossfade-canvas';
+        tempCanvas.style.position = 'absolute';
+        tempCanvas.style.left = '0';
+        tempCanvas.style.top = '0';
+        tempCanvas.style.width = `${cssWidth}px`;
+        tempCanvas.style.height = `${cssHeight}px`;
+        tempCanvas.style.opacity = '0';
+        tempCanvas.style.pointerEvents = 'none';
+        tempCanvas.style.transition = 'opacity 120ms cubic-bezier(0.4, 0, 0.2, 1)';
+        tempCanvas.style.zIndex = '4';
+        tempCanvas.style.setProperty('image-rendering', '-webkit-optimize-contrast');
+
+        wrapper.appendChild(tempCanvas);
         wrapper.style.width = `${cssWidth}px`;
         wrapper.style.height = `${cssHeight}px`;
         wrapper.style.maxWidth = 'none';
+
+        // Déclencher le fondu progressif de 120ms
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            tempCanvas.style.opacity = '1';
+          });
+        });
+
+        // Après la transition optique (130ms) : permutation finale et retrait propre du buffer
+        setTimeout(() => {
+          if (wrapper.contains(tempCanvas)) {
+            canvas.width = targetCanvasWidth;
+            canvas.height = targetCanvasHeight;
+            canvas.style.width = `${cssWidth}px`;
+            canvas.style.height = `${cssHeight}px`;
+
+            const mainCtx = canvas.getContext('2d', { alpha: false });
+            if (mainCtx) {
+              mainCtx.imageSmoothingEnabled = true;
+              mainCtx.imageSmoothingQuality = 'high';
+              mainCtx.drawImage(tempCanvas, 0, 0);
+            }
+            tempCanvas.remove();
+          }
+        }, 130);
       }
 
       renderedScalesMap.current.set(pageNumber, targetZoom);
@@ -241,7 +291,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     wrappers.forEach(w => {
       w.style.width = `${immediateWidth}px`;
       w.style.maxWidth = 'none';
-      const c = w.querySelector('canvas');
+      const c = w.querySelector('canvas:not(.cauzon-crossfade-canvas)') as HTMLCanvasElement;
       if (c) {
         c.style.width = `${immediateWidth}px`;
         c.style.height = 'auto';
@@ -591,10 +641,12 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           margin: 0 auto 20px auto !important;
           position: relative !important;
           box-sizing: border-box !important;
+          image-rendering: -webkit-optimize-contrast !important;
         }
         .cauzon-page-wrapper canvas {
           display: block !important;
           margin: 0 auto !important;
+          image-rendering: -webkit-optimize-contrast !important;
         }
         .cauzon-text-layer {
           position: absolute;
