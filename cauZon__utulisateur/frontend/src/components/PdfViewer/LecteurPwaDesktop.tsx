@@ -75,7 +75,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     setDesktopZoom(1.0);
   }, []);
 
-  // 🎯 Rendu vectoriel haute netteté Canvas + TextLayer
+  // 🎯 Rendu vectoriel haute netteté Canvas + TextLayer via Double-Buffering (zéro clignotement / flicker-free)
   const rasteriserPage = useCallback(async (
     pageNumber: number,
     targetZoom: number,
@@ -107,8 +107,6 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     }
     if (!canvas) return;
 
-    const context = canvas.getContext('2d', { alpha: false });
-    if (!context) return;
     const dpr = window.devicePixelRatio || 1;
 
     try {
@@ -125,39 +123,62 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       const viewport = page.getViewport({ scale: effectiveScale * dpr });
       const cssViewport = page.getViewport({ scale: effectiveScale });
 
-      // Retirer le placeholder
+      const targetCanvasWidth = Math.floor(viewport.width);
+      const targetCanvasHeight = Math.floor(viewport.height);
+      const cssWidth = Math.floor(viewport.width / dpr);
+      const cssHeight = Math.floor(viewport.height / dpr);
+
+      // Retirer le placeholder si encore présent
       if (wrapper) {
         const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
         if (placeholder) placeholder.remove();
       }
 
-      // 3. Résolution physique réelle du canvas (matrice de pixels nette sans flou)
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
+      // =========================================================================
+      // 🛡️ 1. DOUBLE-BUFFERING (Rendu hors-champ) : Ne pas effacer le canvas visible
+      // =========================================================================
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = targetCanvasWidth;
+      tempCanvas.height = targetCanvasHeight;
 
-      // 4. Dimensions CSS visuelles
-      const cssWidth = Math.floor(viewport.width / dpr);
-      const cssHeight = Math.floor(viewport.height / dpr);
+      const tempCtx = tempCanvas.getContext('2d', { alpha: false });
+      if (!tempCtx) return;
+
+      tempCtx.imageSmoothingEnabled = true;
+      tempCtx.imageSmoothingQuality = 'high';
+
+      // Tracé PDF.js en arrière-plan sur le canvas temporaire
+      const renderTask = page.render({
+        canvasContext: tempCtx,
+        viewport: viewport,
+      });
+      renderTasks.current[pageNumber] = renderTask;
+      await renderTask.promise;
+
+      // =========================================================================
+      // ⚡ 2. PERMUTATION INSTANTANÉE (Swap sans clignotement / zéro écran noir)
+      // =========================================================================
+      // Ajustement des dimensions physiques et visuelles du canvas visible
+      canvas.width = targetCanvasWidth;
+      canvas.height = targetCanvasHeight;
       canvas.style.width = `${cssWidth}px`;
       canvas.style.height = `${cssHeight}px`;
 
-      // Synchroniser également le conteneur de la page
+      // Transfert atomique en une seule passe instantanée via drawImage
+      const mainCtx = canvas.getContext('2d', { alpha: false });
+      if (mainCtx) {
+        mainCtx.imageSmoothingEnabled = true;
+        mainCtx.imageSmoothingQuality = 'high';
+        mainCtx.drawImage(tempCanvas, 0, 0);
+      }
+
+      // Synchroniser le wrapper de la page
       if (wrapper) {
         wrapper.style.width = `${cssWidth}px`;
         wrapper.style.height = `${cssHeight}px`;
         wrapper.style.maxWidth = 'none';
       }
 
-      // 5. Rendu vectoriel direct
-      context.imageSmoothingEnabled = true;
-      context.imageSmoothingQuality = 'high';
-
-      const renderTask = page.render({
-        canvasContext: context,
-        viewport: viewport,
-      });
-      renderTasks.current[pageNumber] = renderTask;
-      await renderTask.promise;
       renderedScalesMap.current.set(pageNumber, targetZoom);
 
       // 6. Couche vectorielle TextLayer superposée (sécurisée sans copie)
