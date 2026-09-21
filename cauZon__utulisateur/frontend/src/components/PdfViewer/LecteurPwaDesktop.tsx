@@ -4,10 +4,10 @@ import { chargerPdfJs, extrairePdfBytes } from './pdfjsLoader';
 
 /**
  * LecteurPwaDesktop (Bloc 2 - PWA PC / Bureau)
- * - Rendu Canvas haute définition
- * - Couche vectorielle TextLayer superposée
- * - Protection anti-copie stricte (user-select: none, pointer-events: none)
- * - Navigation clavier et zoom fluide
+ * - Rendu vectoriel haute netteté au zoom (re-rastérisation physique immédiate avec DPR réel)
+ * - Détection du zoom : Boutons flottants, raccourcis clavier (Ctrl+, Ctrl-, Ctrl0) et Ctrl+Molette
+ * - Debounce 180ms pour fluidité absolue
+ * - Couche vectorielle TextLayer superposée anti-copie (user-select: none, pointer-events: none)
  */
 export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -32,19 +32,25 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const [pageCourante, setPageCourante] = useState<number>(1);
   const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(0);
   const [tentativeKey, setTentativeKey] = useState<number>(0);
-  const [zoomActif, setZoomActif] = useState<number>(scale || 1.0);
 
+  // État de zoom explicite Desktop
+  const [desktopZoom, setDesktopZoom] = useState<number>(scale || 1.0);
+
+  // Références techniques
   const pdfDocRef = useRef<any>(null);
-  const pageRenderTasks = useRef<{ [pageNumber: number]: any }>({});
+  const renderTasks = useRef<{ [pageNumber: number]: any }>({});
+  const canvasRefs = useRef<{ [pageNumber: number]: HTMLCanvasElement }>({});
+  const wrapperRefs = useRef<{ [pageNumber: number]: HTMLElement }>({});
   const renderedScalesMap = useRef<Map<number, number>>(new Map());
   const pagesVisiblesRef = useRef<Set<number>>(new Set([1]));
   const targetWidthRef = useRef<number>(860);
-  const zoomActifRef = useRef<number>(scale || 1.0);
+  const desktopZoomRef = useRef<number>(scale || 1.0);
+  const pageCouranteRef = useRef<number>(1);
   const zoomDebounceTimerRef = useRef<any>(null);
 
   useEffect(() => {
-    if (scale && scale !== zoomActif) {
-      setZoomActif(scale);
+    if (scale && scale !== desktopZoom) {
+      setDesktopZoom(scale);
     }
   }, [scale]);
 
@@ -58,144 +64,158 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   }, [onReessayer]);
 
   const zoomer = useCallback(() => {
-    setZoomActif(prev => Math.min(Number((prev + 0.2).toFixed(2)), 2.5));
+    setDesktopZoom(prev => Math.min(Number((prev + 0.2).toFixed(2)), 3.0));
   }, []);
 
   const dezoomer = useCallback(() => {
-    setZoomActif(prev => Math.max(Number((prev - 0.2).toFixed(2)), 0.75));
+    setDesktopZoom(prev => Math.max(Number((prev - 0.2).toFixed(2)), 0.5));
   }, []);
 
   const reinitialiserZoom = useCallback(() => {
-    setZoomActif(1.0);
+    setDesktopZoom(1.0);
   }, []);
 
-  // Rendu d'une page : Canvas graphique HD + Couche TextLayer vectorielle
+  // 🎯 Rendu vectoriel haute netteté Canvas + TextLayer
   const rasteriserPage = useCallback(async (
     pageNumber: number,
-    wrapper: HTMLElement,
-    currentZoomScale: number,
+    targetZoom: number,
     pageInstance?: any
   ) => {
     const pdfDoc = pdfDocRef.current;
     if (!pdfDoc) return;
 
-    // 1. Annuler impérativement la tâche précédente sur ce canvas
-    if (pageRenderTasks.current[pageNumber]) {
+    // 1. Annuler impérativement la tâche précédente si elle tourne
+    if (renderTasks.current[pageNumber]) {
       try {
-        pageRenderTasks.current[pageNumber].cancel();
-      } catch (_) {}
-      delete pageRenderTasks.current[pageNumber];
+        renderTasks.current[pageNumber].cancel();
+      } catch (e) {}
+      delete renderTasks.current[pageNumber];
     }
+
+    const wrapper = wrapperRefs.current[pageNumber];
+    let canvas = canvasRefs.current[pageNumber];
+    if (!canvas && wrapper) {
+      canvas = wrapper.querySelector('canvas') as HTMLCanvasElement;
+      if (canvas) canvasRefs.current[pageNumber] = canvas;
+    }
+    if (!canvas && wrapper) {
+      canvas = document.createElement('canvas');
+      canvas.style.display = 'block';
+      canvas.style.margin = '0 auto';
+      wrapper.appendChild(canvas);
+      canvasRefs.current[pageNumber] = canvas;
+    }
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return;
+    const dpr = window.devicePixelRatio || 1;
 
     try {
       const page = pageInstance || (await pdfDoc.getPage(pageNumber));
       const unscaledViewport = page.getViewport({ scale: 1.0 });
 
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
       const targetWidth = targetWidthRef.current || 860;
       const baseScale = targetWidth / unscaledViewport.width;
-      const effectiveScale = baseScale * currentZoomScale;
 
-      // Viewport pour le rendu graphique (en pixels physiques)
-      const renderViewport = page.getViewport({ scale: effectiveScale * dpr });
-      // Viewport pour le texte CSS (en pixels CSS)
+      // Échelle globale = échelle de base (ajustée à la largeur conteneur PC) * zoom utilisateur
+      const effectiveScale = baseScale * targetZoom;
+
+      // 2. Viewport vectoriel PDF.js incluant le DPR
+      const viewport = page.getViewport({ scale: effectiveScale * dpr });
       const cssViewport = page.getViewport({ scale: effectiveScale });
 
       // Retirer le placeholder
-      const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
-      if (placeholder) placeholder.remove();
-
-      // Préparer ou réutiliser le canvas
-      let canvas = wrapper.querySelector('canvas') as HTMLCanvasElement;
-      if (!canvas) {
-        canvas = document.createElement('canvas');
-        canvas.style.display = 'block';
-        canvas.style.margin = '0 auto';
-        wrapper.appendChild(canvas);
+      if (wrapper) {
+        const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
+        if (placeholder) placeholder.remove();
       }
 
-      const cssWidth = Math.floor(cssViewport.width);
-      const cssHeight = Math.floor(cssViewport.height);
+      // 3. Résolution physique réelle du canvas (matrice de pixels nette sans flou)
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
 
-      canvas.width = Math.floor(renderViewport.width);
-      canvas.height = Math.floor(renderViewport.height);
+      // 4. Dimensions CSS visuelles
+      const cssWidth = Math.floor(viewport.width / dpr);
+      const cssHeight = Math.floor(viewport.height / dpr);
       canvas.style.width = `${cssWidth}px`;
       canvas.style.height = `${cssHeight}px`;
 
-      wrapper.style.width = `${cssWidth}px`;
-      wrapper.style.maxWidth = 'none';
+      // Synchroniser également le conteneur de la page
+      if (wrapper) {
+        wrapper.style.width = `${cssWidth}px`;
+        wrapper.style.height = `${cssHeight}px`;
+        wrapper.style.maxWidth = 'none';
+      }
 
-      // Rendu Canvas
-      const ctx = canvas.getContext('2d', { alpha: false });
-      if (!ctx) return;
-
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      // 5. Rendu vectoriel direct
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
 
       const renderTask = page.render({
-        canvasContext: ctx,
-        viewport: renderViewport,
+        canvasContext: context,
+        viewport: viewport,
       });
-      pageRenderTasks.current[pageNumber] = renderTask;
-
+      renderTasks.current[pageNumber] = renderTask;
       await renderTask.promise;
-      renderedScalesMap.current.set(pageNumber, currentZoomScale);
+      renderedScalesMap.current.set(pageNumber, targetZoom);
 
-      // 2. Injection de la couche TextLayer vectorielle (sécurisée sans copie)
+      // 6. Couche vectorielle TextLayer superposée (sécurisée sans copie)
       try {
         const textContent = await page.getTextContent();
-        let textLayerDiv = wrapper.querySelector('.cauzon-text-layer') as HTMLDivElement;
-        if (!textLayerDiv) {
-          textLayerDiv = document.createElement('div');
-          textLayerDiv.className = 'textLayer cauzon-text-layer';
-          wrapper.appendChild(textLayerDiv);
-        }
-        textLayerDiv.innerHTML = '';
-        textLayerDiv.style.position = 'absolute';
-        textLayerDiv.style.left = '0';
-        textLayerDiv.style.top = '0';
-        textLayerDiv.style.width = `${cssWidth}px`;
-        textLayerDiv.style.height = `${cssHeight}px`;
-        textLayerDiv.style.overflow = 'hidden';
-        textLayerDiv.style.pointerEvents = 'none';
-        textLayerDiv.style.setProperty('user-select', 'none', 'important');
-        textLayerDiv.style.setProperty('-webkit-user-select', 'none', 'important');
+        if (wrapper) {
+          let textLayerDiv = wrapper.querySelector('.cauzon-text-layer') as HTMLDivElement;
+          if (!textLayerDiv) {
+            textLayerDiv = document.createElement('div');
+            textLayerDiv.className = 'textLayer cauzon-text-layer';
+            wrapper.appendChild(textLayerDiv);
+          }
+          textLayerDiv.innerHTML = '';
+          textLayerDiv.style.position = 'absolute';
+          textLayerDiv.style.left = '0';
+          textLayerDiv.style.top = '0';
+          textLayerDiv.style.width = `${cssWidth}px`;
+          textLayerDiv.style.height = `${cssHeight}px`;
+          textLayerDiv.style.overflow = 'hidden';
+          textLayerDiv.style.pointerEvents = 'none';
+          textLayerDiv.style.setProperty('user-select', 'none', 'important');
+          textLayerDiv.style.setProperty('-webkit-user-select', 'none', 'important');
 
-        const pdfjs = (window as any).pdfjsLib;
-        if (pdfjs && typeof pdfjs.renderTextLayer === 'function') {
-          const textTask = pdfjs.renderTextLayer({
-            textContentSource: textContent,
-            container: textLayerDiv,
-            viewport: cssViewport,
-            textDivs: [],
-          });
-          if (textTask && textTask.promise) {
-            await textTask.promise;
+          const pdfjs = (window as any).pdfjsLib;
+          if (pdfjs && typeof pdfjs.renderTextLayer === 'function') {
+            const textTask = pdfjs.renderTextLayer({
+              textContentSource: textContent,
+              container: textLayerDiv,
+              viewport: cssViewport,
+              textDivs: [],
+            });
+            if (textTask && textTask.promise) {
+              await textTask.promise;
+            }
           }
         }
-      } catch (textErr) {
-        // Le canvas assure l'affichage visuel en cas d'erreur de la textLayer
-      }
+      } catch (_) {}
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
-        console.warn(`[LecteurPwaDesktop] Échec rendu page ${pageNumber} :`, err);
+        console.warn(`[LecteurPwaDesktop] Échec rendu vectoriel page ${pageNumber} :`, err);
       }
     } finally {
-      if (pageRenderTasks.current[pageNumber]) {
-        delete pageRenderTasks.current[pageNumber];
+      if (renderTasks.current[pageNumber]) {
+        delete renderTasks.current[pageNumber];
       }
     }
   }, []);
 
-  // Zoom réactif : mise à jour instantanée CSS + re-rastérisation vectorielle HD (Debounce 250ms)
+  // 🚀 Zoom réactif : réponse visuelle immédiate (60 FPS) + Re-rastérisation vectorielle HD (Debounce 180ms)
   useEffect(() => {
-    zoomActifRef.current = zoomActif;
+    desktopZoomRef.current = desktopZoom;
     const container = containerRef.current;
     if (!container) return;
 
     const targetWidth = targetWidthRef.current || 860;
-    const immediateWidth = Math.floor(targetWidth * zoomActif);
+    const immediateWidth = Math.floor(targetWidth * desktopZoom);
 
+    // Mise à l'échelle CSS fluide immédiate pour éviter tout à-coup visuel
     const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
       w.style.width = `${immediateWidth}px`;
@@ -212,6 +232,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
     });
 
+    // Debounce de 180ms pour stabiliser avant la re-rastérisation vectorielle complète
     if (zoomDebounceTimerRef.current) {
       clearTimeout(zoomDebounceTimerRef.current);
     }
@@ -220,23 +241,60 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       if (!pdfDocRef.current) return;
       const pages = pagesVisiblesRef.current.size > 0
         ? Array.from(pagesVisiblesRef.current)
-        : [pageCourante];
+        : [pageCouranteRef.current || 1];
 
       pages.forEach(pNum => {
-        const wrapper = container.querySelector<HTMLElement>(`.cauzon-page-wrapper[data-page="${pNum}"]`);
-        if (wrapper) {
-          const renderedScale = renderedScalesMap.current.get(pNum);
-          if (renderedScale !== zoomActif) {
-            rasteriserPage(pNum, wrapper, zoomActif);
-          }
+        const renderedScale = renderedScalesMap.current.get(pNum);
+        if (renderedScale !== desktopZoom) {
+          rasteriserPage(pNum, desktopZoom);
         }
       });
-    }, 250);
+    }, 180);
 
     return () => {
       if (zoomDebounceTimerRef.current) clearTimeout(zoomDebounceTimerRef.current);
     };
-  }, [zoomActif, rasteriserPage, pageCourante]);
+  }, [desktopZoom, rasteriserPage]);
+
+  // Support du zoom Ctrl+Molette et des raccourcis clavier
+  useEffect(() => {
+    const container = containerRef.current;
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+        setDesktopZoom(prev => Number(Math.min(Math.max(prev + delta, 0.5), 3.0).toFixed(2)));
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          setDesktopZoom(prev => Math.min(Number((prev + 0.2).toFixed(2)), 3.0));
+        } else if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          setDesktopZoom(prev => Math.max(Number((prev - 0.2).toFixed(2)), 0.5));
+        } else if (e.key === '0') {
+          e.preventDefault();
+          setDesktopZoom(1.0);
+        }
+      }
+    };
+
+    if (container) {
+      container.addEventListener('wheel', onWheel, { passive: false });
+    }
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      if (container) {
+        container.removeEventListener('wheel', onWheel);
+      }
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
 
   // Chargement et initialisation du document
   useEffect(() => {
@@ -317,7 +375,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           wrapper.setAttribute('data-page', String(pageNum));
           wrapper.style.display = 'block';
           wrapper.style.position = 'relative';
-          wrapper.style.width = `${Math.round(defaultDisplayWidth * zoomActif)}px`;
+          wrapper.style.width = `${Math.round(defaultDisplayWidth * desktopZoom)}px`;
+          wrapper.style.height = `${Math.round(defaultDisplayHeight * desktopZoom)}px`;
           wrapper.style.margin = '0 auto 20px auto';
           wrapper.style.backgroundColor = '#FFFFFF';
           wrapper.style.borderRadius = '8px';
@@ -325,6 +384,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           wrapper.style.overflow = 'hidden';
           wrapper.style.setProperty('user-select', 'none', 'important');
           wrapper.style.setProperty('-webkit-user-select', 'none', 'important');
+
+          wrapperRefs.current[pageNum] = wrapper;
 
           const placeholder = document.createElement('div');
           placeholder.className = 'cauzon-page-placeholder';
@@ -400,7 +461,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         }
 
         // Rendu prioritaire Page 1
-        await rasteriserPage(1, wrappersElements[0], zoomActif, page1);
+        await rasteriserPage(1, desktopZoom, page1);
         if (!actif) return;
 
         setChargement(false);
@@ -414,8 +475,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
                 if (pageAttr) {
                   const pNum = parseInt(pageAttr, 10);
                   const renderedScale = renderedScalesMap.current.get(pNum);
-                  if (renderedScale === undefined || renderedScale !== zoomActifRef.current) {
-                    rasteriserPage(pNum, entry.target as HTMLElement, zoomActifRef.current);
+                  if (renderedScale === undefined || renderedScale !== desktopZoomRef.current) {
+                    rasteriserPage(pNum, desktopZoomRef.current);
                   }
                 }
               }
@@ -435,6 +496,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
                 if (entry.isIntersecting) {
                   pagesVisiblesRef.current.add(pNum);
                   setPageCourante(pNum);
+                  pageCouranteRef.current = pNum;
                   onPageChange?.(pNum, totalPages);
                 } else {
                   pagesVisiblesRef.current.delete(pNum);
@@ -463,10 +525,12 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       if (lazyObserver) lazyObserver.disconnect();
       if (pageObserver) pageObserver.disconnect();
 
-      Object.keys(pageRenderTasks.current).forEach(key => {
-        try { pageRenderTasks.current[Number(key)]?.cancel(); } catch (_) {}
+      Object.keys(renderTasks.current).forEach(key => {
+        try { renderTasks.current[Number(key)]?.cancel(); } catch (_) {}
       });
-      pageRenderTasks.current = {};
+      renderTasks.current = {};
+      canvasRefs.current = {};
+      wrapperRefs.current = {};
       pagesVisiblesRef.current.clear();
       renderedScalesMap.current.clear();
 
@@ -624,7 +688,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         </div>
       )}
 
-      {/* Barre d'outils flottante Desktop */}
+      {/* Barre d'outils flottante Desktop avec indicateur de raccourcis */}
       {!chargement && !erreur && nombrePagesTotal > 0 && (
         <div
           style={{
@@ -632,48 +696,50 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
             bottom: '24px',
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+            backgroundColor: 'rgba(15, 23, 42, 0.94)',
             color: '#FFFFFF',
-            padding: '6px 12px',
+            padding: '6px 14px',
             borderRadius: '30px',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
-            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)',
+            gap: '10px',
+            boxShadow: '0 8px 30px rgba(0, 0, 0, 0.40)',
             zIndex: 30,
             backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
+            border: '1px solid rgba(255, 255, 255, 0.18)',
           }}
         >
+          {/* Dézoomer */}
           <button
             onClick={dezoomer}
-            disabled={zoomActif <= 0.75}
+            disabled={desktopZoom <= 0.5}
             style={{
               background: 'rgba(255, 255, 255, 0.12)',
               border: 'none',
-              color: zoomActif <= 0.75 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              color: desktopZoom <= 0.5 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
               width: '32px',
               height: '32px',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: zoomActif <= 0.75 ? 'default' : 'pointer',
+              cursor: desktopZoom <= 0.5 ? 'default' : 'pointer',
               fontSize: '18px',
               fontWeight: 800,
             }}
-            title="Dézoomer (-)"
+            title="Dézoomer (Ctrl -)"
           >
             −
           </button>
 
+          {/* Pastille page et reset zoom */}
           <button
             onClick={reinitialiserZoom}
             style={{
               background: 'none',
               border: 'none',
               color: '#FFFFFF',
-              padding: '4px 12px',
+              padding: '4px 10px',
               fontSize: '13px',
               fontWeight: 700,
               cursor: 'pointer',
@@ -681,43 +747,44 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
               alignItems: 'center',
               gap: '6px',
             }}
-            title="Cliquer pour réinitialiser le zoom"
+            title="Cliquer pour réinitialiser à 100% (Ctrl 0)"
           >
             <span>Page {pageCourante} / {nombrePagesTotal}</span>
-            {zoomActif !== 1.0 && (
+            {desktopZoom !== 1.0 && (
               <span
                 style={{
-                  backgroundColor: 'rgba(56, 189, 248, 0.22)',
+                  backgroundColor: 'rgba(56, 189, 248, 0.25)',
                   color: '#38BDF8',
-                  padding: '2px 7px',
+                  padding: '2px 8px',
                   borderRadius: '8px',
                   fontSize: '11px',
                   fontWeight: 800,
                 }}
               >
-                {Math.round(zoomActif * 100)}%
+                {Math.round(desktopZoom * 100)}%
               </span>
             )}
           </button>
 
+          {/* Zoomer */}
           <button
             onClick={zoomer}
-            disabled={zoomActif >= 2.5}
+            disabled={desktopZoom >= 3.0}
             style={{
               background: 'rgba(255, 255, 255, 0.12)',
               border: 'none',
-              color: zoomActif >= 2.5 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              color: desktopZoom >= 3.0 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
               width: '32px',
               height: '32px',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: zoomActif >= 2.5 ? 'default' : 'pointer',
+              cursor: desktopZoom >= 3.0 ? 'default' : 'pointer',
               fontSize: '18px',
               fontWeight: 800,
             }}
-            title="Zoomer (+)"
+            title="Zoomer (Ctrl + ou Ctrl+Molette)"
           >
             +
           </button>
