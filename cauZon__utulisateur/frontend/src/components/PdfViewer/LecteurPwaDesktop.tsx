@@ -54,6 +54,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const desktopZoomRef = useRef<number>(scale || 1.0);
   const pagesLayerRef = useRef<HTMLDivElement | null>(null);
   const focalPointRef = useRef<{ clientX: number; clientY: number; cursorX: number; cursorY: number; focalX: number; focalY: number } | null>(null);
+  const targetWrapperRef = useRef<HTMLElement | null>(null);
   const isGestureActiveRef = useRef<boolean>(false);
   const pageCouranteRef = useRef<number>(1);
   const zoomDebounceTimerRef = useRef<any>(null);
@@ -285,34 +286,29 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     }
   }, []);
 
-  // 🎯 Stabilisation et re-rastérisation vectorielle HD (synchronisation géométrique + reset GPU doux)
+  // 🎯 Stabilisation et re-rastérisation vectorielle HD (handoff synchrone atomique zéro layout shift)
   const commettreZoomStabilisation = useCallback((targetZoom: number) => {
     const container = containerRef.current;
     const pagesLayer = pagesLayerRef.current;
     if (!container || !pagesLayer || !pdfDocRef.current) return;
 
-    const oldCommittedZoom = committedZoomRef.current || 1.0;
     const newZoom = Number(Math.min(Math.max(targetZoom, 0.5), 3.0).toFixed(2));
-    const ratio = newZoom / oldCommittedZoom;
 
-    // 1. Calcul du repositionnement du scroll selon le point focal
-    let newScrollLeft = container.scrollLeft;
-    let newScrollTop = container.scrollTop;
+    // Cible de référence géométrique pour annuler tout décalage au handoff (pixel-parfait)
+    const targetWrapper =
+      targetWrapperRef.current ||
+      wrapperRefs.current[pageCouranteRef.current] ||
+      pagesLayer.querySelector<HTMLElement>('.cauzon-page-wrapper');
+    const rectBefore = targetWrapper ? targetWrapper.getBoundingClientRect() : null;
 
-    if (focalPointRef.current) {
-      const { cursorX, cursorY, focalX, focalY } = focalPointRef.current;
-      newScrollLeft = cursorX * ratio - focalX;
-      newScrollTop = cursorY * ratio - focalY;
-    }
+    console.log('HANDOFF CHECK:', {
+      prevTransform: pagesLayer.style.transform,
+      origin: pagesLayer.style.transformOrigin,
+      scrollTopBefore: container.scrollTop,
+      rectBefore: rectBefore ? { top: rectBefore.top, left: rectBefore.left } : null,
+    });
 
-    // 2. Synchronisation géométrique en une seule frame
-    // Réinitialisation douce du transform GPU à scale3d(1, 1, 1)
-    pagesLayer.style.transition = 'none';
-    pagesLayer.style.transform = 'scale3d(1, 1, 1)';
-    pagesLayer.style.willChange = 'auto';
-    pagesLayer.style.transformOrigin = 'center top';
-
-    // Mise à jour de la taille géométrique des wrappers et canvas
+    // 1. Mise à jour de la taille géométrique physique des wrappers et canvas
     const wrappers = pagesLayer.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
       const baseW = Number(w.getAttribute('data-base-width')) || baseWidthRef.current || targetWidthRef.current || 860;
@@ -343,10 +339,28 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
     });
 
-    // Appliquer le nouveau scroll compensé pour conserver le point focal
-    if (focalPointRef.current) {
-      container.scrollLeft = Math.max(0, Math.floor(newScrollLeft));
-      container.scrollTop = Math.max(0, Math.floor(newScrollTop));
+    // 2. Réinitialisation synchrone du transform GPU à l'état neutre
+    pagesLayer.style.transition = 'none';
+    pagesLayer.style.transform = 'none';
+    pagesLayer.style.transformOrigin = 'top left';
+    pagesLayer.style.willChange = 'auto';
+
+    // 3. Compensation instantanée du défilement dans le même bloc synchrone pour garantir diff < 0.5px
+    if (targetWrapper && rectBefore) {
+      const rectNow = targetWrapper.getBoundingClientRect();
+      const deltaY = rectNow.top - rectBefore.top;
+      const deltaX = rectNow.left - rectBefore.left;
+
+      container.scrollTop = Math.max(0, Math.round(container.scrollTop + deltaY));
+      container.scrollLeft = Math.max(0, Math.round(container.scrollLeft + deltaX));
+
+      const rectAfter = targetWrapper.getBoundingClientRect();
+      console.log('HANDOFF RESULT:', {
+        topBefore: rectBefore.top,
+        topAfter: rectAfter.top,
+        diffY: rectAfter.top - rectBefore.top,
+        diffX: rectAfter.left - rectBefore.left,
+      });
     }
 
     // Mettre à jour les références et l'état
@@ -355,10 +369,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     desktopZoomRef.current = newZoom;
     setDesktopZoom(newZoom);
     setVisualZoomPercent(Math.round(newZoom * 100));
+    targetWrapperRef.current = null;
     focalPointRef.current = null;
     isGestureActiveRef.current = false;
 
-    // 3. Re-rastérisation vectorielle HD des pages visibles
+    // 4. Re-rastérisation vectorielle HD des pages visibles
     const pages = pagesVisiblesRef.current.size > 0
       ? Array.from(pagesVisiblesRef.current)
       : [pageCouranteRef.current || 1];
@@ -390,6 +405,9 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     const cursorX = focalX + container.scrollLeft;
     const cursorY = focalY + container.scrollTop;
     focalPointRef.current = { clientX: 0, clientY: 0, cursorX, cursorY, focalX, focalY };
+    targetWrapperRef.current =
+      wrapperRefs.current[pageCouranteRef.current] ||
+      pagesLayer.querySelector<HTMLElement>('.cauzon-page-wrapper');
     isGestureActiveRef.current = true;
 
     const committedZoom = committedZoomRef.current || 1.0;
@@ -459,6 +477,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           const cursorX = focalX + currentContainer.scrollLeft;
           const cursorY = focalY + currentContainer.scrollTop;
           focalPointRef.current = { clientX: e.clientX, clientY: e.clientY, cursorX, cursorY, focalX, focalY };
+          const elUnderCursor = typeof document !== 'undefined' && document.elementFromPoint
+            ? document.elementFromPoint(e.clientX, e.clientY)
+            : null;
+          targetWrapperRef.current = (elUnderCursor?.closest('.cauzon-page-wrapper') as HTMLElement) ||
+                                     wrapperRefs.current[pageCouranteRef.current] || null;
 
           // Configuration matérielle GPU immédiate sans transition pour réactivité 1:1
           pagesLayer.style.transition = 'none';
@@ -816,6 +839,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           height: 100% !important;
           overflow-y: auto !important;
           overflow-x: auto !important;
+          overflow-anchor: none !important;
           padding: 24px 24px 100px 24px !important;
           box-sizing: border-box !important;
         }
@@ -871,7 +895,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         className="cauzon-desktop-scroll-container"
         style={{
           display: chargement || erreur ? 'none' : 'block',
-        }}
+          overflowAnchor: 'none',
+        } as any}
       />
 
       {/* Spinner de chargement */}
