@@ -34,10 +34,96 @@ export interface DocumentCourse {
 
 
 
-let cacheCatalogueMemoire: DocumentCourse[] | null = null;
-let cacheAnnoncesMemoire: any[] | null = null;
-let cachePromoMemoire: any | null = null;
+const CLE_CACHE_ACCUEIL = 'cauzon_cache_feed_accueil';
+
+// Lecture synchrone immédiate sur le Web (PWA)
+let cacheCatalogueMemoire: DocumentCourse[] | null = (() => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(CLE_CACHE_ACCUEIL);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.documents) && parsed.documents.length > 0) {
+          return parsed.documents;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+})();
+
+let cacheAnnoncesMemoire: any[] | null = (() => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(CLE_CACHE_ACCUEIL);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.annonces)) {
+          return parsed.annonces;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+})();
+
+let cachePromoMemoire: any | null = (() => {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(CLE_CACHE_ACCUEIL);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.promoConfig) {
+          return parsed.promoConfig;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+})();
+
 let promessePrechargementAccueil: Promise<any> | null = null;
+
+// Lecture asynchrone ultra-rapide au démarrage pour React Native mobile (Android / iOS)
+export const initialiserCacheAccueilAsync = async () => {
+  if (cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
+    return {
+      documents: cacheCatalogueMemoire,
+      annonces: cacheAnnoncesMemoire || [],
+      promoConfig: cachePromoMemoire || null,
+    };
+  }
+  try {
+    const raw = await AsyncStorage.getItem(CLE_CACHE_ACCUEIL);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.documents) && parsed.documents.length > 0) {
+        cacheCatalogueMemoire = parsed.documents;
+      }
+      if (Array.isArray(parsed.annonces)) {
+        cacheAnnoncesMemoire = parsed.annonces;
+      }
+      if (parsed.promoConfig) {
+        cachePromoMemoire = parsed.promoConfig;
+      }
+    }
+  } catch (_) {}
+  return {
+    documents: cacheCatalogueMemoire,
+    annonces: cacheAnnoncesMemoire || [],
+    promoConfig: cachePromoMemoire || null,
+  };
+};
+
+const sauvegarderCacheAccueilDisque = (data: { documents: any[]; annonces: any[]; promoConfig: any }) => {
+  try {
+    const payload = JSON.stringify({ ...data, timestamp: Date.now() });
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.setItem(CLE_CACHE_ACCUEIL, payload); } catch (_) {}
+    }
+    AsyncStorage.setItem(CLE_CACHE_ACCUEIL, payload).catch(() => {});
+  } catch (_) {}
+};
 
 export const getCacheAccueilInstantane = () => ({
   documents: cacheCatalogueMemoire,
@@ -47,7 +133,8 @@ export const getCacheAccueilInstantane = () => ({
 
 /**
  * Précharge en arrière-plan toutes les données nécessaires à l'écran d'accueil
- * (Catalogue des cours, Bannières d'annonces, Configuration globale promo)
+ * Stratégie Stale-While-Revalidate : libération instantanée du cache si présent,
+ * revalidation réseau en arrière-plan sans bloquer l'animation.
  */
 export const prechargerDonneesAccueil = async (): Promise<{
   documents: DocumentCourse[];
@@ -59,25 +146,61 @@ export const prechargerDonneesAccueil = async (): Promise<{
   }
 
   promessePrechargementAccueil = (async () => {
-    try {
-      const [docs, annonces, promoRes] = await Promise.allSettled([
-        fetchCatalogueDocuments(true),
-        fetchAnnoncesActives(),
-        supabase.from('settings').select('value').eq('key', 'global_config').maybeSingle(),
-      ]);
-
-      if (docs.status === 'fulfilled') {
-        cacheCatalogueMemoire = docs.value;
-      }
-      if (annonces.status === 'fulfilled') {
-        cacheAnnoncesMemoire = annonces.value;
-      }
-      if (promoRes.status === 'fulfilled' && !promoRes.value.error && promoRes.value.data?.value) {
-        cachePromoMemoire = promoRes.value.data.value;
-      }
-    } catch (e) {
-      console.warn('[Preload] Erreur préchargement accueil (silencieux) :', e);
+    // 1. Initialisation immédiate du cache disque si mémoire vide
+    if (!cacheCatalogueMemoire || cacheCatalogueMemoire.length === 0) {
+      await initialiserCacheAccueilAsync();
     }
+
+    const aDesDonneesEnCache = Boolean(cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0);
+
+    const revaliderDepuisReseau = async () => {
+      try {
+        const timeoutReseau = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout préchargement')), 2500)
+        );
+
+        const requetes = Promise.allSettled([
+          fetchCatalogueDocuments(true, 10), // Alléger le payload JSON initial aux 10 premiers cours
+          fetchAnnoncesActives(),
+          supabase.from('settings').select('value').eq('key', 'global_config').maybeSingle(),
+        ]);
+
+        const [docs, annonces, promoRes] = await Promise.race([requetes, timeoutReseau]) as any;
+
+        if (docs?.status === 'fulfilled' && Array.isArray(docs.value)) {
+          cacheCatalogueMemoire = docs.value;
+        }
+        if (annonces?.status === 'fulfilled' && Array.isArray(annonces.value)) {
+          cacheAnnoncesMemoire = annonces.value;
+        }
+        if (promoRes?.status === 'fulfilled' && !promoRes.value.error && promoRes.value.data?.value) {
+          cachePromoMemoire = promoRes.value.data.value;
+        }
+
+        if (cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
+          sauvegarderCacheAccueilDisque({
+            documents: cacheCatalogueMemoire,
+            annonces: cacheAnnoncesMemoire || [],
+            promoConfig: cachePromoMemoire || null,
+          });
+        }
+      } catch (e) {
+        console.warn('[Preload] Requête réseau arrière-plan terminée :', e);
+      }
+    };
+
+    if (aDesDonneesEnCache) {
+      // ⚡ Stale-While-Revalidate : libération immédiate, revalidation silencieuse
+      revaliderDepuisReseau().catch(() => {});
+      return {
+        documents: cacheCatalogueMemoire || [],
+        annonces: cacheAnnoncesMemoire || [],
+        promoConfig: cachePromoMemoire || null,
+      };
+    }
+
+    // Si tout premier lancement sans cache, attendre la fin de la requête réseau (max 2.5s)
+    await revaliderDepuisReseau();
 
     return {
       documents: cacheCatalogueMemoire || [],
@@ -93,7 +216,10 @@ export const prechargerDonneesAccueil = async (): Promise<{
  * Récupère tous les documents du catalogue pour le Feed / Écran d'accueil
  * Exclut automatiquement les documents déjà acquis par cet appareil.
  */
-export const fetchCatalogueDocuments = async (forceRefresh: boolean = false): Promise<DocumentCourse[]> => {
+export const fetchCatalogueDocuments = async (
+  forceRefresh: boolean = false,
+  limitCount?: number
+): Promise<DocumentCourse[]> => {
   if (!forceRefresh && cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
     return cacheCatalogueMemoire;
   }
@@ -113,17 +239,28 @@ export const fetchCatalogueDocuments = async (forceRefresh: boolean = false): Pr
     const acquiredIds = acquisitions ? acquisitions.map(a => a.document_id).filter(Boolean) : [];
 
     // 2. Récupérer uniquement les documents non acquis
-    let query = supabase.from('documents').select('*').eq('status', 'published');
+    let query = supabase.from('documents').select('*').eq('status', 'published').order('created_at', { ascending: false });
     
     if (acquiredIds.length > 0) {
       query = query.not('id', 'in', `(${acquiredIds.join(',')})`);
+    }
+
+    if (limitCount && limitCount > 0) {
+      query = query.limit(limitCount);
     }
 
     const { data, error } = await query;
 
     if (error) throw error;
     const resultat = (data || []) as DocumentCourse[];
-    cacheCatalogueMemoire = resultat;
+    if (resultat.length > 0) {
+      cacheCatalogueMemoire = resultat;
+      sauvegarderCacheAccueilDisque({
+        documents: resultat,
+        annonces: cacheAnnoncesMemoire || [],
+        promoConfig: cachePromoMemoire || null,
+      });
+    }
     return resultat;
   } catch (error: any) {
     console.error('Erreur lors de la récupération du catalogue :', error.message);

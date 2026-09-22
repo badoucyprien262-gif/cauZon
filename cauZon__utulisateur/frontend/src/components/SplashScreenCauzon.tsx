@@ -37,61 +37,61 @@ export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) 
       if (!unmounted && onFinish) onFinish();
     }, 3500);
 
-    // 1. Séquence en cascade (Stagger) de chaque lettre (0.0s -> 0.75s)
+    // 1. Séquence en cascade (Stagger) de chaque lettre (0.0s -> 0.50s)
     const staggerAnimations = letterAnims.map((anim) =>
       Animated.parallel([
         Animated.timing(anim.opacity, {
           toValue: 1,
-          duration: 380,
+          duration: 240,
           useNativeDriver: useNative,
         }),
         Animated.timing(anim.translateX, {
           toValue: 0,
-          duration: 380,
+          duration: 240,
           useNativeDriver: useNative,
         }),
         Animated.timing(anim.scale, {
           toValue: 1,
-          duration: 380,
+          duration: 240,
           useNativeDriver: useNative,
         }),
       ])
     );
 
-    // Phase 1 : Cascade de lettres
+    // Phase 1 : Cascade vive et prestigieuse de lettres (~500ms)
     Animated.sequence([
-      Animated.stagger(70, staggerAnimations),
-      Animated.delay(180),
+      Animated.stagger(40, staggerAnimations),
+      Animated.delay(60),
     ]).start(async () => {
       if (unmounted) return;
 
-      // 🛡️ Barrière de synchronisation : attendre que les données soient prêtes (max 1.5s supplémentaire)
+      // 🛡️ Barrière de synchronisation : attendre que les données soient prêtes (max 1.2s supplémentaire)
       const startTime = Date.now();
-      while (!estPretRef.current && Date.now() - startTime < 1500) {
-        await new Promise((r) => setTimeout(r, 60));
+      while (!estPretRef.current && Date.now() - startTime < 1200) {
+        await new Promise((r) => setTimeout(r, 40));
         if (unmounted) return;
       }
 
-      // Phase 2 : Twist Zoom Immersif vers le plein écran
+      // Phase 2 : Twist Zoom Immersif vers le plein écran avec transition d'opacité fluide (200ms)
       Animated.parallel([
         Animated.timing(logoZoomScale, {
-          toValue: 4.8,
-          duration: 480,
+          toValue: 3.2,
+          duration: 200,
           useNativeDriver: useNative,
         }),
         Animated.timing(logoZoomOpacity, {
           toValue: 0,
-          duration: 450,
+          duration: 180,
           useNativeDriver: useNative,
         }),
         Animated.timing(overlayScale, {
-          toValue: 1.25,
-          duration: 520,
+          toValue: 1.08,
+          duration: 200,
           useNativeDriver: useNative,
         }),
         Animated.timing(overlayOpacity, {
           toValue: 0,
-          duration: 520,
+          duration: 200,
           useNativeDriver: useNative,
         }),
       ]).start(() => {

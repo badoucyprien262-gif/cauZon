@@ -35,14 +35,14 @@ export default function App() {
   const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
 
-  // 🚀 Barrière de synchronisation UX : Préchargement synchronisé de l'accueil
+  // 🚀 Barrière de synchronisation UX : Démarrage ultra-rapide (< 650-850ms)
   useEffect(() => {
     async function synchroniserDemarrage() {
       try {
         await Promise.all([
-          // Durée minimale d'animation élégante
-          new Promise((resolve) => setTimeout(resolve, 1200)),
-          // Préchargement immédiat du catalogue, des annonces et de la configuration promo
+          // Durée plancher réduite pour permettre au logo de s'exprimer sans bloquer inutilement
+          new Promise((resolve) => setTimeout(resolve, 300)),
+          // Préchargement immédiat Stale-While-Revalidate (instantané dès présence de cache)
           prechargerDonneesAccueil(),
         ]);
       } catch (err) {

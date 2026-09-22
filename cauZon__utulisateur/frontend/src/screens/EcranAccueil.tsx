@@ -346,15 +346,31 @@ export default function EcranAccueil() {
   const loadDocuments = async () => {
     try {
       if (documents.length === 0) {
-        setLoading(true);
+        // Tenter d'injecter immédiatement le cache s'il est devenu disponible
+        const cacheInstantane = getCacheAccueilInstantane();
+        if (cacheInstantane.documents && cacheInstantane.documents.length > 0) {
+          const mapped = cacheInstantane.documents.map(mapperDbDocVersDocument);
+          setDocuments(mapped);
+          const matieresUnique = Array.from(new Set(mapped.map((d: any) => d.categorie).filter(Boolean))) as string[];
+          setCategories(['Tout', ...matieresUnique]);
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
       }
       setError(null);
 
-      // Si hors-ligne : fin immédiate sans attente inutile de réseau
+      // Si hors-ligne : préserver le cache local existant sans vider le feed
       if (estEnLigne === false) {
-        setDocuments([]);
-        setCategories(['Tout']);
-        setError("Mode Hors-ligne actif. Consultez vos cours dans la Bibliothèque.");
+        if (documents.length === 0) {
+          const cacheInstantane = getCacheAccueilInstantane();
+          if (cacheInstantane.documents && cacheInstantane.documents.length > 0) {
+            const mapped = cacheInstantane.documents.map(mapperDbDocVersDocument);
+            setDocuments(mapped);
+          } else {
+            setError("Mode Hors-ligne actif. Consultez vos cours dans la Bibliothèque.");
+          }
+        }
         setLoading(false);
         return;
       }
@@ -369,15 +385,12 @@ export default function EcranAccueil() {
         // Extraire dynamiquement les matières uniques
         const matieresUnique = Array.from(new Set(mapped.map((d: any) => d.categorie).filter(Boolean))) as string[];
         setCategories(['Tout', ...matieresUnique]);
-      } else {
-        setDocuments([]);
-        setCategories(['Tout']);
       }
     } catch (err: any) {
       console.error('Erreur Supabase, chargement des documents réels :', err);
-      setError("Impossible de charger les cours. Vérifiez votre connexion.");
-      setDocuments([]);
-      setCategories(['Tout']);
+      if (documents.length === 0) {
+        setError("Impossible de charger les cours. Vérifiez votre connexion.");
+      }
     } finally {
       setLoading(false);
     }
