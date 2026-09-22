@@ -91,10 +91,8 @@
       "EXPO_PUBLIC_FEEXPAY_MODE": "sandbox",
       "EXPO_PUBLIC_FEEXPAY_WEBHOOK_URL": "https://wdipnxewpmhdksrlisix.supabase.co/functions/v1/feexpay-webhook",
       "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "843173177415-rsjoi9cto15k6kfh80ko94g5uhqrghdj.apps.googleusercontent.com",
-      "eas": {
-        "projectId": "6ea2d2ad-3564-4d9b-9a3e-f3820d66bfa7"
-      }
+      "eas": {}
     },
-    "owner": "cyprien-dev2"
+    "owner": "cyprien-dev2s-team"
   }
 }
