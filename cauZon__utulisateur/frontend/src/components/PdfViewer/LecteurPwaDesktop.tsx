@@ -53,8 +53,8 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const baseHeightRef = useRef<number>(1216);
   const desktopZoomRef = useRef<number>(scale || 1.0);
   const pagesLayerRef = useRef<HTMLDivElement | null>(null);
-  const focalPointRef = useRef<{ clientX: number; clientY: number; cursorX: number; cursorY: number; focalX: number; focalY: number } | null>(null);
-  const targetWrapperRef = useRef<HTMLElement | null>(null);
+  const focalPointRef = useRef<{ clientX: number; clientY: number; focalX: number; focalY: number } | null>(null);
+  const refElementRef = useRef<HTMLElement | null>(null);
   const isGestureActiveRef = useRef<boolean>(false);
   const pageCouranteRef = useRef<number>(1);
   const zoomDebounceTimerRef = useRef<any>(null);
@@ -286,7 +286,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     }
   }, []);
 
-  // 🎯 Stabilisation et re-rastérisation vectorielle HD (handoff synchrone atomique zéro layout shift)
+  // 🎯 Stabilisation et re-rastérisation vectorielle HD (Continuité spatiale absolue du point focal - M_final = M_temporary)
   const commettreZoomStabilisation = useCallback((targetZoom: number) => {
     const container = containerRef.current;
     const pagesLayer = pagesLayerRef.current;
@@ -294,21 +294,41 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
 
     const newZoom = Number(Math.min(Math.max(targetZoom, 0.5), 3.0).toFixed(2));
 
-    // Cible de référence géométrique pour annuler tout décalage au handoff (pixel-parfait)
-    const targetWrapper =
-      targetWrapperRef.current ||
-      wrapperRefs.current[pageCouranteRef.current] ||
-      pagesLayer.querySelector<HTMLElement>('.cauzon-page-wrapper');
-    const rectBefore = targetWrapper ? targetWrapper.getBoundingClientRect() : null;
+    // Récupération du point focal invariant (ou centre du conteneur par défaut)
+    const cRect = container.getBoundingClientRect();
+    const focalInfo = focalPointRef.current || {
+      clientX: cRect.left + container.clientWidth / 2,
+      clientY: cRect.top + container.clientHeight / 2,
+      focalX: container.clientWidth / 2,
+      focalY: container.clientHeight / 2,
+    };
 
-    console.log('HANDOFF CHECK:', {
-      prevTransform: pagesLayer.style.transform,
-      origin: pagesLayer.style.transformOrigin,
+    // Sélection de l'élément de référence visible sous le point focal
+    let refElement = refElementRef.current;
+    if (!refElement || !refElement.isConnected) {
+      refElement = (canvasRefs.current[pageCouranteRef.current] as HTMLElement) ||
+                   (wrapperRefs.current[pageCouranteRef.current] as HTMLElement) ||
+                   pagesLayer.querySelector<HTMLElement>('.cauzon-page-wrapper');
+    }
+
+    const rectBefore = refElement ? refElement.getBoundingClientRect() : null;
+
+    // 1. Instrumentation et log synchrone d'invariance spatiale (exigé par l'audit)
+    console.log('GEO HANDOFF CHECK:', {
+      cursorViewportY: focalInfo.focalY,
+      rectBefore: rectBefore,
       scrollTopBefore: container.scrollTop,
-      rectBefore: rectBefore ? { top: rectBefore.top, left: rectBefore.left } : null,
     });
 
-    // 1. Mise à jour de la taille géométrique physique des wrappers et canvas
+    // Coordonnées affines (u, v) normalisées du point focal dans refElement à la dernière frame GPU
+    let u = 0.5;
+    let v = 0.5;
+    if (rectBefore && rectBefore.width > 0 && rectBefore.height > 0) {
+      u = (focalInfo.clientX - rectBefore.left) / rectBefore.width;
+      v = (focalInfo.clientY - rectBefore.top) / rectBefore.height;
+    }
+
+    // 2. Mise à jour de la taille géométrique physique des wrappers et canvas
     const wrappers = pagesLayer.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
       const baseW = Number(w.getAttribute('data-base-width')) || baseWidthRef.current || targetWidthRef.current || 860;
@@ -339,27 +359,33 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
     });
 
-    // 2. Réinitialisation synchrone du transform GPU à l'état neutre
+    // 3. Réinitialisation synchrone du transform GPU à l'état neutre
     pagesLayer.style.transition = 'none';
     pagesLayer.style.transform = 'none';
     pagesLayer.style.transformOrigin = 'top left';
     pagesLayer.style.willChange = 'auto';
 
-    // 3. Compensation instantanée du défilement dans le même bloc synchrone pour garantir diff < 0.5px
-    if (targetWrapper && rectBefore) {
-      const rectNow = targetWrapper.getBoundingClientRect();
-      const deltaY = rectNow.top - rectBefore.top;
-      const deltaX = rectNow.left - rectBefore.left;
+    // 4. Compensation par invariance spatiale projective absolue (< 0.5px garanti, 0 saut de repère)
+    if (refElement && rectBefore) {
+      const rectNow = refElement.getBoundingClientRect();
+      const pointNowX = rectNow.left + u * rectNow.width;
+      const pointNowY = rectNow.top + v * rectNow.height;
 
-      container.scrollTop = Math.max(0, Math.round(container.scrollTop + deltaY));
-      container.scrollLeft = Math.max(0, Math.round(container.scrollLeft + deltaX));
+      const shiftX = pointNowX - focalInfo.clientX;
+      const shiftY = pointNowY - focalInfo.clientY;
 
-      const rectAfter = targetWrapper.getBoundingClientRect();
-      console.log('HANDOFF RESULT:', {
-        topBefore: rectBefore.top,
-        topAfter: rectAfter.top,
-        diffY: rectAfter.top - rectBefore.top,
-        diffX: rectAfter.left - rectBefore.left,
+      container.scrollLeft = Math.max(0, Math.round(container.scrollLeft + shiftX));
+      container.scrollTop = Math.max(0, Math.round(container.scrollTop + shiftY));
+
+      const rectFinal = refElement.getBoundingClientRect();
+      const finalPointX = rectFinal.left + u * rectFinal.width;
+      const finalPointY = rectFinal.top + v * rectFinal.height;
+
+      console.log('GEO HANDOFF RESULT:', {
+        diffY: Number((finalPointY - focalInfo.clientY).toFixed(3)),
+        diffX: Number((finalPointX - focalInfo.clientX).toFixed(3)),
+        shiftY,
+        scrollTopAfter: container.scrollTop,
       });
     }
 
@@ -369,11 +395,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     desktopZoomRef.current = newZoom;
     setDesktopZoom(newZoom);
     setVisualZoomPercent(Math.round(newZoom * 100));
-    targetWrapperRef.current = null;
+    refElementRef.current = null;
     focalPointRef.current = null;
     isGestureActiveRef.current = false;
 
-    // 4. Re-rastérisation vectorielle HD des pages visibles
+    // 5. Re-rastérisation vectorielle HD des pages visibles
     const pages = pagesVisiblesRef.current.size > 0
       ? Array.from(pagesVisiblesRef.current)
       : [pageCouranteRef.current || 1];
@@ -400,21 +426,31 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     currentVisualZoomRef.current = nextZoom;
 
     // Point focal au centre de la zone visible
+    const rect = container.getBoundingClientRect();
     const focalX = container.clientWidth / 2;
     const focalY = container.clientHeight / 2;
-    const cursorX = focalX + container.scrollLeft;
-    const cursorY = focalY + container.scrollTop;
-    focalPointRef.current = { clientX: 0, clientY: 0, cursorX, cursorY, focalX, focalY };
-    targetWrapperRef.current =
-      wrapperRefs.current[pageCouranteRef.current] ||
-      pagesLayer.querySelector<HTMLElement>('.cauzon-page-wrapper');
+    const clientX = rect.left + focalX;
+    const clientY = rect.top + focalY;
+    focalPointRef.current = { clientX, clientY, focalX, focalY };
+
+    const elUnderCenter = typeof document !== 'undefined' && document.elementFromPoint
+      ? document.elementFromPoint(clientX, clientY)
+      : null;
+    const targetCanvas = (elUnderCenter?.closest('canvas') as HTMLElement) || null;
+    const targetWrap = (elUnderCenter?.closest('.cauzon-page-wrapper') as HTMLElement) ||
+                       wrapperRefs.current[pageCouranteRef.current] || null;
+    refElementRef.current = targetCanvas || targetWrap;
     isGestureActiveRef.current = true;
 
     const committedZoom = committedZoomRef.current || 1.0;
     const currentVisualScale = nextZoom / committedZoom;
 
-    // Animation via transition CSS douce sur 150ms
-    pagesLayer.style.transformOrigin = `${cursorX}px ${cursorY}px`;
+    // Animation via transition CSS douce sur 150ms centrée au milieu du viewport
+    const layerRect = pagesLayer.getBoundingClientRect();
+    const originX = clientX - layerRect.left;
+    const originY = clientY - layerRect.top;
+
+    pagesLayer.style.transformOrigin = `${originX.toFixed(2)}px ${originY.toFixed(2)}px`;
     pagesLayer.style.willChange = 'transform';
     pagesLayer.style.transition = 'transform 150ms cubic-bezier(0.2, 0, 0, 1)';
     pagesLayer.style.transform = `scale3d(${currentVisualScale.toFixed(4)}, ${currentVisualScale.toFixed(4)}, 1)`;
@@ -474,19 +510,24 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         // Calcul ou mémorisation du point focal au début du geste
         if (!isGestureActiveRef.current || !focalPointRef.current) {
           isGestureActiveRef.current = true;
-          const cursorX = focalX + currentContainer.scrollLeft;
-          const cursorY = focalY + currentContainer.scrollTop;
-          focalPointRef.current = { clientX: e.clientX, clientY: e.clientY, cursorX, cursorY, focalX, focalY };
+          focalPointRef.current = { clientX: e.clientX, clientY: e.clientY, focalX, focalY };
           const elUnderCursor = typeof document !== 'undefined' && document.elementFromPoint
             ? document.elementFromPoint(e.clientX, e.clientY)
             : null;
-          targetWrapperRef.current = (elUnderCursor?.closest('.cauzon-page-wrapper') as HTMLElement) ||
-                                     wrapperRefs.current[pageCouranteRef.current] || null;
+          const targetCanvas = (elUnderCursor?.closest('canvas') as HTMLElement) || null;
+          const targetWrap = (elUnderCursor?.closest('.cauzon-page-wrapper') as HTMLElement) ||
+                             wrapperRefs.current[pageCouranteRef.current] || null;
+          refElementRef.current = targetCanvas || targetWrap;
+
+          // Origine exacte dans le repère local de pagesLayer (invariance spatiale stricte)
+          const layerRect = pagesLayer.getBoundingClientRect();
+          const originX = e.clientX - layerRect.left;
+          const originY = e.clientY - layerRect.top;
 
           // Configuration matérielle GPU immédiate sans transition pour réactivité 1:1
           pagesLayer.style.transition = 'none';
           pagesLayer.style.willChange = 'transform';
-          pagesLayer.style.transformOrigin = `${cursorX}px ${cursorY}px`;
+          pagesLayer.style.transformOrigin = `${originX.toFixed(2)}px ${originY.toFixed(2)}px`;
         }
 
         // Calcul continu du zoom
