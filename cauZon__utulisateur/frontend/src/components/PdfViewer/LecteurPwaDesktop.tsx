@@ -34,8 +34,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(0);
   const [tentativeKey, setTentativeKey] = useState<number>(0);
 
-  // État de zoom explicite Desktop
+  // État de zoom explicite Desktop & affichage temps réel
   const [desktopZoom, setDesktopZoom] = useState<number>(scale || 1.0);
+  const [visualZoomPercent, setVisualZoomPercent] = useState<number>(Math.round((scale || 1.0) * 100));
+  const committedZoomRef = useRef<number>(scale || 1.0);
+  const currentVisualZoomRef = useRef<number>(scale || 1.0);
   const prevPropScaleRef = useRef<number | undefined>(scale);
 
   // Références techniques
@@ -49,15 +52,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
   const baseWidthRef = useRef<number>(860);
   const baseHeightRef = useRef<number>(1216);
   const desktopZoomRef = useRef<number>(scale || 1.0);
+  const pagesLayerRef = useRef<HTMLDivElement | null>(null);
+  const focalPointRef = useRef<{ clientX: number; clientY: number; cursorX: number; cursorY: number; focalX: number; focalY: number } | null>(null);
+  const isGestureActiveRef = useRef<boolean>(false);
   const pageCouranteRef = useRef<number>(1);
   const zoomDebounceTimerRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (scale !== undefined && scale !== null && scale !== prevPropScaleRef.current) {
-      prevPropScaleRef.current = scale;
-      setDesktopZoom(scale);
-    }
-  }, [scale]);
 
   const sourceCible = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
@@ -67,18 +66,6 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     setTentativeKey(k => k + 1);
     onReessayer?.();
   }, [onReessayer]);
-
-  const zoomer = useCallback(() => {
-    setDesktopZoom(prev => Math.min(Number((prev + 0.2).toFixed(2)), 3.0));
-  }, []);
-
-  const dezoomer = useCallback(() => {
-    setDesktopZoom(prev => Math.max(Number((prev - 0.2).toFixed(2)), 0.5));
-  }, []);
-
-  const reinitialiserZoom = useCallback(() => {
-    setDesktopZoom(1.0);
-  }, []);
 
   // 🎯 Rendu vectoriel haute netteté Canvas + TextLayer via Double-Buffering (zéro clignotement / flicker-free)
   const rasteriserPage = useCallback(async (
@@ -298,19 +285,40 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
     }
   }, []);
 
-  // 🚀 Zoom réactif : réponse visuelle immédiate (60 FPS) + Re-rastérisation vectorielle HD (Debounce 180ms)
-  useEffect(() => {
-    desktopZoomRef.current = desktopZoom;
+  // 🎯 Stabilisation et re-rastérisation vectorielle HD (synchronisation géométrique + reset GPU doux)
+  const commettreZoomStabilisation = useCallback((targetZoom: number) => {
     const container = containerRef.current;
-    if (!container) return;
+    const pagesLayer = pagesLayerRef.current;
+    if (!container || !pagesLayer || !pdfDocRef.current) return;
 
-    // Mise à l'échelle CSS fluide immédiate pour agrandissement/rétrécissement en temps réel à 60 FPS
-    const wrappers = container.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
+    const oldCommittedZoom = committedZoomRef.current || 1.0;
+    const newZoom = Number(Math.min(Math.max(targetZoom, 0.5), 3.0).toFixed(2));
+    const ratio = newZoom / oldCommittedZoom;
+
+    // 1. Calcul du repositionnement du scroll selon le point focal
+    let newScrollLeft = container.scrollLeft;
+    let newScrollTop = container.scrollTop;
+
+    if (focalPointRef.current) {
+      const { cursorX, cursorY, focalX, focalY } = focalPointRef.current;
+      newScrollLeft = cursorX * ratio - focalX;
+      newScrollTop = cursorY * ratio - focalY;
+    }
+
+    // 2. Synchronisation géométrique en une seule frame
+    // Réinitialisation douce du transform GPU à scale3d(1, 1, 1)
+    pagesLayer.style.transition = 'none';
+    pagesLayer.style.transform = 'scale3d(1, 1, 1)';
+    pagesLayer.style.willChange = 'auto';
+    pagesLayer.style.transformOrigin = 'center top';
+
+    // Mise à jour de la taille géométrique des wrappers et canvas
+    const wrappers = pagesLayer.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach(w => {
       const baseW = Number(w.getAttribute('data-base-width')) || baseWidthRef.current || targetWidthRef.current || 860;
       const baseH = Number(w.getAttribute('data-base-height')) || baseHeightRef.current || Math.floor(baseW * 1.414);
-      const immediateWidth = Math.floor(baseW * desktopZoom);
-      const immediateHeight = Math.floor(baseH * desktopZoom);
+      const immediateWidth = Math.floor(baseW * newZoom);
+      const immediateHeight = Math.floor(baseH * newZoom);
 
       w.style.width = `${immediateWidth}px`;
       w.style.minWidth = `${immediateWidth}px`;
@@ -335,31 +343,92 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       }
     });
 
-    // Debounce de 180ms pour stabiliser avant la re-rastérisation vectorielle complète
+    // Appliquer le nouveau scroll compensé pour conserver le point focal
+    if (focalPointRef.current) {
+      container.scrollLeft = Math.max(0, Math.floor(newScrollLeft));
+      container.scrollTop = Math.max(0, Math.floor(newScrollTop));
+    }
+
+    // Mettre à jour les références et l'état
+    committedZoomRef.current = newZoom;
+    currentVisualZoomRef.current = newZoom;
+    desktopZoomRef.current = newZoom;
+    setDesktopZoom(newZoom);
+    setVisualZoomPercent(Math.round(newZoom * 100));
+    focalPointRef.current = null;
+    isGestureActiveRef.current = false;
+
+    // 3. Re-rastérisation vectorielle HD des pages visibles
+    const pages = pagesVisiblesRef.current.size > 0
+      ? Array.from(pagesVisiblesRef.current)
+      : [pageCouranteRef.current || 1];
+
+    pages.forEach(pNum => {
+      rasteriserPage(pNum, newZoom);
+    });
+  }, [rasteriserPage]);
+
+  // 🚀 Animation fluide des boutons [+] et [-] via transition CSS 150ms cubic-bezier(0.2, 0, 0, 1)
+  const animerZoomBouton = useCallback((targetZoomCalcul: (prev: number) => number) => {
+    const container = containerRef.current;
+    const pagesLayer = pagesLayerRef.current;
+    if (!container || !pagesLayer) return;
+
     if (zoomDebounceTimerRef.current) {
       clearTimeout(zoomDebounceTimerRef.current);
     }
 
+    const currentZoom = currentVisualZoomRef.current || desktopZoomRef.current || 1.0;
+    const nextZoom = Math.min(Math.max(Number(targetZoomCalcul(currentZoom).toFixed(2)), 0.5), 3.0);
+    if (nextZoom === currentZoom) return;
+
+    currentVisualZoomRef.current = nextZoom;
+
+    // Point focal au centre de la zone visible
+    const focalX = container.clientWidth / 2;
+    const focalY = container.clientHeight / 2;
+    const cursorX = focalX + container.scrollLeft;
+    const cursorY = focalY + container.scrollTop;
+    focalPointRef.current = { clientX: 0, clientY: 0, cursorX, cursorY, focalX, focalY };
+    isGestureActiveRef.current = true;
+
+    const committedZoom = committedZoomRef.current || 1.0;
+    const currentVisualScale = nextZoom / committedZoom;
+
+    // Animation via transition CSS douce sur 150ms
+    pagesLayer.style.transformOrigin = `${cursorX}px ${cursorY}px`;
+    pagesLayer.style.willChange = 'transform';
+    pagesLayer.style.transition = 'transform 150ms cubic-bezier(0.2, 0, 0, 1)';
+    pagesLayer.style.transform = `scale3d(${currentVisualScale.toFixed(4)}, ${currentVisualScale.toFixed(4)}, 1)`;
+    setVisualZoomPercent(Math.round(nextZoom * 100));
+
+    // Déclenchement de la re-rastérisation à l'issue de l'animation (150ms)
     zoomDebounceTimerRef.current = setTimeout(() => {
-      if (!pdfDocRef.current) return;
-      const pages = pagesVisiblesRef.current.size > 0
-        ? Array.from(pagesVisiblesRef.current)
-        : [pageCouranteRef.current || 1];
+      commettreZoomStabilisation(nextZoom);
+    }, 150);
+  }, [commettreZoomStabilisation]);
 
-      pages.forEach(pNum => {
-        const renderedScale = renderedScalesMap.current.get(pNum);
-        if (renderedScale !== desktopZoom) {
-          rasteriserPage(pNum, desktopZoom);
-        }
-      });
-    }, 180);
+  const zoomer = useCallback(() => {
+    animerZoomBouton(prev => prev + 0.2);
+  }, [animerZoomBouton]);
 
-    return () => {
-      if (zoomDebounceTimerRef.current) clearTimeout(zoomDebounceTimerRef.current);
-    };
-  }, [desktopZoom, rasteriserPage]);
+  const dezoomer = useCallback(() => {
+    animerZoomBouton(prev => prev - 0.2);
+  }, [animerZoomBouton]);
 
-  // Support du zoom Trackpad (pincement), Ctrl+Molette et des raccourcis clavier
+  const reinitialiserZoom = useCallback(() => {
+    animerZoomBouton(() => 1.0);
+  }, [animerZoomBouton]);
+
+  // Synchronisation avec la prop `scale` parente si fournie
+  useEffect(() => {
+    if (scale !== undefined && scale !== null && scale !== prevPropScaleRef.current) {
+      prevPropScaleRef.current = scale;
+      commettreZoomStabilisation(scale);
+    }
+  }, [scale, commettreZoomStabilisation]);
+
+  // Support du zoom Trackpad (pincement), Ctrl+Molette et des raccourcis clavier (Découplage GPU pur)
   useEffect(() => {
     const root = rootRef.current;
     const container = containerRef.current;
@@ -369,20 +438,57 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       if (e.ctrlKey || e.metaKey) {
         const currentRoot = rootRef.current;
         const currentContainer = containerRef.current;
+        const pagesLayer = pagesLayerRef.current;
         const targetNode = e.target as Node;
 
         const isInsideReader =
           (currentRoot && (currentRoot.contains(targetNode) || (e.composedPath && e.composedPath().includes(currentRoot)))) ||
           (currentContainer && (currentContainer.contains(targetNode) || (e.composedPath && e.composedPath().includes(currentContainer))));
 
-        if (isInsideReader) {
-          e.preventDefault();
-          const zoomDelta = e.deltaY < 0 ? 0.1 : -0.1;
-          setDesktopZoom((prevZoom) => {
-            const nextZoom = Math.min(Math.max(prevZoom + zoomDelta, 0.5), 3.0);
-            return Number(nextZoom.toFixed(2));
-          });
+        if (!isInsideReader || !currentContainer || !pagesLayer) return;
+
+        e.preventDefault();
+
+        const rect = currentContainer.getBoundingClientRect();
+        const focalX = e.clientX - rect.left;
+        const focalY = e.clientY - rect.top;
+
+        // Calcul ou mémorisation du point focal au début du geste
+        if (!isGestureActiveRef.current || !focalPointRef.current) {
+          isGestureActiveRef.current = true;
+          const cursorX = focalX + currentContainer.scrollLeft;
+          const cursorY = focalY + currentContainer.scrollTop;
+          focalPointRef.current = { clientX: e.clientX, clientY: e.clientY, cursorX, cursorY, focalX, focalY };
+
+          // Configuration matérielle GPU immédiate sans transition pour réactivité 1:1
+          pagesLayer.style.transition = 'none';
+          pagesLayer.style.willChange = 'transform';
+          pagesLayer.style.transformOrigin = `${cursorX}px ${cursorY}px`;
         }
+
+        // Calcul continu du zoom
+        const delta = e.deltaY;
+        const zoomFactor = Math.abs(delta) < 40
+          ? Math.exp(-delta * 0.008)
+          : (delta < 0 ? 1.08 : 0.92);
+
+        const nextZoom = Math.min(Math.max(currentVisualZoomRef.current * zoomFactor, 0.5), 3.0);
+        currentVisualZoomRef.current = nextZoom;
+
+        const committedZoom = committedZoomRef.current || 1.0;
+        const currentVisualScale = nextZoom / committedZoom;
+
+        // 🚀 Transformation GPU matérielle pure 60/120 FPS
+        pagesLayer.style.transform = `scale3d(${currentVisualScale.toFixed(4)}, ${currentVisualScale.toFixed(4)}, 1)`;
+        setVisualZoomPercent(Math.round(nextZoom * 100));
+
+        // ⏱️ Debounce court de 140ms pour la stabilisation et le rendu vectoriel HD
+        if (zoomDebounceTimerRef.current) {
+          clearTimeout(zoomDebounceTimerRef.current);
+        }
+        zoomDebounceTimerRef.current = setTimeout(() => {
+          commettreZoomStabilisation(currentVisualZoomRef.current);
+        }, 140);
       }
     };
 
@@ -390,13 +496,13 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '+' || e.key === '=') {
           e.preventDefault();
-          setDesktopZoom(prev => Math.min(Number((prev + 0.2).toFixed(2)), 3.0));
+          zoomer();
         } else if (e.key === '-' || e.key === '_') {
           e.preventDefault();
-          setDesktopZoom(prev => Math.max(Number((prev - 0.2).toFixed(2)), 0.5));
+          dezoomer();
         } else if (e.key === '0') {
           e.preventDefault();
-          setDesktopZoom(1.0);
+          reinitialiserZoom();
         }
       }
     };
@@ -420,7 +526,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [commettreZoomStabilisation, zoomer, dezoomer, reinitialiserZoom]);
 
   // Chargement et initialisation du document
   useEffect(() => {
@@ -479,6 +585,17 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
         const container = containerRef.current;
         if (!container) return;
         container.innerHTML = '';
+
+        const pagesLayer = document.createElement('div');
+        pagesLayer.className = 'cauzon-pages-layer';
+        pagesLayer.style.display = 'block';
+        pagesLayer.style.position = 'relative';
+        pagesLayer.style.margin = '0 auto';
+        pagesLayer.style.width = '100%';
+        pagesLayer.style.transformOrigin = 'center top';
+        pagesLayer.style.transform = 'scale3d(1, 1, 1)';
+        pagesLayerRef.current = pagesLayer;
+        container.appendChild(pagesLayer);
 
         const availableWidth = container.clientWidth || window.innerWidth;
         const targetContainerWidth = Math.min(availableWidth - 64, 880);
@@ -588,7 +705,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
             }, 50);
           }
 
-          container.appendChild(wrapper);
+          pagesLayer.appendChild(wrapper);
           wrappersElements.push(wrapper);
         }
 
@@ -666,9 +783,13 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
       pagesVisiblesRef.current.clear();
       renderedScalesMap.current.clear();
 
+      if (zoomDebounceTimerRef.current) {
+        clearTimeout(zoomDebounceTimerRef.current);
+      }
       if (containerRef.current) {
         containerRef.current.innerHTML = '';
       }
+      pagesLayerRef.current = null;
     };
   }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, tentativeKey, rasteriserPage]);
 
@@ -696,6 +817,13 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           overflow-y: auto !important;
           overflow-x: auto !important;
           padding: 24px 24px 100px 24px !important;
+          box-sizing: border-box !important;
+        }
+        .cauzon-pages-layer {
+          display: block !important;
+          position: relative !important;
+          margin: 0 auto !important;
+          width: 100% !important;
           box-sizing: border-box !important;
         }
         .cauzon-page-wrapper {
@@ -847,18 +975,18 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           {/* Dézoomer */}
           <button
             onClick={dezoomer}
-            disabled={desktopZoom <= 0.5}
+            disabled={visualZoomPercent <= 50}
             style={{
               background: 'rgba(255, 255, 255, 0.12)',
               border: 'none',
-              color: desktopZoom <= 0.5 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              color: visualZoomPercent <= 50 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
               width: '32px',
               height: '32px',
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              cursor: desktopZoom <= 0.5 ? 'default' : 'pointer',
+              cursor: visualZoomPercent <= 50 ? 'default' : 'pointer',
               fontSize: '18px',
               fontWeight: 800,
             }}
@@ -885,7 +1013,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
             title="Cliquer pour réinitialiser à 100% (Ctrl 0)"
           >
             <span>Page {pageCourante} / {nombrePagesTotal}</span>
-            {desktopZoom !== 1.0 && (
+            {visualZoomPercent !== 100 && (
               <span
                 style={{
                   backgroundColor: 'rgba(56, 189, 248, 0.25)',
@@ -896,7 +1024,7 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
                   fontWeight: 800,
                 }}
               >
-                {Math.round(desktopZoom * 100)}%
+                {visualZoomPercent}%
               </span>
             )}
           </button>
@@ -904,11 +1032,11 @@ export const LecteurPwaDesktop: React.FC<LecteurPdfProps> = ({
           {/* Zoomer */}
           <button
             onClick={zoomer}
-            disabled={desktopZoom >= 3.0}
+            disabled={visualZoomPercent >= 300}
             style={{
               background: 'rgba(255, 255, 255, 0.12)',
               border: 'none',
-              color: desktopZoom >= 3.0 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
+              color: visualZoomPercent >= 300 ? 'rgba(255,255,255,0.35)' : '#FFFFFF',
               width: '32px',
               height: '32px',
               borderRadius: '50%',
