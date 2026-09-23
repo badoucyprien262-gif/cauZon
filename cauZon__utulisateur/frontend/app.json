@@ -67,7 +67,8 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.DOWNLOAD_WITHOUT_NOTIFICATION"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -91,7 +92,9 @@
       "EXPO_PUBLIC_FEEXPAY_MODE": "sandbox",
       "EXPO_PUBLIC_FEEXPAY_WEBHOOK_URL": "https://wdipnxewpmhdksrlisix.supabase.co/functions/v1/feexpay-webhook",
       "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "843173177415-rsjoi9cto15k6kfh80ko94g5uhqrghdj.apps.googleusercontent.com",
-      "eas": {}
+      "eas": {
+        "projectId": "335cc81a-ec34-448a-b599-513211fcbc45"
+      }
     },
     "owner": "cyprien-dev2s-team"
   }

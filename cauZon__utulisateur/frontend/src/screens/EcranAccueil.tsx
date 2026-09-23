@@ -385,9 +385,11 @@ export default function EcranAccueil() {
         // Extraire dynamiquement les matières uniques
         const matieresUnique = Array.from(new Set(mapped.map((d: any) => d.categorie).filter(Boolean))) as string[];
         setCategories(['Tout', ...matieresUnique]);
+      } else if (documents.length === 0) {
+        setDocuments([]);
       }
     } catch (err: any) {
-      console.error('Erreur Supabase, chargement des documents réels :', err);
+      console.error("ERREUR CHARGEMENT CATALOGUE SUPABASE:", err);
       if (documents.length === 0) {
         setError("Impossible de charger les cours. Vérifiez votre connexion.");
       }
@@ -540,7 +542,7 @@ export default function EcranAccueil() {
     }
     
     // Règle de filtrage : document actif et non encore débloqué par cet utilisateur
-    const matchesFilter = doc.statut === 'actif' && !docsDebloquesIds.includes(doc.id);
+    const matchesFilter = doc.statut !== 'inactif' && !docsDebloquesIds.includes(doc.id);
     
     return matchesCategory && matchesSearch && matchesFilter;
   });

@@ -160,14 +160,14 @@ export const prechargerDonneesAccueil = async (): Promise<{
         );
 
         const requetes = Promise.allSettled([
-          fetchCatalogueDocuments(true, 10), // Alléger le payload JSON initial aux 10 premiers cours
+          fetchCatalogueDocuments(true), // Charger tout le catalogue sans tronquer
           fetchAnnoncesActives(),
           supabase.from('settings').select('value').eq('key', 'global_config').maybeSingle(),
         ]);
 
         const [docs, annonces, promoRes] = await Promise.race([requetes, timeoutReseau]) as any;
 
-        if (docs?.status === 'fulfilled' && Array.isArray(docs.value)) {
+        if (docs?.status === 'fulfilled' && Array.isArray(docs.value) && docs.value.length > 0) {
           cacheCatalogueMemoire = docs.value;
         }
         if (annonces?.status === 'fulfilled' && Array.isArray(annonces.value)) {
@@ -217,8 +217,7 @@ export const prechargerDonneesAccueil = async (): Promise<{
  * Exclut automatiquement les documents déjà acquis par cet appareil.
  */
 export const fetchCatalogueDocuments = async (
-  forceRefresh: boolean = false,
-  limitCount?: number
+  forceRefresh: boolean = false
 ): Promise<DocumentCourse[]> => {
   if (!forceRefresh && cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
     return cacheCatalogueMemoire;
@@ -227,31 +226,40 @@ export const fetchCatalogueDocuments = async (
     const deviceId = await getDeviceId();
 
     // 1. Récupérer les acquisitions de cet appareil
-    const { data: acquisitions, error: errAcq } = await supabase
-      .from('acquisitions')
-      .select('document_id')
-      .eq('device_id', deviceId);
+    let acquiredIds: string[] = [];
+    try {
+      const { data: acquisitions, error: errAcq } = await supabase
+        .from('acquisitions')
+        .select('document_id')
+        .eq('device_id', deviceId);
 
-    if (errAcq) {
-      console.error('Erreur lors de la lecture des acquisitions :', errAcq.message);
+      if (errAcq) {
+        console.warn('Note lecture des acquisitions :', errAcq.message);
+      } else if (acquisitions) {
+        acquiredIds = acquisitions.map((a: any) => a.document_id).filter(Boolean);
+      }
+    } catch (eAcq) {
+      console.warn('Exception lecture acquisitions (tolérée) :', eAcq);
     }
 
-    const acquiredIds = acquisitions ? acquisitions.map(a => a.document_id).filter(Boolean) : [];
-
-    // 2. Récupérer uniquement les documents non acquis
-    let query = supabase.from('documents').select('*').eq('status', 'published').order('created_at', { ascending: false });
+    // 2. Récupérer uniquement les documents actifs / publiés
+    // ATTENTION CRITIQUE : la colonne 'created_at' n'existe PAS dans la table 'documents' de Supabase !
+    // Ne jamais faire .order('created_at') sous peine d'erreur PostgREST 42703.
+    let query = supabase
+      .from('documents')
+      .select('*')
+      .neq('status', 'inactif');
     
     if (acquiredIds.length > 0) {
       query = query.not('id', 'in', `(${acquiredIds.join(',')})`);
     }
 
-    if (limitCount && limitCount > 0) {
-      query = query.limit(limitCount);
-    }
-
     const { data, error } = await query;
 
-    if (error) throw error;
+    if (error) {
+      console.error("ERREUR CHARGEMENT CATALOGUE SUPABASE:", error);
+      throw error;
+    }
     const resultat = (data || []) as DocumentCourse[];
     if (resultat.length > 0) {
       cacheCatalogueMemoire = resultat;
@@ -263,7 +271,7 @@ export const fetchCatalogueDocuments = async (
     }
     return resultat;
   } catch (error: any) {
-    console.error('Erreur lors de la récupération du catalogue :', error.message);
+    console.error("ERREUR CHARGEMENT CATALOGUE SUPABASE:", error);
     return cacheCatalogueMemoire || [];
   }
 };
