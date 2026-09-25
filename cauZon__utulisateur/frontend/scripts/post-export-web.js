@@ -203,7 +203,9 @@ if (fs.existsSync(htmlFile)) {
     `\n    <!-- Google Identity Services (GIS) Web -->\n` +
     `    <script src="https://accounts.google.com/gsi/client" async defer></script>\n` +
     `\n    <!-- Moteur de Rendu Vectoriel PDF.js pour Consultation Web Directe -->\n` +
-    `    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>\n`;
+    `    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>\n` +
+    `    <!-- Bibliothèque PDF-lib pour Sécurisation Paywall Desktop (hors bundle Metro) -->\n` +
+    `    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.9/pdf-lib.min.js"></script>\n`;
 
   // Injection dans le <head>
   let headInjections = fullSeoAndPwaBlock + scrollFixStyle;
@@ -305,6 +307,17 @@ for (const wasmPath of wasmCandidates) {
     console.log(`✅ Binaire WebAssembly PDFium synchronisé depuis ${path.relative(rootDir, wasmPath)} (${Math.round(fs.statSync(wasmPath).size / 1024)} Ko)`);
     break;
   }
+}
+
+// Copie locale de pdf-lib.min.js pour découpage autonome hors-ligne
+const pdfLibSource = path.join(rootDir, 'node_modules/pdf-lib/dist/pdf-lib.min.js');
+const pdfLibPublic = path.join(rootDir, 'public/pdf-lib.min.js');
+if (fs.existsSync(pdfLibSource)) {
+  fs.copyFileSync(pdfLibSource, path.join(distDir, 'pdf-lib.min.js'));
+  console.log('✅ Binaire pdf-lib.min.js copié dans dist/pdf-lib.min.js');
+} else if (fs.existsSync(pdfLibPublic)) {
+  fs.copyFileSync(pdfLibPublic, path.join(distDir, 'pdf-lib.min.js'));
+  console.log('✅ Binaire public/pdf-lib.min.js copié dans dist/pdf-lib.min.js');
 }
 
 // ────────────────────────────────────────────────────────────────────────────

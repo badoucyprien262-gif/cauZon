@@ -2,7 +2,140 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from './AppIcon';
 import type { LecteurPdfProps } from './PdfViewer/types';
-import { PDFDocument } from 'pdf-lib';
+
+/**
+ * Charge dynamiquement PDFLib sans inclusion statique dans le bundle Metro
+ * Évite le crash TypeError: Cannot destructure property '__extends' of 'n.default'
+ */
+async function getPDFDocumentClass(): Promise<any> {
+  if (typeof window === 'undefined') return null;
+  if ((window as any).PDFLib?.PDFDocument) {
+    return (window as any).PDFLib.PDFDocument;
+  }
+  if (typeof document === 'undefined') return null;
+
+  return new Promise((resolve, reject) => {
+    const scriptId = 'pdf-lib-bundle-loader';
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (script) {
+      if ((window as any).PDFLib?.PDFDocument) {
+        return resolve((window as any).PDFLib.PDFDocument);
+      }
+      script.addEventListener('load', () => {
+        if ((window as any).PDFLib?.PDFDocument) resolve((window as any).PDFLib.PDFDocument);
+        else reject(new Error('PDFLib introuvable après chargement'));
+      });
+      script.addEventListener('error', () => reject(new Error('Échec chargement pdf-lib')));
+      return;
+    }
+
+    const injectCdnFallback = () => {
+      if (typeof document === 'undefined') return reject(new Error('Document introuvable'));
+      const cdnScript = document.createElement('script');
+      cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.9/pdf-lib.min.js';
+      cdnScript.onload = () => {
+        if ((window as any).PDFLib?.PDFDocument) {
+          resolve((window as any).PDFLib.PDFDocument);
+        } else {
+          reject(new Error('PDFLib introuvable via CDN'));
+        }
+      };
+      cdnScript.onerror = () => reject(new Error('Échec de chargement CDN de pdf-lib'));
+      document.head.appendChild(cdnScript);
+    };
+
+    script = document.createElement('script');
+    script.id = scriptId;
+    script.src = '/pdf-lib.min.js';
+    script.onload = () => {
+      if ((window as any).PDFLib?.PDFDocument) {
+        resolve((window as any).PDFLib.PDFDocument);
+      } else {
+        injectCdnFallback();
+      }
+    };
+    script.onerror = () => {
+      injectCdnFallback();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+interface ErrorBoundaryProps {
+  estSombre?: boolean;
+  onReessayer?: () => void;
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class LecteurPdfErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[LecteurPdf] Erreur interceptée par ErrorBoundary :', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            flex: 1,
+            width: '100%',
+            height: '100%',
+            minHeight: '300px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+            backgroundColor: this.props.estSombre ? '#0F172A' : '#F8FAFC',
+            color: this.props.estSombre ? '#F1F5F9' : '#0F172A',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: 18, fontWeight: 700 }}>
+            Erreur d'affichage du document
+          </h3>
+          <p style={{ margin: '0 0 16px 0', fontSize: 13, color: '#64748B', textAlign: 'center', maxWidth: 400 }}>
+            {this.state.error?.message || 'Une anomalie est survenue lors de l’affichage du visualiseur PDF.'}
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              this.props.onReessayer?.();
+            }}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#7F011F',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: 8,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            🔄 Réessayer
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * LecteurPdfDesktop (Moteur de Rendu Natif Navigateur — Edge, Chrome, Safari)
@@ -14,7 +147,7 @@ import { PDFDocument } from 'pdf-lib';
  * - Zéro crash mémoire ou fuite de contexte canvas sur les gros documents
  * - Sécurisation DRM / Paywall : extraction physique côté client des pages autorisées si le document est verrouillé
  */
-export const LecteurPdfDesktop: React.FC<LecteurPdfProps> = ({
+const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
   pdfUrl,
   estVerrouille = false,
@@ -145,6 +278,11 @@ export const LecteurPdfDesktop: React.FC<LecteurPdfProps> = ({
           throw new Error('Données du document introuvables.');
         }
 
+        const PDFDocument = await getPDFDocumentClass();
+        if (!PDFDocument) {
+          throw new Error('Moteur de sécurisation PDF indisponible.');
+        }
+
         const sourceDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
         const total = sourceDoc.getPageCount();
         setNombrePagesTotal(total);
@@ -179,7 +317,7 @@ export const LecteurPdfDesktop: React.FC<LecteurPdfProps> = ({
         const subDoc = await PDFDocument.create();
         const pageIndices = Array.from({ length: allowedCount }, (_, i) => i);
         const copiedPages = await subDoc.copyPages(sourceDoc, pageIndices);
-        copiedPages.forEach((page) => subDoc.addPage(page));
+        copiedPages.forEach((page: any) => subDoc.addPage(page));
 
         const subPdfBytes = await subDoc.save();
         const subBlob = new Blob([subPdfBytes as any], { type: 'application/pdf' });
@@ -506,6 +644,14 @@ export const LecteurPdfDesktop: React.FC<LecteurPdfProps> = ({
         </div>
       )}
     </div>
+  );
+};
+
+export const LecteurPdfDesktop: React.FC<LecteurPdfProps> = (props) => {
+  return (
+    <LecteurPdfErrorBoundary estSombre={props.estSombre} onReessayer={props.onReessayer}>
+      <LecteurPdfDesktopInternal {...props} />
+    </LecteurPdfErrorBoundary>
   );
 };
 

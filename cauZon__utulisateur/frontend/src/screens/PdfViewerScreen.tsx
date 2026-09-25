@@ -8,7 +8,7 @@ import { Accelerometer } from 'expo-sensors';
 import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox, resoudreSourcePdf } from '../services/serviceDocument';
 
 import { useApp } from '../store/ContexteApp';
-import { LecteurPdfWeb, LecteurPdfMobile } from '../components/PdfViewer';
+import { LecteurPdf } from '../components/PdfViewer';
 
 interface PdfViewerProps {
   route?: {
@@ -391,47 +391,29 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           </View>
         ) : sourcePdfData && !hasError ? (
           <View style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
-            {Platform.OS === 'web' ? (
-              <LecteurPdfWeb
-                documentId={docObj.id || (params as any)?.id || ''}
-                urlFichier={sourcePdfData}
-                estVerrouille={!estDebloque}
-                limiteApercuPages={limiteApercuPages}
-                prix={docObj.prix}
-                estSombre={couleurs.estSombre}
-                onPageChange={(current, total) => {
-                  setPageState({ current, total });
-                }}
-                onDocumentLoad={(total) => {
-                  setPageState(prev => ({ ...prev, total }));
-                }}
-                onReessayer={() => setCleRechargement(prev => prev + 1)}
-              />
-            ) : (
-              <LecteurPdfMobile
-                documentId={docObj.id || (params as any)?.id || ''}
-                urlFichier={sourcePdfData}
-                estVerrouille={!estDebloque}
-                limiteApercuPages={limiteApercuPages}
-                prix={docObj.prix}
-                estSombre={couleurs.estSombre}
-                scale={zoomMobileActif}
-                onPageChange={(current, total) => {
-                  setPageState({ current, total });
-                }}
-                onDocumentLoad={(total) => {
-                  setPageState(prev => ({ ...prev, total }));
-                  setChargementLocal(false);
-                  setHasError(false);
-                }}
-                onError={(err) => {
-                  console.error('[PdfViewerScreen] Erreur lecteur PDF natif :', err);
-                  setHasError(true);
-                  setChargementLocal(false);
-                }}
-                onReessayer={() => setCleRechargement(prev => prev + 1)}
-              />
-            )}
+            <LecteurPdf
+              documentId={docObj.id || (params as any)?.id || ''}
+              urlFichier={sourcePdfData}
+              estVerrouille={!estDebloque}
+              limiteApercuPages={limiteApercuPages}
+              prix={docObj.prix}
+              estSombre={couleurs.estSombre}
+              scale={zoomMobileActif}
+              onPageChange={(current, total) => {
+                setPageState({ current, total });
+              }}
+              onDocumentLoad={(total) => {
+                setPageState(prev => ({ ...prev, total }));
+                setChargementLocal(false);
+                setHasError(false);
+              }}
+              onError={(err) => {
+                console.error('[PdfViewerScreen] Erreur lecteur PDF :', err);
+                setHasError(true);
+                setChargementLocal(false);
+              }}
+              onReessayer={() => setCleRechargement(prev => prev + 1)}
+            />
 
             {/* Barre flottante mobile : Indicateur de Page & Contrôles Zoom */}
             {Platform.OS !== 'web' && (

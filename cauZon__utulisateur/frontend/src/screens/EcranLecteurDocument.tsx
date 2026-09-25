@@ -23,7 +23,7 @@ import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersA
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
-import { LecteurPdfWeb, LecteurPdfMobile } from '../components/PdfViewer';
+import { LecteurPdf } from '../components/PdfViewer';
 
 type DocumentViewerRouteProp = RouteProp<RootStackParamList, 'DocumentViewer'>;
 
@@ -415,59 +415,35 @@ export default function EcranLecteurDocument() {
           </View>
         ) : sourcePdfData && !hasError ? (
           <View style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
-            {Platform.OS === 'web' ? (
-              <LecteurPdfWeb
-                documentId={document.id || docParams.id}
-                urlFichier={sourcePdfData}
-                estVerrouille={estVerrouille}
-                limiteApercuPages={limiteApercuPages}
-                limiteApercuType={limiteApercuType}
-                limiteApercuValeur={limiteApercuValeur}
-                prix={document.prix}
-                estSombre={couleurs.estSombre}
-                onAcheter={() => setModaleAchatVisible(true)}
-                onVip={() => setModaleVipVisible(true)}
-                onPageChange={(current, total) => {
-                  setPageState({ current, total });
-                  setNombrePagesReel(total);
-                }}
-                onDocumentLoad={(total) => {
-                  setNombrePagesReel(total);
-                  setPageState(prev => ({ ...prev, total }));
-                }}
-                onReessayer={() => setCleRechargement(prev => prev + 1)}
-              />
-            ) : (
-              <LecteurPdfMobile
-                documentId={document.id || docParams.id}
-                urlFichier={sourcePdfData}
-                estVerrouille={estVerrouille}
-                limiteApercuPages={limiteApercuPages}
-                limiteApercuType={limiteApercuType}
-                limiteApercuValeur={limiteApercuValeur}
-                prix={document.prix}
-                estSombre={couleurs.estSombre}
-                scale={zoomMobileActif}
-                onAcheter={() => setModaleAchatVisible(true)}
-                onVip={() => setModaleVipVisible(true)}
-                onPageChange={(current, total) => {
-                  setPageState({ current, total });
-                  setNombrePagesReel(total);
-                }}
-                onDocumentLoad={(total) => {
-                  setNombrePagesReel(total);
-                  setPageState(prev => ({ ...prev, total }));
-                  setChargementLocal(false);
-                  setHasError(false);
-                }}
-                onError={(err) => {
-                  console.error('[EcranLecteurDocument] Erreur lecteur PDF natif :', err);
-                  setHasError(true);
-                  setChargementLocal(false);
-                }}
-                onReessayer={() => setCleRechargement(prev => prev + 1)}
-              />
-            )}
+            <LecteurPdf
+              documentId={document.id || docParams.id}
+              urlFichier={sourcePdfData}
+              estVerrouille={estVerrouille}
+              limiteApercuPages={limiteApercuPages}
+              limiteApercuType={limiteApercuType}
+              limiteApercuValeur={limiteApercuValeur}
+              prix={document.prix}
+              estSombre={couleurs.estSombre}
+              scale={zoomMobileActif}
+              onAcheter={() => setModaleAchatVisible(true)}
+              onVip={() => setModaleVipVisible(true)}
+              onPageChange={(current, total) => {
+                setPageState({ current, total });
+                setNombrePagesReel(total);
+              }}
+              onDocumentLoad={(total) => {
+                setNombrePagesReel(total);
+                setPageState(prev => ({ ...prev, total }));
+                setChargementLocal(false);
+                setHasError(false);
+              }}
+              onError={(err) => {
+                console.error('[EcranLecteurDocument] Erreur lecteur PDF :', err);
+                setHasError(true);
+                setChargementLocal(false);
+              }}
+              onReessayer={() => setCleRechargement(prev => prev + 1)}
+            />
 
             {/* Barre flottante mobile : Indicateur de Page & Contrôles Zoom */}
             {Platform.OS !== 'web' && (
