@@ -4,3 +4,4 @@ export * from './LecteurPdfMobile';
 export * from './LecteurPdfWeb';
 export * from './LecteurPwaDesktop';
 export * from './LecteurPwaMobile';
+export * from '../LecteurPdfDesktop';
