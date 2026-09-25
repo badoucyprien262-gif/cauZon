@@ -5,3 +5,5 @@ export * from './LecteurPdfWeb';
 export * from './LecteurPwaDesktop';
 export * from './LecteurPwaMobile';
 export * from '../LecteurPdfDesktop';
+export * from '../LecteurPdfAndroid';
+export * from '../LecteurPdfIos';
