@@ -4,17 +4,23 @@ import { chargerPdfJs, extrairePdfBytes } from './PdfViewer/pdfjsLoader';
 import { LecteurPdfErrorBoundary } from './LecteurPdfDesktop';
 
 /**
- * LecteurPdfAndroid (PWA Mobile Android — Chrome / Samsung Internet)
+ * LecteurPdfAndroid (PWA Mobile Android — Expérience Liseuse Native Style WPS / Drive)
  * 
- * Spécialement conçu pour surmonter le blocage d'affichage d'<object>/<embed> sur Android Chrome.
- * - Moteur contrôlé PDF.js vectoriel avec rendu Canvas haute performance
- * - Plafond DPR à 2.0 pour préserver la mémoire vive (RAM) et le GPU des smartphones Android
- * - Défilement vertical fluide (-webkit-overflow-scrolling: touch, overscroll-behavior-y: contain)
- * - Virtualisation par IntersectionObserver (lazy-rendering des pages avec marge anticipée de 350px)
- * - Rendu prioritaire instantané de la Page 1
- * - Gestes tactiles : Double-Tap (bascule douce 1.0x <-> 1.8x) & Pinch-to-zoom
- * - Barre d'action ergonomique : Zoom -, Indicateur Page/Total réinitialisable, Zoom +, Mode Plein Écran
- * - Paywall sécurisé avec limitation stricte du nombre de pages visibles
+ * Optimisations Majeures :
+ * 1. Zéro conflit tactile :
+ *    - overscroll-behavior: contain (bloque le pull-to-refresh parasite et les rebonds de Chrome)
+ *    - touch-action: pan-y pinch-zoom en mode normal, touch-action: none durant les phases de zoom/pan
+ * 2. Accélération Matérielle GPU (60 FPS constants) :
+ *    - Les gestes de pincement (pinch) et double-tap manipulent directement `transform: translate3d(...) scale(...)`
+ *    - `will-change: transform` appliqué sur le calque des pages
+ *    - Aucune ré-échantillonnage Canvas pendant les mouvements
+ * 3. Handoff HD Intelligent et Débouncé :
+ *    - Re-rastérisation Canvas haute netteté déclenchée uniquement après la stabilisation des doigts
+ *    - Plafond DPR strict à 2.0 pour préserver la mémoire vive Android
+ * 4. Double-Tap Fluide :
+ *    - Transition CSS douce (transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1))
+ * 5. Barre d'outils ergonomique compacte :
+ *    - Dézoom (−), Indicateur de Page / Réinitialisation, Zoom (+), Bascule Plein Écran (⛶)
  */
 const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -44,6 +50,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   const [pagesAutorisees, setPagesAutorisees] = useState<number>(1);
   const [tentativeKey, setTentativeKey] = useState<number>(0);
   const [zoomActif, setZoomActif] = useState<number>(scale || 1.0);
+  const [zoomVisuelPourcent, setZoomVisuelPourcent] = useState<number>(Math.round((scale || 1.0) * 100));
   const [estPleinEcran, setEstPleinEcran] = useState<boolean>(false);
 
   const pdfDocRef = useRef<any>(null);
@@ -56,12 +63,27 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   const baseWidthRef = useRef<number>(360);
   const baseHeightRef = useRef<number>(508);
   const pageCouranteRef = useRef<number>(1);
+  const zoomActifRef = useRef<number>(scale || 1.0);
+
+  // Synchronisation de ref
+  useEffect(() => {
+    zoomActifRef.current = zoomActif;
+  }, [zoomActif]);
+
+  // Timers et animations
+  const renderDebounceTimerRef = useRef<any>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   // Gestes tactiles
   const lastTapTimeRef = useRef<number>(0);
+  const isPinchingRef = useRef<boolean>(false);
+  const isPanningRef = useRef<boolean>(false);
   const initialPinchDistRef = useRef<number>(0);
   const initialZoomOnPinchRef = useRef<number>(1.0);
-  const isGestureActiveRef = useRef<boolean>(false);
+  const currentScaleFactorRef = useRef<number>(1.0);
+  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const focalPointRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const sourceCible = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
@@ -72,7 +94,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
     onReessayer?.();
   }, [onReessayer]);
 
-  // Surveillance du mode plein écran
+  // Surveillance du plein écran
   useEffect(() => {
     const onFullscreenChange = () => {
       setEstPleinEcran(Boolean(document.fullscreenElement));
@@ -93,11 +115,11 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         }
       }
     } catch (e) {
-      console.warn('[LecteurPdfAndroid] Bascule plein écran non supportée :', e);
+      console.warn('[LecteurPdfAndroid] Plein écran non disponible :', e);
     }
   }, []);
 
-  // 🎯 Rendu d'une page Canvas optimisé Android avec plafond DPR strict à 2.0
+  // 🎯 Re-rastérisation HD d'une page Canvas (exécutée uniquement à vitesse stabilisée)
   const rasteriserPageAndroid = useCallback(async (pageNumber: number, targetZoom: number) => {
     const pdfDoc = pdfDocRef.current;
     if (!pdfDoc) return;
@@ -122,7 +144,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
 
-      // Plafond DPR strict à 2.0 sur Android pour éviter la saturation RAM
+      // Plafond DPR strict à 2.0 sur Android pour soulager le GPU et éviter les fuites RAM
       const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2.0) : 1.5;
       const baseW = Number(wrapper.getAttribute('data-base-width')) || baseWidthRef.current || 360;
       const baseScale = baseW / unscaledViewport.width;
@@ -176,15 +198,22 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
     }
   }, []);
 
-  // Application d'un niveau de zoom (0.8x à 2.5x)
-  const appliquerZoom = useCallback((nouveauZoom: number) => {
+  // 🎯 Validation définitive du zoom & ré-échantillonnage HD avec debounce
+  const commettreZoomFinal = useCallback((nouveauZoom: number) => {
     const zoomBorne = Number(Math.min(Math.max(nouveauZoom, 0.8), 2.5).toFixed(2));
     setZoomActif(zoomBorne);
+    setZoomVisuelPourcent(Math.round(zoomBorne * 100));
 
     const pagesLayer = pagesLayerRef.current;
     if (!pagesLayer) return;
 
-    // Mise à jour visuelle immédiate des dimensions
+    // Réinitialisation propre de la transformation temporaire GPU
+    pagesLayer.style.transition = 'none';
+    pagesLayer.style.transform = '';
+    pagesLayer.style.transformOrigin = '';
+    panOffsetRef.current = { x: 0, y: 0 };
+
+    // Mise à jour physique de la géométrie des conteneurs
     const wrappers = pagesLayer.querySelectorAll<HTMLElement>('.cauzon-page-wrapper');
     wrappers.forEach((w) => {
       const baseW = Number(w.getAttribute('data-base-width')) || baseWidthRef.current || 360;
@@ -193,15 +222,42 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
       w.style.height = `${Math.floor(baseH * zoomBorne)}px`;
     });
 
-    // Re-rastérisation des pages visibles
-    pagesVisiblesRef.current.forEach((num) => {
-      rasteriserPageAndroid(num, zoomBorne);
-    });
+    // Re-rastérisation HD débouncée pour éviter les saccades
+    if (renderDebounceTimerRef.current) {
+      clearTimeout(renderDebounceTimerRef.current);
+    }
+    renderDebounceTimerRef.current = setTimeout(() => {
+      pagesVisiblesRef.current.forEach((num) => {
+        rasteriserPageAndroid(num, zoomBorne);
+      });
+    }, 120);
   }, [rasteriserPageAndroid]);
 
-  const zoomer = () => appliquerZoom(zoomActif + 0.25);
-  const dezoomer = () => appliquerZoom(zoomActif - 0.25);
-  const reinitialiserZoom = () => appliquerZoom(zoomActif !== 1.0 ? 1.0 : 1.5);
+  // 🎯 Transition animée fluide (double-tap ou boutons)
+  const animerVersZoom = useCallback((cibleZoom: number, focalPoint?: { x: number; y: number }) => {
+    const pagesLayer = pagesLayerRef.current;
+    if (!pagesLayer) return;
+
+    const zoomBorne = Number(Math.min(Math.max(cibleZoom, 0.8), 2.5).toFixed(2));
+    const facteurEchelle = zoomBorne / zoomActifRef.current;
+
+    pagesLayer.style.transition = 'transform 0.22s cubic-bezier(0.25, 1, 0.5, 1)';
+    if (focalPoint) {
+      pagesLayer.style.transformOrigin = `${focalPoint.x}px ${focalPoint.y}px`;
+    } else {
+      pagesLayer.style.transformOrigin = 'center top';
+    }
+    pagesLayer.style.transform = `scale3d(${facteurEchelle}, ${facteurEchelle}, 1)`;
+    setZoomVisuelPourcent(Math.round(zoomBorne * 100));
+
+    setTimeout(() => {
+      commettreZoomFinal(zoomBorne);
+    }, 220);
+  }, [commettreZoomFinal]);
+
+  const zoomer = () => animerVersZoom(zoomActif + 0.25);
+  const dezoomer = () => animerVersZoom(zoomActif - 0.25);
+  const reinitialiserZoom = () => animerVersZoom(zoomActif !== 1.0 ? 1.0 : 1.6);
 
   // 🚀 Chargement initial du document PDF via PDF.js
   useEffect(() => {
@@ -212,7 +268,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         setChargement(true);
         setErreur(null);
 
-        // Si document totalement verrouillé (0 page autorisée)
+        // Document totalement verrouillé (0 page autorisée)
         if (estVerrouille && limiteApercuValeur === 0) {
           if (estActif) setChargement(false);
           return;
@@ -254,18 +310,18 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         onDocumentLoad?.(allowed);
         onPageChange?.(1, allowed);
 
-        // Mesure de la largeur utile Android
+        // Largeur utile mobile Android
         const clientW = containerRef.current?.clientWidth || window.innerWidth || 360;
         const utileW = Math.max(280, Math.min(clientW - 16, 768));
         targetWidthRef.current = utileW;
 
-        // Récupération des dimensions de la page 1 pour étalonner
+        // Étalonnage des dimensions d'après la Page 1
         const premierePage = await pdfDoc.getPage(1);
         const vp1 = premierePage.getViewport({ scale: 1.0 });
         baseWidthRef.current = utileW;
         baseHeightRef.current = Math.floor((utileW * vp1.height) / vp1.width);
 
-        // Construction du conteneur de pages DOM
+        // Construction du conteneur de pages
         const container = containerRef.current;
         if (!container) return;
 
@@ -276,11 +332,13 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         pagesLayer.style.flexDirection = 'column';
         pagesLayer.style.alignItems = 'center';
         pagesLayer.style.paddingTop = '12px';
-        pagesLayer.style.paddingBottom = '80px';
+        pagesLayer.style.paddingBottom = '88px';
+        pagesLayer.style.willChange = 'transform';
+        pagesLayer.style.transformOrigin = 'center top';
         pagesLayerRef.current = pagesLayer;
         container.appendChild(pagesLayer);
 
-        // Génération des wrappers de pages
+        // Création des wrappers de page
         for (let num = 1; num <= allowed; num++) {
           const wrapper = document.createElement('div');
           wrapper.className = 'cauzon-page-wrapper';
@@ -295,8 +353,9 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
           wrapper.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.12)';
           wrapper.style.backgroundColor = estSombre ? '#1E293B' : '#FFFFFF';
           wrapper.style.overflow = 'hidden';
+          wrapper.style.transform = 'translateZ(0)';
+          wrapper.style.willChange = 'transform';
 
-          // Placeholder de chargement léger
           const placeholder = document.createElement('div');
           placeholder.className = 'cauzon-page-placeholder';
           placeholder.style.position = 'absolute';
@@ -315,11 +374,11 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
           wrapperRefs.current[num] = wrapper;
         }
 
-        // Rendu prioritaire immédiat de la Page 1 (< 600ms)
+        // Rendu prioritaire de la Page 1 (< 600ms)
         await rasteriserPageAndroid(1, zoomActif);
         if (estActif) setChargement(false);
 
-        // IntersectionObserver pour lazy-rendering optimisé Android
+        // IntersectionObserver pour lazy-rendering économe en RAM
         const observer = new IntersectionObserver(
           (entries) => {
             entries.forEach((entry) => {
@@ -329,10 +388,9 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
               if (entry.isIntersecting) {
                 pagesVisiblesRef.current.add(num);
                 const renduScale = renderedScalesMap.current.get(num);
-                if (renduScale !== zoomActif) {
-                  rasteriserPageAndroid(num, zoomActif);
+                if (renduScale !== zoomActifRef.current) {
+                  rasteriserPageAndroid(num, zoomActifRef.current);
                 }
-                // Mise à jour de la page courante au scroll
                 if (entry.intersectionRatio > 0.45 && pageCouranteRef.current !== num) {
                   pageCouranteRef.current = num;
                   setPageCourante(num);
@@ -368,6 +426,8 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
 
     return () => {
       estActif = false;
+      if (renderDebounceTimerRef.current) clearTimeout(renderDebounceTimerRef.current);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
       Object.values(pageRenderTasks.current).forEach((task) => {
         try {
           task.cancel();
@@ -381,79 +441,159 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
     };
   }, [tentativeKey, sourceCible, urlFichier, estVerrouille, limiteApercuValeur, limiteApercuType]);
 
-  // Gestion des gestes tactiles Android (Double-Tap et Pinch-to-zoom)
+  // 🎯 Gestionnaire de Gestes Tactiles Accélérés par GPU (Pinch-to-zoom & Pan direct à 60 FPS)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handleTouchStart = (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent) => {
+      const pagesLayer = pagesLayerRef.current;
+
+      // 1. Détection du Pinch-to-zoom (2 doigts)
       if (e.touches.length === 2) {
-        isGestureActiveRef.current = true;
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        initialPinchDistRef.current = Math.hypot(dx, dy);
-        initialZoomOnPinchRef.current = zoomActif;
-      } else if (e.touches.length === 1) {
+        isPinchingRef.current = true;
+        isPanningRef.current = false;
+        container.style.touchAction = 'none';
+
+        if (pagesLayer) {
+          pagesLayer.style.transition = 'none';
+        }
+
+        const x1 = e.touches[0].clientX;
+        const y1 = e.touches[0].clientY;
+        const x2 = e.touches[1].clientX;
+        const y2 = e.touches[1].clientY;
+
+        initialPinchDistRef.current = Math.hypot(x1 - x2, y1 - y2);
+        initialZoomOnPinchRef.current = zoomActifRef.current;
+        currentScaleFactorRef.current = 1.0;
+
+        const cRect = container.getBoundingClientRect();
+        focalPointRef.current = {
+          x: (x1 + x2) / 2 - cRect.left,
+          y: (y1 + y2) / 2 - cRect.top,
+        };
+        return;
+      }
+
+      // 2. Détection du Pan ou Double-Tap (1 doigt)
+      if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
         const now = Date.now();
         if (now - lastTapTimeRef.current < 280) {
-          // Double tap : bascule 1.0x <-> 1.8x
+          // Double-Tap : bascule fluide vers 1.8x ou retour à 1.0x
           e.preventDefault();
-          appliquerZoom(zoomActif < 1.4 ? 1.8 : 1.0);
+          const cRect = container.getBoundingClientRect();
+          const focalPoint = {
+            x: touch.clientX - cRect.left,
+            y: touch.clientY - cRect.top,
+          };
+          animerVersZoom(zoomActifRef.current < 1.3 ? 1.8 : 1.0, focalPoint);
           lastTapTimeRef.current = 0;
           return;
         }
         lastTapTimeRef.current = now;
+
+        // Si déjà zoomé (> 1.1x), autoriser le pan tactile fluide
+        if (zoomActifRef.current > 1.1) {
+          isPanningRef.current = true;
+          container.style.touchAction = 'none';
+        }
       }
     };
 
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && isGestureActiveRef.current) {
+    const onTouchMove = (e: TouchEvent) => {
+      const pagesLayer = pagesLayerRef.current;
+      if (!pagesLayer) return;
+
+      // Mode 1 : Pincement 2 doigts
+      if (e.touches.length === 2 && isPinchingRef.current) {
         e.preventDefault();
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const currentDist = Math.hypot(dx, dy);
+        const x1 = e.touches[0].clientX;
+        const y1 = e.touches[0].clientY;
+        const x2 = e.touches[1].clientX;
+        const y2 = e.touches[1].clientY;
+
+        const currentDist = Math.hypot(x1 - x2, y1 - y2);
         if (initialPinchDistRef.current > 0) {
-          const ratio = currentDist / initialPinchDistRef.current;
-          const tentativeZoom = Math.min(Math.max(initialZoomOnPinchRef.current * ratio, 0.8), 2.5);
-          // Prévisualisation fluide en transform direct
-          if (pagesLayerRef.current) {
-            pagesLayerRef.current.style.transform = `scale(${tentativeZoom / initialZoomOnPinchRef.current})`;
-            pagesLayerRef.current.style.transformOrigin = 'center top';
-          }
+          const factor = currentDist / initialPinchDistRef.current;
+          currentScaleFactorRef.current = factor;
+
+          const tentativeZoom = Math.min(Math.max(initialZoomOnPinchRef.current * factor, 0.75), 3.0);
+          setZoomVisuelPourcent(Math.round(tentativeZoom * 100));
+
+          if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = requestAnimationFrame(() => {
+            const focal = focalPointRef.current;
+            pagesLayer.style.transformOrigin = `${focal.x}px ${focal.y}px`;
+            pagesLayer.style.transform = `translate3d(0, 0, 0) scale3d(${factor}, ${factor}, 1)`;
+          });
+        }
+        return;
+      }
+
+      // Mode 2 : Déplacement panoramique (Pan) 1 doigt lorsque zoomé
+      if (e.touches.length === 1 && isPanningRef.current && zoomActifRef.current > 1.1) {
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchStartPosRef.current.x;
+        const dy = touch.clientY - touchStartPosRef.current.y;
+
+        // Déplacement par défilement direct du container pour fluidité maximale
+        container.scrollLeft -= dx;
+        container.scrollTop -= dy;
+        touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      const pagesLayer = pagesLayerRef.current;
+
+      // Fin de pincement 2 doigts
+      if (isPinchingRef.current && e.touches.length < 2) {
+        isPinchingRef.current = false;
+        container.style.touchAction = 'pan-y pinch-zoom';
+
+        const finalZoom = Number(
+          Math.min(Math.max(initialZoomOnPinchRef.current * currentScaleFactorRef.current, 0.8), 2.5).toFixed(2)
+        );
+
+        if (pagesLayer) {
+          pagesLayer.style.transition = 'transform 0.15s ease-out';
+          const normalizedFactor = finalZoom / initialZoomOnPinchRef.current;
+          pagesLayer.style.transform = `translate3d(0, 0, 0) scale3d(${normalizedFactor}, ${normalizedFactor}, 1)`;
+        }
+
+        setTimeout(() => {
+          commettreZoomFinal(finalZoom);
+        }, 150);
+        return;
+      }
+
+      // Fin de pan 1 doigt
+      if (isPanningRef.current && e.touches.length === 0) {
+        isPanningRef.current = false;
+        if (zoomActifRef.current <= 1.05) {
+          container.style.touchAction = 'pan-y pinch-zoom';
         }
       }
     };
 
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (isGestureActiveRef.current && e.touches.length < 2) {
-        isGestureActiveRef.current = false;
-        if (pagesLayerRef.current) {
-          const transform = pagesLayerRef.current.style.transform;
-          const match = transform.match(/scale\(([^)]+)\)/);
-          pagesLayerRef.current.style.transform = '';
-          pagesLayerRef.current.style.transformOrigin = '';
-          if (match && match[1]) {
-            const factor = parseFloat(match[1]);
-            if (!isNaN(factor) && factor !== 1.0) {
-              appliquerZoom(initialZoomOnPinchRef.current * factor);
-            }
-          }
-        }
-      }
-    };
-
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
-    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd);
+    container.addEventListener('touchcancel', onTouchEnd);
 
     return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchmove', handleTouchMove);
-      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [zoomActif, appliquerZoom]);
+  }, [animerVersZoom, commettreZoomFinal]);
 
-  // Si document totalement verrouillé (0 page autorisée)
+  // Document totalement verrouillé
   if (estVerrouille && limiteApercuValeur === 0) {
     return (
       <div
@@ -541,6 +681,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         backgroundColor: estSombre ? '#0F172A' : '#F1F5F9',
         overflow: 'hidden',
         fontFamily: 'sans-serif',
+        overscrollBehavior: 'contain',
       }}
     >
       <style>{`
@@ -551,15 +692,30 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
           overflow-y: auto !important;
           overflow-x: auto !important;
           -webkit-overflow-scrolling: touch !important;
-          touch-action: pan-x pan-y pinch-zoom !important;
+          touch-action: pan-y pinch-zoom;
+          overscroll-behavior: contain !important;
           overscroll-behavior-y: contain !important;
+          overscroll-behavior-x: contain !important;
+        }
+        .cauzon-page-wrapper {
+          transform: translateZ(0);
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+        .cauzon-page-wrapper canvas {
+          display: block !important;
+          margin: 0 auto !important;
+          flex-shrink: 0 !important;
+          user-select: none !important;
+          -webkit-user-select: none !important;
+          transform: translateZ(0);
         }
         @keyframes cauzon-spin {
           to { transform: rotate(360deg); }
         }
       `}</style>
 
-      {/* Conteneur défilant natif tactile Android */}
+      {/* Conteneur défilant natif avec overscroll bloqué */}
       <div
         ref={containerRef}
         className="cauzon-android-scroll-container"
@@ -597,7 +753,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
             Chargement optimisé Android...
           </div>
           <div style={{ color: '#64748B', fontSize: '11px' }}>
-            Rendu fluide Canvas & mémoire maîtrisée
+            Rendu fluide Canvas & accélération matérielle GPU
           </div>
         </div>
       )}
@@ -770,7 +926,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
             title="Toucher pour réinitialiser le zoom"
           >
             <span>{pageCourante}/{pagesAutorisees}</span>
-            {Math.round(zoomActif * 100) !== 100 && (
+            {zoomVisuelPourcent !== 100 && (
               <span
                 style={{
                   backgroundColor: 'rgba(56, 189, 248, 0.25)',
@@ -781,7 +937,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
                   fontWeight: 800,
                 }}
               >
-                {Math.round(zoomActif * 100)}%
+                {zoomVisuelPourcent}%
               </span>
             )}
           </button>
