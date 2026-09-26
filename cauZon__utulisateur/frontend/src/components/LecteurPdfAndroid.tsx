@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { LecteurPdfProps } from './PdfViewer/types';
 import { LecteurPdfErrorBoundary } from './LecteurPdfDesktop';
 
 /**
- * LecteurPdfAndroid (PWA Mobile Android — Approche 1 : Visualiseur Officiel Mozilla PDF.js)
+ * LecteurPdfAndroid (PWA Mobile Android — Visualiseur Intégré Google Docs Viewer)
  * 
- * Intégration du visualiseur autonome certifié Mozilla PDF.js (viewer.html).
- * Fournit l'expérience complète native de PDF.js : zoom fluide (page-width),
- * défilement tactile natif, pagination, recherche et affichage haute fidélité.
+ * Solution éprouvée, robuste et zéro crash pour la consultation mobile sur Android :
+ * 1. Moteur Google Docs Viewer en iframe plein écran (aucun plugin requis, zoom tactile natif).
+ * 2. Neutralisation des scrolls externes parasites sur le conteneur parent / body.
+ * 3. Indicateur de chargement soigné et fluide ("Ouverture du document...").
+ * 4. Gestion d'erreur robuste avec rechargement sans crash.
  */
 const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -23,11 +25,37 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   onReessayer,
 }) => {
   const [enChargement, setEnChargement] = useState<boolean>(true);
+  const [erreurChargement, setErreurChargement] = useState<boolean>(false);
+  const [cleIframe, setCleIframe] = useState<number>(0);
 
-  const pdfTargetUrl = (typeof pdfUrl === 'string' && pdfUrl) || (typeof urlFichier === 'string' && urlFichier) || '';
-  const viewerUrl = pdfTargetUrl
-    ? `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/web/viewer.html?file=${encodeURIComponent(pdfTargetUrl)}#zoom=page-width`
+  const targetUrl = (typeof pdfUrl === 'string' && pdfUrl) || (typeof urlFichier === 'string' && urlFichier) || '';
+  const viewerUrl = targetUrl
+    ? `https://docs.google.com/viewer?url=${encodeURIComponent(targetUrl)}&embedded=true`
     : '';
+
+  // 2. Neutralisation de tout comportement de défilement externe parasite sur body/html
+  useEffect(() => {
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    const originalBodyOverscroll = document.body.style.overscrollBehavior;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      document.body.style.overscrollBehavior = originalBodyOverscroll;
+    };
+  }, []);
+
+  const rechargerIframe = useCallback(() => {
+    setErreurChargement(false);
+    setEnChargement(true);
+    setCleIframe((c) => c + 1);
+    onReessayer?.();
+  }, [onReessayer]);
 
   // Document totalement verrouillé (0 page autorisée)
   if (estVerrouille && limiteApercuValeur === 0) {
@@ -103,8 +131,8 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
     );
   }
 
-  // URL de fichier absente
-  if (!pdfTargetUrl) {
+  // URL du document introuvable
+  if (!targetUrl) {
     return (
       <div
         style={{
@@ -115,7 +143,8 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
           padding: '24px',
-          backgroundColor: estSombre ? '#0F172A' : '#F8FAFC',
+          backgroundColor: estSombre ? '#0F172A' : '#171717',
+          color: '#FFFFFF',
           textAlign: 'center',
           fontFamily: 'sans-serif',
         }}
@@ -124,8 +153,11 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         <div style={{ color: '#EF4444', fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
           URL du document introuvable
         </div>
+        <div style={{ color: '#94A3B8', fontSize: '13px', marginBottom: '16px', maxWidth: '300px' }}>
+          Le lien du document PDF n'a pas pu être chargé.
+        </div>
         <button
-          onClick={onReessayer}
+          onClick={rechargerIframe}
           style={{
             padding: '10px 20px',
             backgroundColor: '#7F011F',
@@ -147,13 +179,14 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
     <div
       className="w-full h-full relative overflow-hidden flex flex-col bg-neutral-900"
       style={{
+        position: 'relative',
         width: '100%',
         height: '100%',
-        position: 'relative',
-        overflow: 'hidden',
+        flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: estSombre ? '#0F172A' : '#171717',
+        backgroundColor: '#171717',
+        overflow: 'hidden',
         fontFamily: 'sans-serif',
       }}
     >
@@ -163,8 +196,8 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
         }
       `}</style>
 
-      {/* Indicateur visuel de chargement léger */}
-      {enChargement && (
+      {/* 3. Indicateur visuel de chargement fluide et discret */}
+      {enChargement && !erreurChargement && (
         <div
           style={{
             position: 'absolute',
@@ -173,43 +206,87 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: estSombre ? '#0F172A' : '#F8FAFC',
-            gap: '12px',
+            backgroundColor: estSombre ? '#0F172A' : '#171717',
+            gap: '14px',
             zIndex: 10,
           }}
         >
           <div
             style={{
-              width: '36px',
-              height: '36px',
-              border: '3.5px solid rgba(127, 1, 31, 0.15)',
+              width: '38px',
+              height: '38px',
+              border: '3.5px solid rgba(255, 255, 255, 0.15)',
               borderTopColor: '#7F011F',
               borderRadius: '50%',
               animation: 'cauzon-spin 0.8s linear infinite',
             }}
           />
-          <div style={{ color: '#7F011F', fontSize: '14px', fontWeight: 700 }}>
-            Chargement du document...
+          <div style={{ color: '#FFFFFF', fontSize: '14px', fontWeight: 600, letterSpacing: '0.2px' }}>
+            Ouverture du document...
           </div>
-          <div style={{ color: '#64748B', fontSize: '11px' }}>
-            Moteur Mozilla PDF.js Officiel
+          <div style={{ color: '#94A3B8', fontSize: '11.5px' }}>
+            Visualiseur optimisé mobile
           </div>
         </div>
       )}
 
-      {/* Iframe Visualiseur PDF.js Officiel */}
+      {/* 3. Gestion d'erreur robuste avec actualisation sans plantage */}
+      {erreurChargement && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            backgroundColor: estSombre ? '#0F172A' : '#171717',
+            color: '#FFFFFF',
+            textAlign: 'center',
+            zIndex: 15,
+          }}
+        >
+          <div style={{ fontSize: '38px', marginBottom: '8px' }}>⚠️</div>
+          <div style={{ color: '#EF4444', fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
+            Impossible de charger l'aperçu
+          </div>
+          <div style={{ color: '#94A3B8', fontSize: '12.5px', maxWidth: '320px', marginBottom: '16px' }}>
+            La connexion au visualiseur a été interrompue. Veuillez actualiser pour retenter.
+          </div>
+          <button
+            onClick={rechargerIframe}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#7F011F',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: 700,
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            🔄 Actualiser
+          </button>
+        </div>
+      )}
+
+      {/* 2. Iframe Google Docs Viewer Plein Écran */}
       <iframe
+        key={cleIframe}
         src={viewerUrl}
         className="w-full h-full border-0"
-        title="Visualiseur PDF.js Officiel"
+        title="Visualiseur PDF Google Docs"
         allowFullScreen
-        loading="lazy"
+        loading="eager"
         onLoad={() => {
           setEnChargement(false);
           onDocumentLoad?.(1);
         }}
         onError={(e) => {
           setEnChargement(false);
+          setErreurChargement(true);
           onError?.(e);
         }}
         style={{
@@ -217,6 +294,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
           height: '100%',
           border: 'none',
           flex: 1,
+          backgroundColor: '#171717',
         }}
       />
     </div>
