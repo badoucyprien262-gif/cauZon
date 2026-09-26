@@ -3,10 +3,11 @@ import type { LecteurPdfProps } from './PdfViewer/types';
 import { LecteurPdfErrorBoundary } from './LecteurPdfDesktop';
 
 /**
- * LecteurPdfAndroid (PWA Mobile Android — Approche 2 : Google Docs Viewer)
+ * LecteurPdfAndroid (PWA Mobile Android — Approche 1 : Visualiseur Officiel Mozilla PDF.js)
  * 
- * Intégration du moteur Google Docs Viewer dans une iframe fluide et responsive.
- * Élimination de la gestion Canvas et des écouteurs Pointer Events maison.
+ * Intégration du visualiseur autonome certifié Mozilla PDF.js (viewer.html).
+ * Fournit l'expérience complète native de PDF.js : zoom fluide (page-width),
+ * défilement tactile natif, pagination, recherche et affichage haute fidélité.
  */
 const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -25,7 +26,7 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
 
   const pdfTargetUrl = (typeof pdfUrl === 'string' && pdfUrl) || (typeof urlFichier === 'string' && urlFichier) || '';
   const viewerUrl = pdfTargetUrl
-    ? `https://docs.google.com/viewer?url=${encodeURIComponent(pdfTargetUrl)}&embedded=true`
+    ? `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/web/viewer.html?file=${encodeURIComponent(pdfTargetUrl)}#zoom=page-width`
     : '';
 
   // Document totalement verrouillé (0 page autorisée)
@@ -191,16 +192,16 @@ const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
             Chargement du document...
           </div>
           <div style={{ color: '#64748B', fontSize: '11px' }}>
-            Moteur Google Docs Viewer
+            Moteur Mozilla PDF.js Officiel
           </div>
         </div>
       )}
 
-      {/* Iframe Google Docs Viewer */}
+      {/* Iframe Visualiseur PDF.js Officiel */}
       <iframe
         src={viewerUrl}
         className="w-full h-full border-0"
-        title="Visualiseur PDF"
+        title="Visualiseur PDF.js Officiel"
         allowFullScreen
         loading="lazy"
         onLoad={() => {
