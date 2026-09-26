@@ -260,7 +260,7 @@ export default function App() {
   return (
     <SafeAreaProvider
       style={[
-        { flex: 1 },
+        { flex: 1, width: '100%', height: '100%' },
         Platform.OS === 'web' && ({
           // @ts-ignore
           touchAction: 'auto',

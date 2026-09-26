@@ -56,7 +56,7 @@ function NavigateurTabsPrincipales() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: couleurs.fond }}>
+    <View style={{ flex: 1, width: '100%', height: '100%', flexDirection: 'column', backgroundColor: couleurs.fond }}>
       {!estConnecte && (
         <View
           style={{
@@ -89,6 +89,7 @@ function NavigateurTabsPrincipales() {
       <Tab.Navigator
         initialRouteName={estConnecte ? 'Accueil' : 'Bibliothèque'}
         screenOptions={({ route }) => ({
+          tabBarPosition: 'bottom',
           animation: 'fade',
           tabBarIcon: ({ focused, color }) => {
             let iconName: string;
@@ -123,6 +124,11 @@ function NavigateurTabsPrincipales() {
             marginTop: -4,
           },
           tabBarStyle: {
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
             backgroundColor: couleurs.fondCarte,
             borderTopColor: couleurs.bordure,
             borderTopWidth: 1,
@@ -134,6 +140,9 @@ function NavigateurTabsPrincipales() {
             shadowOpacity: couleurs.estSombre ? 0.3 : 0.05,
             shadowRadius: 12,
             elevation: 8,
+          },
+          sceneStyle: {
+            paddingBottom: Platform.OS === 'ios' ? 82 : 68,
           },
           headerShown: false,
         })}

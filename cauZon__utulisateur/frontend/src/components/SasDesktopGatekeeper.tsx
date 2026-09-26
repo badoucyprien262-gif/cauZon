@@ -35,7 +35,7 @@ function SpinnerSessionWeb() {
             resizeMode="contain"
           />
         </View>
-        <ActivityIndicator size="large" color="#6B1124" style={{ marginBottom: 16 }} />
+        <ActivityIndicator size="large" color="#FAF6EB" style={{ marginBottom: 16 }} />
         <Text style={styles.spinnerTitre}>Connexion à votre espace CauZon…</Text>
         <Text style={styles.spinnerSousTitre}>
           Validation de la session en cours, merci de patienter.
@@ -197,9 +197,10 @@ export default function SasDesktopGatekeeper() {
 
   return (
     <View style={styles.overlayContainer}>
-      <View style={styles.haloAmbiantDore} />
-      <View style={styles.haloAmbiantEmeraude} />
+      <View style={styles.haloAmbiantDore} pointerEvents="none" />
+      <View style={styles.haloAmbiantEmeraude} pointerEvents="none" />
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -296,11 +297,13 @@ export default function SasDesktopGatekeeper() {
 
 const styles = StyleSheet.create({
   overlayContainer: {
-    position: 'absolute',
+    position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any,
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100%',
     zIndex: 998,
     backgroundColor: 'rgba(61, 6, 19, 0.92)',
     ...(Platform.OS === 'web'
@@ -310,11 +313,17 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
+  scrollView: {
+    width: '100%',
+    height: '100%',
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingVertical: 40,
+    paddingHorizontal: 20,
     minHeight: '100%' as any,
   },
   haloAmbiantDore: {
@@ -531,11 +540,13 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   spinnerOverlay: {
-    position: 'absolute',
+    position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any,
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100%',
     zIndex: 999,
     backgroundColor: '#3D0613',
     justifyContent: 'center',

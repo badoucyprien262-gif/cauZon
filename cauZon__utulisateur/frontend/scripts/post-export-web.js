@@ -67,14 +67,31 @@ if (fs.existsSync(htmlFile)) {
   );
 
   const scrollFixStyle = `<style id="cauzon-scroll-fix">` +
-    `html, body, #root {` +
+    `html, body {` +
     ` height: 100% !important;` +
+    ` width: 100% !important;` +
+    ` margin: 0 !important;` +
+    ` padding: 0 !important;` +
     ` overflow-y: auto !important;` +
     ` touch-action: auto !important;` +
     ` -webkit-overflow-scrolling: touch !important;` +
     ` -webkit-user-select: none !important;` +
     ` -moz-user-select: none !important;` +
     ` -ms-user-select: none !important;` +
+    ` user-select: none !important;` +
+    ` overscroll-behavior-y: none !important;` +
+    `}` +
+    `#root {` +
+    ` display: flex !important;` +
+    ` flex-direction: column !important;` +
+    ` flex: 1 1 auto !important;` +
+    ` width: 100% !important;` +
+    ` height: 100% !important;` +
+    ` min-height: 100% !important;` +
+    ` position: relative !important;` +
+    ` overflow-y: auto !important;` +
+    ` touch-action: auto !important;` +
+    ` -webkit-overflow-scrolling: touch !important;` +
     ` user-select: none !important;` +
     ` overscroll-behavior-y: none !important;` +
     `}` +
