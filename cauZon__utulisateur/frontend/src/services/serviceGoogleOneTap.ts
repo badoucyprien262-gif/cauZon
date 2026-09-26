@@ -183,3 +183,81 @@ export const annulerGoogleOneTap = () => {
     } catch (_) {}
   }
 };
+
+/**
+ * Rend le bouton Google natif (GIS renderButton) dans l'élément DOM cible.
+ * Ce bouton affiche automatiquement "Continuer en tant que [Prénom]" si l'utilisateur
+ * est déjà connecté à Google dans son navigateur.
+ *
+ * @param elementId - L'id de la div cible dans laquelle rendre le bouton Google
+ * @param options   - Callbacks optionnels onSuccess / onError
+ * @returns true si le rendu a réussi, false sinon
+ */
+export const rendreBoutonGoogleGis = async (
+  elementId: string,
+  options: Pick<OptionsGoogleOneTap, 'onSuccess' | 'onError'> = {}
+): Promise<boolean> => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof document === 'undefined') {
+    return false;
+  }
+
+  const element = document.getElementById(elementId);
+  if (!element) {
+    console.warn(`[GIS] Élément DOM #${elementId} introuvable — renderButton annulé.`);
+    return false;
+  }
+
+  // S'assurer que le SDK est chargé et initialisé
+  const pret = await chargerScriptGoogleGsi();
+  if (!pret || !(window as any).google?.accounts?.id) {
+    console.warn('[GIS] SDK Google non disponible pour renderButton.');
+    return false;
+  }
+
+  const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || GOOGLE_WEB_CLIENT_ID;
+
+  try {
+    // Initialiser avec le callback pour récupérer le credential
+    (window as any).google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response: any) => {
+        try {
+          const idToken = response?.credential;
+          if (!idToken) throw new Error('Credential Google vide après sélection du compte.');
+          const authData = await authentifierParGoogleIdToken(idToken);
+          if (options.onSuccess) {
+            options.onSuccess(authData?.user);
+          }
+        } catch (err) {
+          console.error('❌ [GIS renderButton] Erreur authentification :', err);
+          if (options.onError) {
+            options.onError(err);
+          }
+        }
+      },
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      context: 'signin',
+      ux_mode: 'popup',
+    });
+
+    // Vider le conteneur avant de rendre (éviter les doublons en cas de re-render)
+    element.innerHTML = '';
+
+    (window as any).google.accounts.id.renderButton(element, {
+      type: 'standard',
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'pill',
+      logo_alignment: 'left',
+      width: element.offsetWidth || 320,
+      locale: 'fr',
+    });
+
+    console.log('✅ [GIS] Bouton Google rendu dans #' + elementId);
+    return true;
+  } catch (err) {
+    console.error('❌ [GIS] Erreur renderButton :', err);
+    return false;
+  }
+};

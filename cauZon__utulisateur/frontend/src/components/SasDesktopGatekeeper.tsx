@@ -5,7 +5,7 @@
 // Mobile natif Android/iOS : retourne null immédiatement, flux inchangé.
 // ==============================================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,8 +20,11 @@ import {
 } from 'react-native';
 import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
-import { supabase } from '../lib/supabase';
-import { initialiserGoogleOneTap, annulerGoogleOneTap } from '../services/serviceGoogleOneTap';
+import {
+  initialiserGoogleOneTap,
+  annulerGoogleOneTap,
+  rendreBoutonGoogleGis,
+} from '../services/serviceGoogleOneTap';
 
 // Spinner plein écran affiché pendant la vérification de session
 function SpinnerSessionWeb() {
@@ -45,11 +48,15 @@ function SpinnerSessionWeb() {
   );
 }
 
+// ID unique du conteneur DOM qui accueille le bouton GIS
+const GIS_BUTTON_CONTAINER_ID = 'googleSignInButtonGis';
+
 export default function SasDesktopGatekeeper() {
   const { width } = useWindowDimensions();
-  const { utilisateur, chargementAuth, sessionVerifiee, connexionGoogle } = useApp();
-  const [enCoursConnexion, setEnCoursConnexion] = useState(false);
+  const { utilisateur, chargementAuth, sessionVerifiee } = useApp();
   const [timeoutDepasse, setTimeoutDepasse] = useState(false);
+  const [boutonRendu, setBoutonRendu] = useState(false);
+  const tentativesRef = useRef(0);
 
   // ⏱️ Timeout de sécurité garanti : après 4s max, libérer immédiatement l'attente
   useEffect(() => {
@@ -59,37 +66,45 @@ export default function SasDesktopGatekeeper() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 🎯 Initialisation et Déclenchement automatique de Google One Tap (Web uniquement)
+  // 🎯 Rendu du bouton natif Google Identity Services (Web uniquement)
   useEffect(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') {
-      return;
-    }
-
-    // Si déjà authentifié, annuler toute invite résiduelle
-    if (utilisateur) {
-      annulerGoogleOneTap();
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || utilisateur) {
       return;
     }
 
     let isMounted = true;
 
+    // Initialiser One Tap (prompt automatique) en parallèle du bouton
     initialiserGoogleOneTap({
       autoPrompt: true,
-      onSuccess: () => {
-        if (isMounted) {
-          setEnCoursConnexion(false);
-        }
-      },
-      onError: (err) => {
-        console.error('❌ [OneTap Auth Error]', err);
-        if (isMounted) {
-          setEnCoursConnexion(false);
-        }
-      },
       onNotDisplayed: (reason) => {
-        console.log('[OneTap] Statut d\'affichage One Tap :', reason);
+        console.log('[OneTap] Non affiché :', reason);
       },
     });
+
+    // Rendre le bouton GIS natif avec retry si le DOM n'est pas encore prêt
+    const rendreBouton = async () => {
+      if (!isMounted || tentativesRef.current > 5) return;
+      tentativesRef.current += 1;
+
+      const ok = await rendreBoutonGoogleGis(GIS_BUTTON_CONTAINER_ID, {
+        onSuccess: () => {
+          if (isMounted) setBoutonRendu(true);
+        },
+        onError: (err) => {
+          console.error('❌ [GIS] Erreur connexion après sélection compte :', err);
+        },
+      });
+
+      if (!ok && isMounted) {
+        // Le conteneur DOM n'est peut-être pas encore monté — retry dans 400ms
+        setTimeout(rendreBouton, 400);
+      } else if (ok && isMounted) {
+        setBoutonRendu(true);
+      }
+    };
+
+    rendreBouton();
 
     return () => {
       isMounted = false;
@@ -112,80 +127,8 @@ export default function SasDesktopGatekeeper() {
     return null;
   }
 
-  // 5. Aucune session : afficher la carte d'authentification avec option d'exploration
+  // 5. Aucune session : afficher la carte d'authentification
   const isSmallScreen = width < 480;
-
-  // Redirection classique OAuth vers le sélecteur Google Supabase
-  const procederRedirectionOAuth = async () => {
-    const redirectUrl = (typeof window !== 'undefined' && window.location?.origin)
-      ? window.location.origin
-      : undefined;
-
-    console.log('🚀 [SasDesktopGatekeeper] Redirection Google OAuth vers :', redirectUrl);
-
-    const timerSecurite = setTimeout(() => {
-      setEnCoursConnexion(false);
-    }, 6000);
-
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'select_account',
-        },
-      },
-    });
-
-    if (error) {
-      clearTimeout(timerSecurite);
-      console.error('❌ [SasDesktopGatekeeper] Erreur signInWithOAuth :', error.message);
-      setEnCoursConnexion(false);
-      return;
-    }
-
-    if (data?.url && typeof window !== 'undefined') {
-      clearTimeout(timerSecurite);
-      console.log('🔄 [SasDesktopGatekeeper] Navigation vers :', data.url);
-      window.location.href = data.url;
-    }
-  };
-
-  // Gestionnaire de clic sur le bouton "Continuer avec Google" (Fallback)
-  const gererConnexionGoogle = async () => {
-    try {
-      setEnCoursConnexion(true);
-
-      // Si Google Identity Services One Tap est prêt, tenter d'abord de ré-afficher le prompt
-      if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
-        let promptAffiche = false;
-
-        (window as any).google.accounts.id.prompt((notification: any) => {
-          if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
-            console.log('[OneTap] Invite One Tap non affichée ou ignorée, redirection classique...');
-            procederRedirectionOAuth();
-          } else {
-            promptAffiche = true;
-          }
-        });
-
-        // Délai de secours : si One Tap ne réagit pas sous 800ms, redirection directe
-        setTimeout(() => {
-          if (!promptAffiche && enCoursConnexion) {
-            procederRedirectionOAuth();
-          }
-        }, 800);
-        return;
-      }
-
-      // Si One Tap non disponible sur ce navigateur, redirection directe
-      await procederRedirectionOAuth();
-    } catch (err) {
-      console.error('❌ [SasDesktopGatekeeper] Erreur déclencheur Google Auth :', err);
-      setEnCoursConnexion(false);
-    }
-  };
 
   const gererRetourVitrine = () => {
     if (typeof window !== 'undefined') {
@@ -243,34 +186,33 @@ export default function SasDesktopGatekeeper() {
               <Text style={styles.pointCleTexte}>Pass VIP et Documents Certifiés</Text>
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.boutonGoogle}
-            onPress={gererConnexionGoogle}
-            activeOpacity={0.88}
-            disabled={enCoursConnexion}
-          >
-            {enCoursConnexion ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <View style={styles.googleIconCircle} pointerEvents="none">
-                  {Platform.OS === 'web' ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' } as any}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" style={{ pointerEvents: 'none' } as any}>
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                    </span>
-                  ) : (
-                    <Ionicons name="logo-google" size={18} color="#6B1124" />
-                  )}
-                </View>
-                <Text style={styles.boutonGoogleTexte}>Continuer avec Google</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {/* ── Bouton Google Identity Services natif (Web) ───────────────── */}
+          {Platform.OS === 'web' ? (
+            <View style={styles.boutonGoogleContainer}>
+              {/* Le SDK GIS rend ici le bouton natif "Continuer en tant que…" */}
+              {/* @ts-ignore — div est valide dans les renderers web React Native */}
+              <div
+                id={GIS_BUTTON_CONTAINER_ID}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  minHeight: 44,
+                }}
+              />
+              {!boutonRendu && (
+                <ActivityIndicator
+                  size="small"
+                  color="#6B1124"
+                  style={{ position: 'absolute' } as any}
+                />
+              )}
+            </View>
+          ) : (
+            // Fallback natif iOS/Android (ne doit jamais s'afficher sur Web)
+            <View style={styles.boutonGoogleContainer} />
+          )}
           <View style={styles.mentionSecuriteContainer}>
             <Ionicons name="shield-checkmark" size={15} color="#10B981" style={{ marginRight: 6 }} />
             <Text style={styles.mentionSecuriteTexte}>
@@ -461,40 +403,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1F2937',
   },
-  boutonGoogle: {
+  boutonGoogleContainer: {
     width: '100%',
-    height: 52,
-    backgroundColor: '#6B1124',
-    borderRadius: 16,
-    flexDirection: 'row',
+    minHeight: 52,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(250, 246, 235, 0.3)',
+    position: 'relative',
     ...(Platform.OS === 'web'
       ? ({
-          cursor: 'pointer',
-          boxShadow: '0 10px 24px -6px rgba(107,17,36,0.5)',
-          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+          overflow: 'hidden',
+          // Légère ombre pour intégrer le bouton dans la card
+          filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.18))',
         } as any)
-      : { elevation: 5 }),
+      : {}),
   },
-  googleIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#FAF6EB',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  boutonGoogleTexte: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FAF6EB',
-    letterSpacing: 0.2,
-  },
+
   mentionSecuriteContainer: {
     flexDirection: 'row',
     alignItems: 'center',
