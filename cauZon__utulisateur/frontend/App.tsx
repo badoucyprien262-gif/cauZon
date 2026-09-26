@@ -12,6 +12,7 @@ import EcranChargementAuth from './src/components/EcranChargementAuth';
 import SasDesktopGatekeeper from './src/components/SasDesktopGatekeeper';
 import { initialiserGestionnaireNotifications, synchroniserNotificationsManquees } from './src/services/serviceNotifications';
 import { prechargerDonneesAccueil } from './src/services/serviceDocument';
+import { chargerScriptGoogleGsi } from './src/services/serviceGoogleOneTap';
 
 
 const linkingConfig = {
@@ -106,6 +107,13 @@ export default function App() {
       }
     }
     synchroniserDemarrage();
+  }, []);
+
+  // 🌐 Préchargement du SDK Google Identity Services sur Web
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      chargerScriptGoogleGsi().catch(() => {});
+    }
   }, []);
 
   useEffect(() => {

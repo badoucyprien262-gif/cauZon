@@ -21,6 +21,7 @@ import {
 import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 import { supabase } from '../lib/supabase';
+import { initialiserGoogleOneTap, annulerGoogleOneTap } from '../services/serviceGoogleOneTap';
 
 // Spinner plein écran affiché pendant la vérification de session
 function SpinnerSessionWeb() {
@@ -58,6 +59,44 @@ export default function SasDesktopGatekeeper() {
     return () => clearTimeout(timer);
   }, []);
 
+  // 🎯 Initialisation et Déclenchement automatique de Google One Tap (Web uniquement)
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return;
+    }
+
+    // Si déjà authentifié, annuler toute invite résiduelle
+    if (utilisateur) {
+      annulerGoogleOneTap();
+      return;
+    }
+
+    let isMounted = true;
+
+    initialiserGoogleOneTap({
+      autoPrompt: true,
+      onSuccess: () => {
+        if (isMounted) {
+          setEnCoursConnexion(false);
+        }
+      },
+      onError: (err) => {
+        console.error('❌ [OneTap Auth Error]', err);
+        if (isMounted) {
+          setEnCoursConnexion(false);
+        }
+      },
+      onNotDisplayed: (reason) => {
+        console.log('[OneTap] Statut d\'affichage One Tap :', reason);
+      },
+    });
+
+    return () => {
+      isMounted = false;
+      annulerGoogleOneTap();
+    };
+  }, [utilisateur]);
+
   // 1. Sur mobile natif (Android / iOS) ne jamais bloquer
   if (Platform.OS !== 'web') {
     return null;
@@ -76,43 +115,72 @@ export default function SasDesktopGatekeeper() {
   // 5. Aucune session : afficher la carte d'authentification avec option d'exploration
   const isSmallScreen = width < 480;
 
+  // Redirection classique OAuth vers le sélecteur Google Supabase
+  const procederRedirectionOAuth = async () => {
+    const redirectUrl = (typeof window !== 'undefined' && window.location?.origin)
+      ? window.location.origin
+      : undefined;
+
+    console.log('🚀 [SasDesktopGatekeeper] Redirection Google OAuth vers :', redirectUrl);
+
+    const timerSecurite = setTimeout(() => {
+      setEnCoursConnexion(false);
+    }, 6000);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (error) {
+      clearTimeout(timerSecurite);
+      console.error('❌ [SasDesktopGatekeeper] Erreur signInWithOAuth :', error.message);
+      setEnCoursConnexion(false);
+      return;
+    }
+
+    if (data?.url && typeof window !== 'undefined') {
+      clearTimeout(timerSecurite);
+      console.log('🔄 [SasDesktopGatekeeper] Navigation vers :', data.url);
+      window.location.href = data.url;
+    }
+  };
+
+  // Gestionnaire de clic sur le bouton "Continuer avec Google" (Fallback)
   const gererConnexionGoogle = async () => {
     try {
       setEnCoursConnexion(true);
-      const redirectUrl = (typeof window !== 'undefined' && window.location?.origin)
-        ? window.location.origin
-        : undefined;
 
-      console.log('🚀 [SasDesktopGatekeeper] Clic sur "Continuer avec Google" -> Redirection OAuth vers :', redirectUrl);
+      // Si Google Identity Services One Tap est prêt, tenter d'abord de ré-afficher le prompt
+      if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
+        let promptAffiche = false;
 
-      // Sécurité : auto-reset après 6 secondes si la redirection prend du temps
-      const timerSecurite = setTimeout(() => {
-        setEnCoursConnexion(false);
-      }, 6000);
+        (window as any).google.accounts.id.prompt((notification: any) => {
+          if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+            console.log('[OneTap] Invite One Tap non affichée ou ignorée, redirection classique...');
+            procederRedirectionOAuth();
+          } else {
+            promptAffiche = true;
+          }
+        });
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'select_account',
-          },
-        },
-      });
-
-      if (error) {
-        clearTimeout(timerSecurite);
-        console.error('❌ [SasDesktopGatekeeper] Erreur signInWithOAuth :', error.message);
-        setEnCoursConnexion(false);
+        // Délai de secours : si One Tap ne réagit pas sous 800ms, redirection directe
+        setTimeout(() => {
+          if (!promptAffiche && enCoursConnexion) {
+            procederRedirectionOAuth();
+          }
+        }, 800);
         return;
       }
 
-      if (data?.url && typeof window !== 'undefined') {
-        clearTimeout(timerSecurite);
-        console.log('🔄 [SasDesktopGatekeeper] Navigation vers :', data.url);
-        window.location.href = data.url;
-      }
+      // Si One Tap non disponible sur ce navigateur, redirection directe
+      await procederRedirectionOAuth();
     } catch (err) {
       console.error('❌ [SasDesktopGatekeeper] Erreur déclencheur Google Auth :', err);
       setEnCoursConnexion(false);
