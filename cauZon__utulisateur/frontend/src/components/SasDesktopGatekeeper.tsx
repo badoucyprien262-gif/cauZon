@@ -48,7 +48,6 @@ export default function SasDesktopGatekeeper() {
   const { width } = useWindowDimensions();
   const { utilisateur, chargementAuth, sessionVerifiee, connexionGoogle } = useApp();
   const [enCoursConnexion, setEnCoursConnexion] = useState(false);
-  const [accesInvite, setAccesInvite] = useState(false);
   const [timeoutDepasse, setTimeoutDepasse] = useState(false);
 
   // ⏱️ Timeout de sécurité garanti : après 4s max, libérer immédiatement l'attente
@@ -61,11 +60,6 @@ export default function SasDesktopGatekeeper() {
 
   // 1. Sur mobile natif (Android / iOS) ne jamais bloquer
   if (Platform.OS !== 'web') {
-    return null;
-  }
-
-  // 2. Si l'accès invité / libre a été activé, libérer l'accueil
-  if (accesInvite) {
     return null;
   }
 
@@ -216,19 +210,11 @@ export default function SasDesktopGatekeeper() {
           </View>
           <View style={styles.separateur} />
           <TouchableOpacity
-            style={styles.boutonAccesInvite}
-            onPress={() => setAccesInvite(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="compass-outline" size={15} color="#6B1124" style={{ marginRight: 6 }} />
-            <Text style={styles.boutonAccesInviteTexte}>Explorer le catalogue en accès libre</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             style={styles.boutonRetourVitrine}
             onPress={gererRetourVitrine}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back-outline" size={13} color="#6B1124" style={{ marginRight: 6 }} />
+            <Ionicons name="arrow-back-outline" size={14} color="#6B1124" style={{ marginRight: 6 }} />
             <Text style={styles.boutonRetourVitrineTexte}>Retourner au site vitrine</Text>
           </TouchableOpacity>
           <Text style={styles.footerNote}>
@@ -453,37 +439,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(107, 17, 36, 0.1)',
     marginBottom: 16,
   },
-  boutonAccesInvite: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    backgroundColor: 'rgba(107, 17, 36, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(107, 17, 36, 0.18)',
-    marginBottom: 10,
-    width: '100%',
-    ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
-  },
-  boutonAccesInviteTexte: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#6B1124',
-    letterSpacing: -0.1,
-  },
   boutonRetourVitrine: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
     borderRadius: 12,
+    marginTop: 2,
+    marginBottom: 4,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   boutonRetourVitrineTexte: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '700',
     color: '#6B1124',
     textDecorationLine: 'underline',
