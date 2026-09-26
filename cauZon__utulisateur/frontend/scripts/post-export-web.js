@@ -282,13 +282,19 @@ console.log('✅ Icônes haute résolution et aperçu Open Graph synchronisés d
 // 2-bis. Copie des fichiers SEO Google (robots.txt et sitemap.xml)
 // ────────────────────────────────────────────────────────────────────────────
 const publicDir = path.join(rootDir, 'public');
-['robots.txt', 'sitemap.xml', 'google0a16ebf370de0768.html'].forEach(fileName => {
+[
+  'robots.txt',
+  'sitemap.xml',
+  'google0a16ebf370de0768.html',
+  'politique-de-confidentialite.html',
+  'confidentialite.html'
+].forEach(fileName => {
   const src = path.join(publicDir, fileName);
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, path.join(distDir, fileName));
-    console.log(`✅ Fichier SEO ${fileName} copié dans dist/${fileName}.`);
+    console.log(`✅ Fichier ${fileName} copié dans dist/${fileName}.`);
   } else {
-    console.warn(`⚠️ Fichier SEO ${fileName} introuvable dans public/.`);
+    console.warn(`⚠️ Fichier ${fileName} introuvable dans public/.`);
   }
 });
 

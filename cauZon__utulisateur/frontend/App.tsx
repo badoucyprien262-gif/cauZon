@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
+import { Platform, BackHandler, ToastAndroid } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
@@ -13,6 +13,23 @@ import SasDesktopGatekeeper from './src/components/SasDesktopGatekeeper';
 import { initialiserGestionnaireNotifications, synchroniserNotificationsManquees } from './src/services/serviceNotifications';
 import { prechargerDonneesAccueil } from './src/services/serviceDocument';
 
+
+const linkingConfig = {
+  prefixes: ['https://cauzon.app', 'cauzon://', 'exp://'],
+  config: {
+    screens: {
+      MainTabs: {
+        screens: {
+          Accueil: '',
+          Bibliothèque: 'bibliotheque',
+        },
+      },
+      PolitiqueConfidentialite: 'politique-de-confidentialite',
+      DocumentViewer: 'document',
+      PdfViewer: 'pdf',
+    },
+  },
+};
 
 export const navigationRef = createNavigationContainerRef<any>();
 
@@ -34,6 +51,43 @@ export default function App() {
   const [estPret, setEstPret] = useState(false);
   const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
+  const dernierAppuiRetourRef = useRef<number>(0);
+
+  // 🤖 Interception globale du bouton Retour sous Android (Conformité Play Store)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onHardwareBackPress = () => {
+      if (!navigationRef.isReady()) return false;
+
+      // 1. Si la pile de navigation peut reculer (écran secondaire)
+      if (navigationRef.canGoBack()) {
+        navigationRef.goBack();
+        return true;
+      }
+
+      // 2. Si on est sur un onglet secondaire (ex: Bibliothèque) -> retour à l'Accueil
+      const routeCourante = navigationRef.getCurrentRoute()?.name;
+      if (routeCourante && routeCourante !== 'Accueil') {
+        navigationRef.navigate('Accueil');
+        return true;
+      }
+
+      // 3. Si on est sur l'écran d'accueil principal (racine) -> Double appui pour quitter
+      const maintenant = Date.now();
+      if (maintenant - dernierAppuiRetourRef.current < 2000) {
+        BackHandler.exitApp();
+        return true;
+      }
+
+      dernierAppuiRetourRef.current = maintenant;
+      ToastAndroid.show('Appuyez à nouveau pour quitter', ToastAndroid.SHORT);
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBackPress);
+    return () => sub.remove();
+  }, []);
 
   // 🚀 Barrière de synchronisation UX : Démarrage ultra-rapide (< 650-850ms)
   useEffect(() => {
@@ -209,7 +263,7 @@ export default function App() {
       ]}
     >
       <FournisseurApp>
-        <NavigationContainer ref={navigationRef}>
+        <NavigationContainer ref={navigationRef} linking={linkingConfig}>
           <NavigateurApp />
           <BarreDeStatutDynamique splashVisible={splashVisible} />
         </NavigationContainer>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  BackHandler,
+  Platform,
 } from 'react-native';
 import Pdf from 'react-native-pdf';
 
@@ -21,6 +23,7 @@ export interface LecteurPdfMobileProps {
   scale?: number;
   onAcheter?: () => void;
   onVip?: () => void;
+  onFermer?: () => void;
   onPageChange?: (currentPage: number, totalPages: number) => void;
   onDocumentLoad?: (totalPages: number) => void;
   onError?: (error: any) => void;
@@ -36,6 +39,7 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
   scale = 1.0,
   onAcheter,
   onVip,
+  onFermer,
   onPageChange,
   onDocumentLoad,
   onError,
@@ -43,6 +47,18 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !onFermer) return;
+
+    const onBackPress = () => {
+      onFermer();
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [onFermer]);
   const [chargement, setChargement] = useState<boolean>(true);
   const [erreur, setErreur] = useState<string | null>(null);
 

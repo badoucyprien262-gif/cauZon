@@ -8,12 +8,14 @@ import EcranAccueil from '../screens/EcranAccueil';
 import EcranBibliotheque from '../screens/EcranBibliotheque';
 import EcranLecteurDocument from '../screens/EcranLecteurDocument';
 import PdfViewerScreen from '../screens/PdfViewerScreen';
+import EcranPolitiqueConfidentialite from '../screens/EcranPolitiqueConfidentialite';
 import { useApp } from '../store/ContexteApp';
 import { Document } from '../types';
 import { fetchCatalogueDocuments } from '../services/serviceDocument';
 
 export type RootStackParamList = {
   MainTabs: undefined;
+  PolitiqueConfidentialite: undefined;
   DocumentViewer: {
     document: Document;
     onUnlock?: (id: string) => void;
@@ -152,6 +154,7 @@ export default function NavigateurApp() {
       }}
     >
       <Stack.Screen name="MainTabs" component={NavigateurTabsPrincipales} />
+      <Stack.Screen name="PolitiqueConfidentialite" component={EcranPolitiqueConfidentialite} />
       <Stack.Screen name="DocumentViewer" component={EcranLecteurDocument} />
       <Stack.Screen name="PdfViewer" component={PdfViewerScreen} />
     </Stack.Navigator>

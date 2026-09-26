@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -137,32 +137,46 @@ export default function ModaleLegale({
               <View style={styles.textSection}>
                 <Text style={styles.sectionTitle}>Politique de Confidentialité</Text>
                 <Text style={styles.paragraph}>
-                  Conformité Google Play Store & Protection des Données Personnelles
+                  Conformité Google Play Store & Protection des Données Personnelles • Version 1.0.0 (Septembre 2026)
                 </Text>
 
-                <Text style={styles.subTitle}>1. Données Collectées</Text>
+                <Text style={styles.subTitle}>1. Responsable du Traitement</Text>
                 <Text style={styles.paragraph}>
-                  Nous collectons uniquement les informations nécessaires au bon fonctionnement de vos services d'apprentissage :
+                  Le traitement de vos données est assuré par la <Text style={styles.bold}>plateforme académique cauZon</Text>, dédiée à l'apprentissage et à la diffusion sécurisée de documents pédagogiques certifiés en Côte d'Ivoire. Contact : <Text style={styles.bold}>support@cauzon.ci</Text>.
+                </Text>
+
+                <Text style={styles.subTitle}>2. Données Personnelles Collectées</Text>
+                <Text style={styles.paragraph}>
+                  Nous collectons exclusivement les données strictement nécessaires au fonctionnement du service :
                 </Text>
                 <View style={styles.bulletList}>
-                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Identité Google</Text> : Nom complet, prénom et adresse email (via Google OAuth) pour certifier votre profil et sécuriser vos accès.</Text>
-                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Numéro de Téléphone</Text> : Utilisé exclusivement pour pré-remplir vos transactions de paiement Mobile Money (FeexPay).</Text>
-                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Identifiant Appareil (Device ID)</Text> : Empreinte technique anonymisée servant à la gestion du cache hors-ligne et à la protection contre la fraude de l'offre de bienvenue.</Text>
+                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Données de Compte :</Text> Nom, prénom et e-mail (via Google OAuth) pour identifier votre profil et synchroniser vos cours.</Text>
+                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Données d'Utilisation :</Text> Cours consultés, favoris, historique de lecture et achats pour assurer la continuité pédagogique.</Text>
+                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Identifiant Appareil (Device ID) :</Text> Empreinte technique anonymisée indispensable à la gestion du cache hors-ligne et à la protection contre la fraude de l'offre de bienvenue (un cours gratuit par appareil).</Text>
                 </View>
 
-                <Text style={styles.subTitle}>2. Utilisation des Données</Text>
+                <Text style={styles.subTitle}>3. Transactions et Paiements Sécurisés</Text>
                 <Text style={styles.paragraph}>
-                  Vos données personnelles ne sont JAMAIS vendues, louées ou cédées à des tiers. Elles sont uniquement utilisées pour l'accès aux cours, la synchronisation multiplateforme et le support technique.
+                  <Text style={styles.bold}>cauZon ne stocke, ne traite ni n'a accès à aucune donnée bancaire</Text> (numéro de carte bancaire, mot de passe ou code secret Mobile Money). Toutes les transactions sont déléguées et traitées de manière chiffrée par nos partenaires certifiés PCI-DSS (<Text style={styles.bold}>FeexPay</Text> et passerelles de paiement sécurisées).
                 </Text>
 
-                <Text style={styles.subTitle}>3. Sécurité et Chiffrement</Text>
+                <Text style={styles.subTitle}>4. Stockage et Sécurité des Données</Text>
                 <Text style={styles.paragraph}>
-                  Toutes les communications entre l'application et nos serveurs Supabase sont chiffrées de bout en bout via SSL/TLS. Les paiements Mobile Money sont traités selon les normes de sécurité bancaire PCI-DSS par notre partenaire agréé FeexPay.
+                  Vos informations sont hébergées sur une infrastructure cloud moderne et hautement sécurisée (<Text style={styles.bold}>Supabase</Text>). Toutes les transmissions sont chiffrées de bout en bout via SSL/TLS (HTTPS forcé), et les données sont protégées par des politiques d'isolation strictes (Row-Level Security - RLS).
                 </Text>
 
-                <Text style={styles.subTitle}>4. Vos Droits (Droit d'accès, rectification et effacement)</Text>
+                <Text style={styles.subTitle}>5. Vos Droits et Suppression de Compte</Text>
                 <Text style={styles.paragraph}>
-                  Conformément aux réglementations sur la protection des données personnelles, vous disposez d'un droit total d'accès, de modification et d'effacement complet de votre compte en un clic dans la section "Paramètres" de l'application.
+                  Vous disposez d'un droit total d'accès, de rectification et d'effacement (« droit à l'oubli ») de vos données personnelles :
+                </Text>
+                <View style={styles.bulletList}>
+                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Suppression autonome :</Text> Directement dans l'application via Réglages &gt; « Zone sensible » &gt; « Désactiver mon compte ».</Text>
+                  <Text style={styles.bulletItem}>• <Text style={styles.bold}>Demande par courriel :</Text> Écrivez à <Text style={styles.bold}>support@cauzon.ci</Text> pour une suppression définitive sous 48 heures ouvrées.</Text>
+                </View>
+
+                <Text style={styles.subTitle}>6. Services Tiers et Sous-traitants</Text>
+                <Text style={styles.paragraph}>
+                  cauZon fait appel à des prestataires de confiance : <Text style={styles.bold}>Google Play Services & Google Identity</Text> (authentification sécurisée et distribution de l'application), <Text style={styles.bold}>Firebase FCM</Text> (notifications administratives et sécurité), et <Text style={styles.bold}>FeexPay</Text> (passerelle de paiement sécurisée).
                 </Text>
               </View>
             )}

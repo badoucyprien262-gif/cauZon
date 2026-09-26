@@ -43,6 +43,14 @@
       "destination": "/google0a16ebf370de0768.html"
     },
     {
+      "source": "/politique-de-confidentialite",
+      "destination": "/politique-de-confidentialite.html"
+    },
+    {
+      "source": "/confidentialite",
+      "destination": "/confidentialite.html"
+    },
+    {
       "source": "/assets/(.*)",
       "destination": "/assets/$1"
     },

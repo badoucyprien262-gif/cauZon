@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, ActivityIndicator, useWindowDimensions, BackHandler } from 'react-native';
 import { Ionicons } from '../components/AppIcon';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -319,6 +319,19 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
     }
   };
 
+  // 🤖 Interception rigoureuse du bouton Retour physique sous Android
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onHardwareBackPress = () => {
+      handleBack();
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBackPress);
+    return () => sub.remove();
+  }, [navigation]);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar 
@@ -399,6 +412,7 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
               prix={docObj.prix}
               estSombre={couleurs.estSombre}
               scale={zoomMobileActif}
+              onFermer={handleBack}
               onPageChange={(current, total) => {
                 setPageState({ current, total });
               }}

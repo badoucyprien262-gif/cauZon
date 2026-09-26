@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>Politique de Confidentialité — cauZon</title>
+  <meta name="description" content="Engagements de la plateforme académique cauZon en matière de données personnelles et de vie privée. Conforme aux exigences de la Google Play Console et à la législation en vigueur.">
+  <link rel="canonical" href="https://cauzon.app/politique-de-confidentialite">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#7F011F">
+
+  <!-- Open Graph / Réseaux Sociaux -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="cauZon">
+  <meta property="og:url" content="https://cauzon.app/politique-de-confidentialite">
+  <meta property="og:title" content="Politique de Confidentialité — cauZon">
+  <meta property="og:description" content="Engagements de cauZon en matière de protection des données personnelles. Conforme Google Play Store.">
+  <meta property="og:image" content="https://cauzon.app/assets/og-preview.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
+  <link rel="icon" type="image/png" href="/favicon.png">
+
+  <style>
+    :root {
+      --bg-dark: #121212;
+      --bg-card: #1E1E1E;
+      --bg-card-subtle: #262626;
+      --border: #2E2E32;
+      --border-accent: rgba(127, 1, 31, 0.3);
+      --primary: #7F011F;
+      --primary-light: #9E1032;
+      --accent-gold: #F5EBD0;
+      --text: #FFFFFF;
+      --text-muted: #9CA3AF;
+      --text-dim: #6B7280;
+      --success: #2ECC71;
+      --warning: #F39C12;
+      --danger: #E74C3C;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 0;
+      margin: 0;
+    }
+
+    /* En-tête de page */
+    header {
+      background-color: rgba(30, 30, 30, 0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #7F011F 0%, #4A0010 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 16px;
+      color: #FAF6EB;
+      box-shadow: 0 2px 6px rgba(127, 1, 31, 0.4);
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-badge {
+      background-color: var(--primary);
+      color: #FFFFFF;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-back-home {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--accent-gold);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .btn-back-home:hover {
+      background: var(--primary);
+      border-color: var(--primary-light);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+
+    /* Conteneur principal */
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 20px 60px 20px;
+    }
+
+    /* Carte Hero */
+    .hero-card {
+      background: linear-gradient(180deg, rgba(127, 1, 31, 0.15) 0%, rgba(30, 30, 30, 0.8) 100%);
+      border: 1px solid var(--border-accent);
+      border-radius: 18px;
+      padding: 36px 28px;
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .hero-shield-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px auto;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7F011F 0%, #4A0010 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(127, 1, 31, 0.4);
+    }
+
+    .hero-shield-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: none;
+      stroke: #FAF6EB;
+      stroke-width: 2.2;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .hero-subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 20px auto;
+      line-height: 1.6;
+    }
+
+    .meta-tags {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      font-size: 12.5px;
+    }
+
+    .meta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: rgba(46, 204, 113, 0.15);
+      color: #4ADE80;
+      font-weight: 600;
+      border: 1px solid rgba(46, 204, 113, 0.3);
+    }
+
+    .meta-date {
+      color: var(--text-muted);
+    }
+
+    /* Grille des 3 piliers */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .pillar-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .pillar-icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 4px;
+    }
+
+    .pillar-icon-box svg {
+      width: 22px;
+      height: 22px;
+      stroke-width: 2;
+    }
+
+    .pillar-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .pillar-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Sections Juridiques */
+    .section-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 26px 24px;
+      margin-bottom: 20px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .section-number {
+      width: 32px;
+      height: 32px;
+      border-radius: 16px;
+      background: var(--primary);
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+
+    h2 {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    p {
+      font-size: 14.5px;
+      color: var(--text);
+      line-height: 1.65;
+      margin-bottom: 12px;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    .bold {
+      font-weight: 700;
+      color: #FFFFFF;
+    }
+
+    /* Boîte d'accentuation / Callout */
+    .callout-box {
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 14px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .callout-box.security {
+      background: rgba(127, 1, 31, 0.12);
+      border-color: rgba(127, 1, 31, 0.35);
+    }
+
+    .callout-box.danger {
+      background: rgba(231, 76, 60, 0.1);
+      border-color: rgba(231, 76, 60, 0.25);
+    }
+
+    .callout-title {
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .callout-text {
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+
+    /* Listes à puces soignées */
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .feature-item svg {
+      width: 18px;
+      height: 18px;
+      stroke: var(--success);
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+
+    .data-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 10px;
+    }
+
+    .data-card-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .data-card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Tiers / Prestataires */
+    .third-party-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .third-party-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .third-party-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .third-party-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .third-party-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Carte de contact */
+    .contact-card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, rgba(127, 1, 31, 0.1) 100%);
+      border: 1px solid var(--border-accent);
+      border-radius: 16px;
+      padding: 32px 24px;
+      text-align: center;
+      margin-top: 36px;
+    }
+
+    .contact-card h3 {
+      font-size: 19px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .contact-card p {
+      color: var(--text-muted);
+      font-size: 14px;
+      max-width: 520px;
+      margin: 0 auto 20px auto;
+    }
+
+    .btn-contact {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--primary);
+      color: #FFFFFF;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+
+    .btn-contact:hover {
+      background: var(--primary-light);
+      transform: translateY(-1px);
+    }
+
+    /* Pied de page */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 20px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    a {
+      color: var(--accent-gold);
+    }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 22px; }
+      .hero-card { padding: 24px 16px; }
+      .section-card { padding: 20px 16px; }
+      .header-inner { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── En-tête Sticky ──────────────────────────────────────────────── -->
+  <header>
+    <div class="header-inner">
+      <a href="/" class="brand-link" aria-label="Retour à l'accueil cauZon">
+        <div class="brand-logo">Z</div>
+        <span class="brand-title">cauZon</span>
+        <span class="brand-badge">Légal</span>
+      </a>
+      <a href="/" class="btn-back-home" title="Retourner à l'accueil de cauZon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+        Retour à l'application
+      </a>
+    </div>
+  </header>
+
+  <!-- ─── Corps de la Politique ─────────────────────────────────────────── -->
+  <main>
+    <!-- Bannière d'en-tête (Hero) -->
+    <div class="hero-card">
+      <div class="hero-shield-icon">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <path d="m9 12 2 2 4-4"></path>
+        </svg>
+      </div>
+      <h1>Politique de Confidentialité</h1>
+      <p class="hero-subtitle">
+        Engagements stricts de la plateforme académique <strong>cauZon</strong> relatifs à la collecte, à l'utilisation, à la protection et à la suppression de vos données personnelles. Conforme aux règles de la <strong>Google Play Console</strong> et aux normes de sécurité internationales.
+      </p>
+      <div class="meta-tags">
+        <span class="meta-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          Google Play Store Ready
+        </span>
+        <span class="meta-date">Version 1.0.0 • Dernière mise à jour : 26 Septembre 2026</span>
+      </div>
+    </div>
+
+    <!-- 3 Piliers de Protection -->
+    <div class="pillars-grid">
+      <div class="pillar-card">
+        <div class="pillar-icon-box" style="background: rgba(127, 1, 31, 0.2);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F9A8B8">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <div class="pillar-title">Chiffrement SSL/TLS</div>
+        <div class="pillar-desc">Toutes les transmissions de données et sessions sont chiffrées de bout en bout (HTTPS forcé).</div>
+      </div>
+
+      <div class="pillar-card">
+        <div class="pillar-icon-box" style="background: rgba(46, 204, 113, 0.15);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2ECC71">
+            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+            <line x1="1" y1="10" x2="23" y2="10"></line>
+          </svg>
+        </div>
+        <div class="pillar-title">0 Donnée Bancaire</div>
+        <div class="pillar-desc">Aucun numéro de carte, mot de passe ni code secret Mobile Money n'est conservé par cauZon.</div>
+      </div>
+
+      <div class="pillar-card">
+        <div class="pillar-icon-box" style="background: rgba(52, 152, 219, 0.15);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#3498DB">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <line x1="18" y1="8" x2="23" y2="13"></line>
+            <line x1="23" y1="8" x2="18" y2="13"></line>
+          </svg>
+        </div>
+        <div class="pillar-title">Droit à l'Oubli</div>
+        <div class="pillar-desc">Suppression immédiate et autonome de votre compte et de toutes vos données directement depuis l'application.</div>
+      </div>
+    </div>
+
+    <!-- ─── SECTION 1 : Responsable du traitement ──────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">1</div>
+        <h2>Responsable du Traitement</h2>
+      </div>
+      <p>
+        Le traitement de vos données personnelles est administré et garanti par la <span class="bold">plateforme académique cauZon</span>, solution numérique dédiée à la mise à disposition, au partage et à la certification de ressources pédagogiques (cours, TD, annales et fiches de synthèse) au bénéfice de la communauté universitaire et étudiante de Côte d'Ivoire.
+      </p>
+      <div class="callout-box">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F5EBD0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+        <div>
+          <div class="callout-title" style="color: var(--accent-gold);">Service Éditeur & Exploitant</div>
+          <div class="callout-text">
+            <strong>Entité :</strong> Plateforme Académique cauZon (Abidjan, Côte d'Ivoire)<br>
+            <strong>Contact Délégué à la Protection des Données (DPO) :</strong> <a href="mailto:support@cauzon.ci">support@cauzon.ci</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ─── SECTION 2 : Données Collectées ─────────────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">2</div>
+        <h2>Données Collectées</h2>
+      </div>
+      <p>
+        Conformément au principe fondamental de proportionnalité et de minimisation des données, cauZon collecte uniquement les informations strictement requises au bon fonctionnement des services éducatifs :
+      </p>
+
+      <div class="data-card">
+        <div class="data-card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F9A8B8" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+          Données de Compte et Profil
+        </div>
+        <div class="data-card-desc">
+          Nom, prénom et adresse e-mail recueillis lors de la connexion sécurisée via Google OAuth 2.0. Ces données permettent d'authentifier votre compte et de synchroniser vos cours débloqués.
+        </div>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F9A8B8" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          Données d'Utilisation Académique
+        </div>
+        <div class="data-card-desc">
+          Historique des documents consultés, documents enregistrés en favoris, statut des cours débloqués et progression de lecture afin d'assurer la continuité de votre révision.
+        </div>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F9A8B8" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+          Identifiants Techniques Anonymisés (Device ID)
+        </div>
+        <div class="data-card-desc">
+          Empreinte technique anonymisée du terminal servant exclusivement à la gestion du cache de lecture hors-ligne, au respect des quotas de stockage et à la protection contre la fraude de l'offre de bienvenue (strictement limitée à un cours gratuit par appareil).
+        </div>
+      </div>
+    </article>
+
+    <!-- ─── SECTION 3 : Transactions et Paiements ──────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">3</div>
+        <h2>Transactions et Paiements Sécurisés</h2>
+      </div>
+      <div class="callout-box security">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#F9A8B8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+          <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+          <line x1="1" y1="10" x2="23" y2="10"></line>
+        </svg>
+        <div>
+          <div class="callout-title" style="color: #F9A8B8;">Absence Totale de Données Bancaires Conservées</div>
+          <div class="callout-text">
+            <strong>cauZon ne stocke, ne traite ni ne conserve aucune donnée bancaire, numéro de carte de paiement ou code secret Mobile Money</strong> sur ses serveurs.
+          </div>
+        </div>
+      </div>
+      <p>
+        Les transactions financières relatives à l'acquisition de documents à l'unité ou de Pass VIP sont déléguées et traitées intégralement de manière chiffrée par nos partenaires certifiés, notamment la passerelle de paiement agréée <span class="bold">FeexPay</span> (conforme aux normes bancaires de sécurité et de chiffrement PCI-DSS).
+      </p>
+    </article>
+
+    <!-- ─── SECTION 4 : Stockage et Sécurité ───────────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">4</div>
+        <h2>Stockage et Sécurité des Données</h2>
+      </div>
+      <p>
+        La sécurité de vos données académiques et techniques constitue une priorité absolue. Nous mettons en œuvre les mécanismes suivants :
+      </p>
+      <ul class="feature-list">
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Hébergement Cloud Sécurisé :</span> Données centralisées sur une infrastructure de classe entreprise (<span class="bold">Supabase</span> / PostgreSQL) protégée contre les intrusions physiques et logicielles.</div>
+        </li>
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Chiffrement SSL/TLS :</span> Tous les flux entre votre terminal (navigateur web ou application mobile) et nos serveurs sont protégés par le protocole de chiffrement TLS avec forçage HTTPS.</div>
+        </li>
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Contrôle d'Accès Cloisonné (RLS) :</span> Politiques Row-Level Security strictes garantissant qu'aucun utilisateur ne peut accéder aux données ou acquisitions d'un autre étudiant.</div>
+        </li>
+      </ul>
+    </article>
+
+    <!-- ─── SECTION 5 : Droits de l'Utilisateur ────────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">5</div>
+        <h2>Droits de l'Utilisateur & Suppression de Compte</h2>
+      </div>
+      <p>
+        Conformément aux réglementations sur la protection des données personnelles, vous disposez d'un contrôle complet et souverain sur vos informations :
+      </p>
+      <ul class="feature-list" style="margin-bottom: 16px;">
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Droit d'accès et d'export :</span> Vous pouvez consulter l'ensemble des données associées à votre profil directement dans l'espace Réglages.</div>
+        </li>
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Droit de rectification :</span> Modification à tout instant de vos informations de profil.</div>
+        </li>
+        <li class="feature-item">
+          <svg viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          <div><span class="bold">Droit à l'effacement (Droit à l'oubli) :</span> Suppression immédiate de votre compte et purge définitive de vos données personnelles.</div>
+        </li>
+      </ul>
+
+      <div class="callout-box danger">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E74C3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;">
+          <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div>
+          <div class="callout-title" style="color: #E74C3C;">Modalités Simples de Suppression de Compte</div>
+          <div class="callout-text">
+            • <strong>En direct depuis l'application :</strong> Accédez à <em>Paramètres</em> &gt; rubrique <em>« Zone sensible »</em> &gt; bouton <em>« Désactiver mon compte »</em>.<br>
+            • <strong>Par demande écrite :</strong> Adressez un courriel à <a href="mailto:support@cauzon.ci">support@cauzon.ci</a>. Vos informations seront définitivement purgées sous 48 heures ouvrées.
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ─── SECTION 6 : Services Tiers ─────────────────────────────── -->
+    <article class="section-card">
+      <div class="section-header">
+        <div class="section-number">6</div>
+        <h2>Services Tiers et Sous-Traitants</h2>
+      </div>
+      <p>
+        Pour assurer la sécurité, la distribution et la délivrabilité des services de cauZon, nous collaborons avec des sous-traitants techniques hautement certifiés :
+      </p>
+
+      <div class="third-party-item">
+        <div class="third-party-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EA4335" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+        </div>
+        <div>
+          <div class="third-party-title">Google Play Services & Google Identity</div>
+          <div class="third-party-desc">
+            Authentification fédérée OAuth 2.0 garantissant la protection de vos identifiants, canal officiel de distribution et de mise à jour de l'application Android.
+          </div>
+        </div>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F39C12" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        </div>
+        <div>
+          <div class="third-party-title">Firebase Cloud Messaging (FCM)</div>
+          <div class="third-party-desc">
+            Distribution sécurisée des notifications système, alertes d'examens et annonces de disponibilité de nouveaux cours certifiés.
+          </div>
+        </div>
+      </div>
+
+      <div class="third-party-item">
+        <div class="third-party-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2ECC71" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
+        </div>
+        <div>
+          <div class="third-party-title">FeexPay (Passerelle Mobile Money)</div>
+          <div class="third-party-desc">
+            Traitement sécurisé et chiffré des paiements par Mobile Money (Orange Money, MTN MoMo, Moov Money, Wave) conforme aux standards bancaires PCI-DSS.
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- Carte de contact & Support -->
+    <div class="contact-card">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F5EBD0" stroke-width="2" style="margin-bottom: 8px;">
+        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+        <polyline points="22,6 12,13 2,6"></polyline>
+      </svg>
+      <h3>Une question concernant vos données personnelles ?</h3>
+      <p>
+        Notre équipe d'assistance et notre délégué à la protection des données sont à votre écoute pour toute demande d'accès, de rectification ou d'information complémentaire.
+      </p>
+      <a href="mailto:support@cauzon.ci?subject=Demande%20RGPD%20Donnees%20Personnelles" class="btn-contact">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        Contacter l'équipe : support@cauzon.ci
+      </a>
+      <div style="margin-top: 16px;">
+        <a href="/" style="font-size: 13px; color: var(--text-muted); text-decoration: none;">
+          ← Retourner à l'application cauZon
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─── Pied de page ────────────────────────────────────────────────── -->
+  <footer>
+    <p>© 2026 cauZon. Tous droits réservés. Plateforme académique certifiée en Côte d'Ivoire.</p>
+    <p style="margin-top: 4px;">Conforme aux exigences de publication de la Google Play Console.</p>
+  </footer>
+
+</body>
+</html>

@@ -22,6 +22,7 @@ import {
   Animated,
   Easing,
   PanResponder,
+  Linking,
 } from 'react-native';
 
 
@@ -1024,6 +1025,66 @@ export default function EcranAccueil() {
           </View>
         )}
 
+        {/* ─── Pied de Page (Footer) Accessible & Conforme Google Play ───── */}
+        <View style={styles.footerContainer}>
+          <View style={styles.footerBrandRow}>
+            <Text style={[styles.footerBrandText, { color: couleurs.texte }]}>cauZon</Text>
+            <View style={styles.footerDot} />
+            <Text style={[styles.footerTagline, { color: couleurs.texteSecondaire }]}>
+              Plateforme Académique Certifiée
+            </Text>
+          </View>
+
+          <View style={styles.footerLinksRow}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('PolitiqueConfidentialite')}
+              style={styles.footerLinkTouch}
+              activeOpacity={0.7}
+              accessibilityLabel="Consulter la Politique de Confidentialité"
+              accessibilityRole="link"
+            >
+              <Ionicons name="shield-checkmark-outline" size={13} color={couleurs.primaire} />
+              <Text style={[styles.footerLinkText, { color: couleurs.primaire }]}>
+                Politique de Confidentialité
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.footerLinkSeparator, { color: couleurs.texteSecondaire }]}>•</Text>
+
+            <TouchableOpacity
+              onPress={() => setSettingsVisible(true)}
+              style={styles.footerLinkTouch}
+              activeOpacity={0.7}
+              accessibilityLabel="Consulter les Mentions Légales et CGU"
+              accessibilityRole="link"
+            >
+              <Text style={[styles.footerLinkText, { color: couleurs.texteSecondaire }]}>
+                CGU & Mentions Légales
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.footerLinkSeparator, { color: couleurs.texteSecondaire }]}>•</Text>
+
+            <TouchableOpacity
+              onPress={() => {
+                Linking.openURL('mailto:support@cauzon.ci').catch(() => {});
+              }}
+              style={styles.footerLinkTouch}
+              activeOpacity={0.7}
+              accessibilityLabel="Écrire au support cauZon"
+              accessibilityRole="link"
+            >
+              <Text style={[styles.footerLinkText, { color: couleurs.texteSecondaire }]}>
+                support@cauzon.ci
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.footerCopyrightText, { color: couleurs.texteSecondaire }]}>
+            © 2026 cauZon. Tous droits réservés. Conforme aux exigences Google Play.
+          </Text>
+        </View>
+
         <View style={styles.spacer} />
       </ScrollView>
     </View>
@@ -1675,5 +1736,64 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   modalCloseFooterText: {
     fontSize: 13.5,
     fontWeight: '800',
+  },
+  footerContainer: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: couleurs.bordure,
+    marginTop: 20,
+    gap: 8,
+  },
+  footerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerBrandText: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  footerDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#7F011F',
+  },
+  footerTagline: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  footerLinksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  footerLinkTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  footerLinkText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  footerLinkSeparator: {
+    fontSize: 11,
+    opacity: 0.6,
+  },
+  footerCopyrightText: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
+    opacity: 0.8,
   },
 });

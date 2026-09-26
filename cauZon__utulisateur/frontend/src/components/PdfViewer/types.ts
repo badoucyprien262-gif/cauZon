@@ -12,6 +12,7 @@ export interface LecteurPdfProps {
   scale?: number;
   onAcheter?: () => void;
   onVip?: () => void;
+  onFermer?: () => void;
   onPageChange?: (currentPage: number, totalPages: number) => void;
   onDocumentLoad?: (totalPages: number) => void;
   onError?: (error: any) => void;

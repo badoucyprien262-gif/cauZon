@@ -35,15 +35,20 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/splash.png",
           "resizeMode": "contain",
-          "backgroundColor": "#6B1124"
+          "backgroundColor": "#171717"
         }
       ],
       "@react-native-google-signin/google-signin",
       "@config-plugins/react-native-blob-util",
       "@config-plugins/react-native-pdf"
     ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#171717"
+    },
     "ios": {
       "bundleIdentifier": "com.cauzon.app",
       "buildNumber": "1.0.0",
@@ -54,10 +59,13 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#6B1124",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6B1124"
+      },
+      "splash": {
+        "image": "./assets/splash.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#171717"
       },
       "permissions": [
         "android.permission.INTERNET",

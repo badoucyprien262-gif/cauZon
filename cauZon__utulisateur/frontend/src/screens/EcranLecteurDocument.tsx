@@ -9,6 +9,7 @@ import {
   StatusBar,
   ActivityIndicator,
   useWindowDimensions,
+  BackHandler,
 } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '../components/AppIcon';
@@ -288,6 +289,27 @@ export default function EcranLecteurDocument() {
     navigation.goBack();
   };
 
+  // 🤖 Interception rigoureuse du bouton Retour physique sous Android
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onHardwareBackPress = () => {
+      if (modaleAchatVisible) {
+        setModaleAchatVisible(false);
+        return true;
+      }
+      if (modaleVipVisible) {
+        setModaleVipVisible(false);
+        return true;
+      }
+      handleBack();
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBackPress);
+    return () => sub.remove();
+  }, [modaleAchatVisible, modaleVipVisible, navigation]);
+
   const handleUnlockSuccess = () => {
     debloquerDocument(document.id);
     if (onUnlock) {
@@ -427,6 +449,7 @@ export default function EcranLecteurDocument() {
               scale={zoomMobileActif}
               onAcheter={() => setModaleAchatVisible(true)}
               onVip={() => setModaleVipVisible(true)}
+              onFermer={handleBack}
               onPageChange={(current, total) => {
                 setPageState({ current, total });
                 setNombrePagesReel(total);
