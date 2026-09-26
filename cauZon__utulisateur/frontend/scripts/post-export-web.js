@@ -151,28 +151,29 @@ if (fs.existsSync(htmlFile)) {
 
   const fullSeoAndPwaBlock = `\n    <!-- 🔍 Métadonnées SEO Essentielles Google -->\n` +
     `    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">\n` +
-    `    <title>cauZon — Cours, TD & Sujets d'Examens Certifiés en Côte d'Ivoire</title>\n` +
-    `    <meta name="description" content="Révisez et réussissez vos examens avec cauZon. Plateforme éducative leader en Côte d'Ivoire : accédez à des cours, fiches, TD et annales certifiés par vos enseignants.">\n` +
-    `    <meta name="keywords" content="cauZon, cours Côte d'Ivoire, sujets BAC CI, BEPC CI, révisions université Abidjan, examens Côte d'Ivoire, annales, devoirs, fiches de révision">\n` +
-    `    <link rel="canonical" href="https://cauzon.app">\n` +
+    `    <title>cauZon — Bibliothèque Universitaire & Excellence Académique en Côte d'Ivoire</title>\n` +
+    `    <meta name="description" content="Accédez à la plateforme cauZon : annales d'examens, fiches de révision universitaires, cours certifiés et bibliothèque numérique pour étudiants en Côte d'Ivoire.">\n` +
+    `    <meta name="keywords" content="cauZon, cauzon, causon, cauzon ci, cauzon app, bibliothèque universitaire cote d'ivoire, annales examens abidjan, fiches de révision, cours université Abidjan, sujets BAC CI, BEPC CI">\n` +
+    `    <meta name="robots" content="index, follow">\n` +
+    `    <link rel="canonical" href="https://app.cauzon.ci">\n` +
     `    <meta name="theme-color" content="#6B1124">\n` +
     `\n    <!-- 🌐 Balises Open Graph (WhatsApp, Facebook, LinkedIn) -->\n` +
     `    <meta property="og:type" content="website">\n` +
     `    <meta property="og:site_name" content="cauZon">\n` +
-    `    <meta property="og:url" content="https://cauzon.app">\n` +
-    `    <meta property="og:title" content="cauZon — L'excellence académique à portée de main">\n` +
-    `    <meta property="og:description" content="Accédez à la bibliothèque de cours, TD et sujets corrigés certifiés en Côte d'Ivoire. Disponible sur Web et Mobile.">\n` +
-    `    <meta property="og:image" content="https://cauzon.app/assets/og-preview.png">\n` +
-    `    <meta property="og:image:secure_url" content="https://cauzon.app/assets/og-preview.png">\n` +
+    `    <meta property="og:url" content="https://app.cauzon.ci">\n` +
+    `    <meta property="og:title" content="cauZon — Excellence Académique">\n` +
+    `    <meta property="og:description" content="Accédez à vos cours, fiches de révision et bibliothèque universitaire en ligne.">\n` +
+    `    <meta property="og:image" content="https://app.cauzon.ci/icon.png">\n` +
+    `    <meta property="og:image:secure_url" content="https://app.cauzon.ci/icon.png">\n` +
     `    <meta property="og:image:type" content="image/png">\n` +
     `    <meta property="og:image:width" content="1200">\n` +
     `    <meta property="og:image:height" content="630">\n` +
-    `    <meta property="og:image:alt" content="Logo et aperçu de la plateforme cauZon">\n` +
+    `    <meta property="og:image:alt" content="Logo de la plateforme cauZon">\n` +
     `\n    <!-- 🐦 Twitter Card -->\n` +
     `    <meta name="twitter:card" content="summary_large_image">\n` +
-    `    <meta name="twitter:title" content="cauZon — L'excellence académique à portée de main">\n` +
-    `    <meta name="twitter:description" content="Accédez à la bibliothèque de cours, TD et sujets corrigés certifiés en Côte d'Ivoire. Disponible sur Web et Mobile.">\n` +
-    `    <meta name="twitter:image" content="https://cauzon.app/assets/og-preview.png">\n` +
+    `    <meta name="twitter:title" content="cauZon — Excellence Académique en Côte d'Ivoire">\n` +
+    `    <meta name="twitter:description" content="Accédez à vos cours, fiches de révision et bibliothèque universitaire en ligne sur cauZon.">\n` +
+    `    <meta name="twitter:image" content="https://app.cauzon.ci/icon.png">\n` +
     `\n    <!-- 📱 PWA & Haute Résolution Android & iOS Icons -->\n` +
     `    <link rel="manifest" href="/manifest.json">\n` +
     `    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">\n` +
@@ -191,13 +192,15 @@ if (fs.existsSync(htmlFile)) {
     `      "@graph": [\n` +
     `        {\n` +
     `          "@type": "WebApplication",\n` +
-    `          "@id": "https://cauzon.app/#app",\n` +
+    `          "@id": "https://app.cauzon.ci/#app",\n` +
     `          "name": "cauZon",\n` +
-    `          "url": "https://cauzon.app",\n` +
+    `          "alternateName": "Espace \u00c9tudiant cauZon",\n` +
+    `          "url": "https://app.cauzon.ci",\n` +
     `          "applicationCategory": "EducationalApplication",\n` +
     `          "operatingSystem": "All",\n` +
     `          "inLanguage": "fr",\n` +
-    `          "description": "Plateforme éducative pour la consultation et le partage sécurisé de documents académiques et cours en Côte d'Ivoire.",\n` +
+    `          "logo": "https://app.cauzon.ci/icon.png",\n` +
+    `          "description": "Plateforme acad\u00e9mique num\u00e9rique et biblioth\u00e8que pour \u00e9tudiants universitaires en C\u00f4te d'Ivoire.",\n` +
     `          "offers": {\n` +
     `            "@type": "Offer",\n` +
     `            "price": "100",\n` +
@@ -206,9 +209,17 @@ if (fs.existsSync(htmlFile)) {
     `        },\n` +
     `        {\n` +
     `          "@type": "EducationalOrganization",\n` +
-    `          "@id": "https://cauzon.app/#organization",\n` +
+    `          "@id": "https://app.cauzon.ci/#organization",\n` +
     `          "name": "cauZon",\n` +
-    `          "url": "https://cauzon.app",\n` +
+    `          "alternateName": "Espace \u00c9tudiant cauZon",\n` +
+    `          "url": "https://app.cauzon.ci",\n` +
+    `          "logo": "https://app.cauzon.ci/icon.png",\n` +
+    `          "description": "Plateforme acad\u00e9mique num\u00e9rique et biblioth\u00e8que pour \u00e9tudiants universitaires en C\u00f4te d'Ivoire.",\n` +
+    `          "address": {\n` +
+    `            "@type": "PostalAddress",\n` +
+    `            "addressCountry": "CI",\n` +
+    `            "addressLocality": "Abidjan"\n` +
+    `          },\n` +
     `          "areaServed": {\n` +
     `            "@type": "Country",\n` +
     `            "name": "Côte d'Ivoire"\n` +
