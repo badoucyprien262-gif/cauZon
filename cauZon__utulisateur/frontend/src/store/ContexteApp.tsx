@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Linking, Platform, useColorScheme } from 'react-native';
+import { Linking, Platform, useColorScheme, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { couleursClair, couleursSombre } from '../theme/couleurs';
 import { fetchMesDocuments, activerStockageEtendu, verifierEligibiliteOffreBienvenue, chargerBibliothequeLocale, chargerDocumentsImportes } from '../services/serviceDocument';
@@ -595,7 +595,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         { event: '*', schema: 'public', table: 'profiles' },
         () => {
           console.log('⚡ Changement profil détecté via Realtime -> Synchronisation locale');
-          chargerStatutVIP();
+          chargerStatutVIP().then(() => chargerAcquisitionsReelles()).catch(() => {});
         }
       )
       .on(
@@ -654,6 +654,19 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
       console.warn('Note addEventListener NetInfo :', e);
     }
 
+    // 6. 📱 Écouteur d'état d'application (AppState) : rafraîchissement immédiat du statut VIP & des droits au premier plan
+    let appStateSubscription: any = null;
+    try {
+      appStateSubscription = AppState.addEventListener('change', (prochainEtat) => {
+        if (prochainEtat === 'active') {
+          console.log('📱 [AppState] Application passée au premier plan -> Rafraîchissement statut VIP & droits');
+          chargerStatutVIP().then(() => chargerAcquisitionsReelles()).catch(() => {});
+        }
+      });
+    } catch (e) {
+      console.warn('Note addEventListener AppState :', e);
+    }
+
     return () => {
       try {
         if (linkSubscription) linkSubscription.remove();
@@ -661,6 +674,9 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         if (heartbeatInterval) clearInterval(heartbeatInterval);
         if (userRealtimeChannel) supabase.removeChannel(userRealtimeChannel);
         if (unsubscribeNetInfo) unsubscribeNetInfo();
+        if (appStateSubscription && typeof appStateSubscription.remove === 'function') {
+          appStateSubscription.remove();
+        }
       } catch (_) {}
     };
   }, []);
@@ -892,13 +908,39 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
       setAcquisitions(officialDocs);
       setDocumentsImportes(imported || []);
 
+      // Détermination stricte de la validité temporelle du Pass VIP
+      let vipValide = false;
+      if (vipExpireAt) {
+        vipValide = Date.now() <= new Date(vipExpireAt).getTime();
+      } else {
+        try {
+          const cachedVipStr = await AsyncStorage.getItem('cauzon_vip_status');
+          if (cachedVipStr) {
+            const parsed = JSON.parse(cachedVipStr);
+            if (parsed?.has_vip_pass && parsed?.vip_expiration_date) {
+              vipValide = Date.now() <= new Date(parsed.vip_expiration_date).getTime();
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Règle d'étanchéité stricte :
+      // Ne pousser dans docsDebloquesIds QUE les acquisitions achetées à l'unité (is_vip_consultation !== true)
+      // OU les acquisitions VIP dont la date de fin est encore strictement valide (maintenant <= vip_expiration_date).
+      const docsValides = officialDocs.filter((d: any) => {
+        if (d.is_vip_consultation !== true) {
+          return true; // Achat définitif / déblocage unitaire / offre de bienvenue
+        }
+        return vipValide; // Consultation VIP uniquement si Pass VIP encore actif
+      });
+
       const allIds = Array.from(new Set([
-        ...officialDocs.map((d: any) => d.id),
+        ...docsValides.map((d: any) => d.id),
         ...importedIds
       ]));
 
       setDocsDebloquesIds(allIds);
-      console.log('📡 Acquisitions réelles chargées :', allIds.length, 'document(s) (dont', importedIds.length, 'importés)');
+      console.log('📡 Acquisitions réelles chargées :', allIds.length, 'document(s) débloqué(s) (dont', importedIds.length, 'importés, VIP actif:', vipValide, ')');
     } catch (erreur) {
       console.error('❌ Erreur lors du chargement des acquisitions :', erreur);
       try {
@@ -1002,9 +1044,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     await chargerAcquisitionsReelles();
   };
 
-  const sAbonnerVIPCinetPay = async (expirationDate: string) => {
-    const { activerPassVIP } = await import('../services/serviceDocument');
-    await activerPassVIP(30);
+  const sAbonnerVIPCinetPay = async (expirationDate?: string) => {
     await chargerStatutVIP();
     await chargerAcquisitionsReelles();
   };
@@ -1238,8 +1278,8 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         dateExpirationAbonnement,
         vipExpireAt,
         chargementVip,
-        sAbonnerVIPFeexPay: sAbonnerVip,
-        sAbonnerVIPCinetPay: sAbonnerVip,
+        sAbonnerVIPFeexPay: sAbonnerVIPCinetPay,
+        sAbonnerVIPCinetPay: sAbonnerVIPCinetPay,
         retirerDocumentDebloque,
         estSuspendu,
         dateFinSuspension,

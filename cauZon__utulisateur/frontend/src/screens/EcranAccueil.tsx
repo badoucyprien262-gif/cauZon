@@ -43,6 +43,8 @@ import AvatarDynamique from '../components/AvatarDynamique';
 import ModaleParametres from '../components/ModaleParametres';
 import ModaleDemandeNotification from '../components/ModaleDemandeNotification';
 import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexionRequise';
+import ModaleVip from '../components/ModaleVip';
+import BandeauAlerteVip from '../components/BandeauAlerteVip';
 import { 
   fetchCatalogueDocuments, 
   souscrireChangementsDocuments, 
@@ -84,6 +86,7 @@ export default function EcranAccueil() {
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [notifInviteVisible, setNotifInviteVisible] = useState(false);
+  const [vipModalVisible, setVipModalVisible] = useState(false);
 
   // 🚀 Initialisation instantanée depuis le cache de préchargement
   const cacheInitial = getCacheAccueilInstantane();
@@ -793,6 +796,11 @@ export default function EcranAccueil() {
           }
         >
 
+        {/* ⚠️ Bandeau d'alerte expiration VIP à J-2 / J-1 */}
+        <BandeauAlerteVip 
+          onRenouveler={() => setVipModalVisible(true)}
+          style={{ marginBottom: 14 }}
+        />
 
         {/* Pile de Bannières d'Annonces (Stack / Swipe Carousel) — Signature cauZon */}
         {annoncesFiltrees.length > 0 && currentAnnonce && (() => {
@@ -1251,6 +1259,13 @@ export default function EcranAccueil() {
             handleUnlock(cible.id, cible.prix);
           }
         }}
+      />
+
+      {/* Modale d'abonnement / renouvellement Pass VIP */}
+      <ModaleVip
+        visible={vipModalVisible}
+        onClose={() => setVipModalVisible(false)}
+        onSuccess={() => {}}
       />
     </View>
   );

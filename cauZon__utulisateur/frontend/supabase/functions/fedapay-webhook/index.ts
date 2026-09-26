@@ -1,4 +1,4 @@
-﻿// ==============================================================================
+// ==============================================================================
 // 💳 cauZon - SUPABASE EDGE FUNCTION : FEDAPAY WEBHOOK
 // Fichier : supabase/functions/fedapay-webhook/index.ts (Deno TypeScript)
 // ==============================================================================
@@ -133,19 +133,34 @@ serve(async (req: Request) => {
         console.log(`📚 Document [${documentId}] débloqué de façon permanente pour l'appareil : ${deviceId}`);
       }
 
-      // CAS B : Abonnement Pass VIP (500 FCFA) -> Activation 30 jours dans profiles
+      // CAS B : Abonnement Pass VIP (500 FCFA) -> Activation 30 jours dans profiles (avec cumul)
       else if (typeAchat === "vip") {
-        const dateExpiration = new Date();
-        dateExpiration.setDate(dateExpiration.getDate() + 30);
+        const now = new Date();
+        let dateDebut = now;
 
         if (userId) {
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("vip_expiration_date")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (prof?.vip_expiration_date) {
+            const dExist = new Date(prof.vip_expiration_date);
+            if (!isNaN(dExist.getTime()) && dExist.getTime() > now.getTime()) {
+              dateDebut = dExist;
+              console.log(`👑 [FedaPay VIP Cumul] Prolongation anticipée depuis ${dExist.toISOString()}`);
+            }
+          }
+
+          const nouvelleDate = new Date(dateDebut.getTime() + 30 * 24 * 60 * 60 * 1000);
           await supabase.from("profiles").update({
             has_vip_pass: true,
-            vip_expiration_date: dateExpiration.toISOString(),
+            vip_expiration_date: nouvelleDate.toISOString(),
           }).eq("id", userId);
-        }
 
-        console.log(`👑 Pass VIP 30 jours activé jusqu'au : ${dateExpiration.toISOString()}`);
+          console.log(`👑 Pass VIP 30 jours (cumulé) activé jusqu'au : ${nouvelleDate.toISOString()}`);
+        }
       }
 
       // CAS C : Extension Stockage 250 documents (1000 FCFA) -> Activation dans profiles

@@ -247,11 +247,40 @@ serve(async (req: Request) => {
         console.log(`📚 Document [${documentId}] débloqué définitivement pour appareil [${deviceId}]`);
       }
 
-      // CAS B : Formule Pass VIP (Abonnement mensuel +30 jours)
+      // CAS B : Formule Pass VIP (Abonnement mensuel +30 jours avec cumul anticipé)
       else if (typeAchat === "vip") {
-        const dateExp = new Date();
-        dateExp.setDate(dateExp.getDate() + 30);
-        const dateExpISO = dateExp.toISOString();
+        const now = new Date();
+        let dateDebut = now;
+        let existingExpStr: string | null = null;
+
+        if (userId) {
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("vip_expiration_date")
+            .eq("id", userId)
+            .maybeSingle();
+          existingExpStr = prof?.vip_expiration_date ?? null;
+        }
+
+        if (!existingExpStr && deviceId && deviceId !== "device_inconnu") {
+          const { data: devRow } = await supabase
+            .from("appareils_historique_bienvenue")
+            .select("vip_expiration_date")
+            .eq("device_id", deviceId)
+            .maybeSingle();
+          existingExpStr = devRow?.vip_expiration_date ?? null;
+        }
+
+        if (existingExpStr) {
+          const dateExistante = new Date(existingExpStr);
+          if (!isNaN(dateExistante.getTime()) && dateExistante.getTime() > now.getTime()) {
+            dateDebut = dateExistante;
+            console.log(`👑 [FeexPay Webhook VIP Cumul] Prolongation anticipée depuis ${dateExistante.toISOString()}`);
+          }
+        }
+
+        const nouvelleDate = new Date(dateDebut.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const dateExpISO = nouvelleDate.toISOString();
 
         if (userId) {
           await supabase.from("profiles").update({
@@ -270,7 +299,7 @@ serve(async (req: Request) => {
           }, { onConflict: "device_id" });
         }
 
-        console.log(`👑 Pass VIP 30 jours activé jusqu'au ${dateExpISO}`);
+        console.log(`👑 Pass VIP 30 jours (cumulé) activé jusqu'au ${dateExpISO}`);
       }
 
       // CAS C : Extension Stockage Cumulative (+75 documents)

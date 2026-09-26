@@ -21,6 +21,7 @@ import { useApp } from '../store/ContexteApp';
 import ListeDossiers from '../components/ListeDossiers';
 import JaugeStockage from '../components/JaugeStockage';
 import ModaleVip from '../components/ModaleVip';
+import BandeauAlerteVip from '../components/BandeauAlerteVip';
 import ModaleStockage from '../components/ModaleStockage';
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
@@ -220,12 +221,12 @@ export default function EcranBibliotheque() {
         });
         const tousImports = Array.from(mapImports.values());
 
-        // Cours officiels du catalogue
+        // Cours officiels du catalogue (débloqués à l'unité OU rattachés au Pass VIP)
         const serverOfficiels = data.filter(
           (d: any) => !d.id?.startsWith('imported_') && !d.est_importe && !d.estImporte
         );
         const serverValides = serverOfficiels.filter(
-          (d: any) => docsDebloquesIds && docsDebloquesIds.includes(d.id)
+          (d: any) => (docsDebloquesIds && docsDebloquesIds.includes(d.id)) || d.is_vip_consultation
         );
 
         const fusionFinale = [...tousImports, ...serverValides];
@@ -441,6 +442,12 @@ export default function EcranBibliotheque() {
             <Text style={styles.texteBoutonImporter}>Importer</Text>
           </TouchableOpacity>
         </View>
+
+        {/* ⚠️ Bandeau d'alerte expiration VIP à J-2 / J-1 */}
+        <BandeauAlerteVip 
+          onRenouveler={() => setVipModalVisible(true)} 
+          style={{ marginHorizontal: 0, marginTop: 8, marginBottom: 10 }}
+        />
 
         {/* Double Dossier Switch */}
         <View style={styles.folderSwitchContainer}>

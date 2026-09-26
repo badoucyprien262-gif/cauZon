@@ -32,7 +32,7 @@ export default function EcranLecteurDocument() {
   const navigation = useNavigation();
   const route = useRoute<DocumentViewerRouteProp>();
   const { document, onUnlock } = route.params;
-  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast } = useApp();
+  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions } = useApp();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
@@ -88,8 +88,29 @@ export default function EcranLecteurDocument() {
     docParams.bucket === 'documents_utilisateurs'
   );
 
-  // Les documents importés sont toujours 100% débloqués et ne nécessitent aucun calcul de paywall
-  const estDebloqueGlobalement = estDocumentImporte || docsDebloquesIds.includes(document.id) || estAbonneVIP;
+  // Détection si le document est ouvert ou acquis au titre de la formule VIP
+  const acqDoc = acquisitions?.find((a: any) => a.id === document.id || a.document_id === document.id);
+  const estAuTitreVip = Boolean(
+    (document as any).is_vip_consultation ||
+    docParams.is_vip_consultation ||
+    acqDoc?.is_vip_consultation
+  );
+
+  // Règle d'étanchéité stricte :
+  // 1. Documents personnels importés : toujours 100% débloqués (ne nécessitent aucun calcul de paywall).
+  // 2. Document au titre du VIP : l'accès est strictement refusé et basculé sur le paywall si estAbonneVIP est faux.
+  // 3. Document acheté à l'unité (is_vip_consultation !== true) : débloqué définitivement à vie si présent dans docsDebloquesIds.
+  // 4. Utilisateur VIP actif : accès direct à tous les documents du catalogue.
+  let estDebloqueGlobalement = false;
+  if (estDocumentImporte) {
+    estDebloqueGlobalement = true;
+  } else if (estAuTitreVip) {
+    estDebloqueGlobalement = estAbonneVIP;
+  } else {
+    const estAcheteDefinitivement = docsDebloquesIds.includes(document.id);
+    estDebloqueGlobalement = estAcheteDefinitivement || estAbonneVIP;
+  }
+
   const estVerrouille = !estDocumentImporte && document.prix > 0 && !estDebloqueGlobalement;
 
   // ⚡ Détection synchrone ultra-rapide (< 1 ms) si la source est déjà en mémoire RAM (Cache L1)
@@ -579,7 +600,7 @@ export default function EcranLecteurDocument() {
         )}
 
         {/* Paywall Natif superposé au bas de l'écran en cas d'aperçu verrouillé pour Non-VIP */}
-        {estVerrouille && limiteApercuValeur < 100 && (
+        {estVerrouille && (
           <View style={styles.lockOverlayPanel}>
             <View style={styles.lockIconContainer}>
               <Ionicons name="lock-closed" size={20} color={couleurs.accent} />

@@ -2833,16 +2833,65 @@ export const fetchAnnoncesActives = async (forceRefresh: boolean = false): Promi
 export const activerPassVIP = async (
   dureeJours: number = 30
 ): Promise<{ success: boolean; message: string; dateExpiration: string; dateAffichage: string }> => {
-  const dateExp = new Date();
-  dateExp.setDate(dateExp.getDate() + dureeJours);
-  const dateExpISO = dateExp.toISOString();
-  const dateAffichage = dateExp.toLocaleDateString('fr-FR');
-
   try {
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // 1. Persistance si utilisateur connecté
+    // 1. Détection de la date d'expiration existante pour cumul de réabonnement anticipé
+    const now = new Date();
+    let dateDebutCalcul = now;
+    let existingExpirationStr: string | null = null;
+
+    if (user?.id) {
+      try {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('vip_expiration_date')
+          .eq('id', user.id)
+          .maybeSingle();
+        existingExpirationStr = prof?.vip_expiration_date ?? null;
+      } catch (_) {}
+    }
+
+    if (!existingExpirationStr && deviceId) {
+      try {
+        const { data: devRow } = await supabase
+          .from('appareils_historique_bienvenue')
+          .select('vip_expiration_date')
+          .eq('device_id', deviceId)
+          .maybeSingle();
+        existingExpirationStr = devRow?.vip_expiration_date ?? null;
+      } catch (_) {}
+    }
+
+    if (!existingExpirationStr) {
+      try {
+        const cachedStr = await AsyncStorage.getItem('cauzon_vip_status');
+        if (cachedStr) {
+          const parsed = JSON.parse(cachedStr);
+          existingExpirationStr = parsed?.vip_expiration_date ?? null;
+        }
+      } catch (_) {}
+    }
+
+    // Règle de cumul :
+    // - Si vip_expiration_date existe et est > now :
+    //     nouvelleDate = new Date(dateExistante.getTime() + 30 * 24 * 60 * 60 * 1000)
+    // - Sinon :
+    //     nouvelleDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+    if (existingExpirationStr) {
+      const dateExistante = new Date(existingExpirationStr);
+      if (!isNaN(dateExistante.getTime()) && dateExistante.getTime() > now.getTime()) {
+        dateDebutCalcul = dateExistante;
+        console.log(`👑 [VIP Cumul] Prolongation anticipée à partir de l'échéance existante : ${dateExistante.toISOString()}`);
+      }
+    }
+
+    const nouvelleDate = new Date(dateDebutCalcul.getTime() + dureeJours * 24 * 60 * 60 * 1000);
+    const dateExpISO = nouvelleDate.toISOString();
+    const dateAffichage = nouvelleDate.toLocaleDateString('fr-FR');
+
+    // 2. Persistance si utilisateur connecté
     if (user) {
       await supabase
         .from('profiles')
@@ -2855,7 +2904,7 @@ export const activerPassVIP = async (
       console.log('✅ Pass VIP persisté dans Supabase [profiles] pour user:', user.id);
     }
 
-    // 2. Persistance systématique sur l'appareil (Device ID)
+    // 3. Persistance systématique sur l'appareil (Device ID)
     if (deviceId) {
       await supabase
         .from('appareils_historique_bienvenue')
@@ -2868,25 +2917,43 @@ export const activerPassVIP = async (
       console.log('✅ Pass VIP persisté dans Supabase [appareils] pour device:', deviceId);
     }
 
-    // 3. Persistance en cache local immédiat
+    // 4. Persistance en cache local immédiat
     await AsyncStorage.setItem('cauzon_vip_status', JSON.stringify({
       has_vip_pass: true,
       vip_expiration_date: dateExpISO,
       date_affichage: dateAffichage,
     }));
 
-    // 4. Enregistrement de la transaction financière (500 FCFA)
+    // 5. Enregistrement de la transaction financière (500 FCFA)
     await enregistrerTransactionFinanciere({
       typeAchat: 'vip',
       montant: 500,
     });
 
+    // 6. 🔔 Programmation de la notification locale de rappel à J-2 (48 heures avant échéance sur mobile)
+    try {
+      const { programmerRappelExpirationVIP } = await import('./serviceNotifications');
+      await programmerRappelExpirationVIP(nouvelleDate);
+    } catch (errNotif) {
+      console.warn('Note programmation notification rappel VIP :', errNotif);
+    }
+
     return { success: true, message: 'Pass VIP activé avec succès !', dateExpiration: dateExpISO, dateAffichage };
   } catch (error: any) {
     console.error('Erreur activation Pass VIP Supabase :', error.message);
-    return { success: true, message: 'Pass VIP activé localement !', dateExpiration: dateExpISO, dateAffichage };
+    const fallbackDate = new Date(Date.now() + dureeJours * 24 * 60 * 60 * 1000);
+    const fallbackISO = fallbackDate.toISOString();
+    const fallbackAffichage = fallbackDate.toLocaleDateString('fr-FR');
+
+    try {
+      const { programmerRappelExpirationVIP } = await import('./serviceNotifications');
+      programmerRappelExpirationVIP(fallbackDate).catch(() => {});
+    } catch (_) {}
+
+    return { success: true, message: 'Pass VIP activé localement !', dateExpiration: fallbackISO, dateAffichage: fallbackAffichage };
   }
 };
+
 
 /**
  * Active l'extension de stockage CUMULATIVE (+75 docs par pack) et la persiste dans Supabase.

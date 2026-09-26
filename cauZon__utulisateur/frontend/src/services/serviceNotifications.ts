@@ -616,9 +616,67 @@ export const synchroniserNotificationsManquees = async (
   }
 };
 
+/**
+ * 9. Planifie une notification locale de rappel d'expiration VIP à J-2 (48 heures avant l'échéance).
+ * Sur mobile natif uniquement (vérifié via Platform.OS !== 'web').
+ */
+export const programmerRappelExpirationVIP = async (dateExpiration: Date | string): Promise<void> => {
+  if (Platform.OS === 'web') return;
+
+  try {
+    const dateExp = typeof dateExpiration === 'string' ? new Date(dateExpiration) : dateExpiration;
+    if (isNaN(dateExp.getTime())) return;
+
+    // Calcul de la date de rappel 48h (J-2) avant l'échéance
+    const triggerDate = new Date(dateExp.getTime() - 48 * 60 * 60 * 1000);
+    const now = Date.now();
+
+    // Ne planifier que si l'échéance de rappel est encore dans le futur
+    if (triggerDate.getTime() <= now) {
+      console.log('ℹ️ [Notification VIP] Date J-2 déjà passée ou trop proche, pas de rappel programmé.');
+      return;
+    }
+
+    // Annuler les notifications locales de rappel VIP précédemment programmées pour éviter les doublons
+    try {
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+      for (const notif of scheduled) {
+        if (notif.content.data?.type === 'rappel_vip_j2') {
+          await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+        }
+      }
+    } catch (errCancel) {
+      console.warn('Note nettoyage anciens rappels VIP :', errCancel);
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "👑 Échéance Pass VIP cauZon",
+        body: "Votre formule de location expire dans 48h. Renouvelez-la pour conserver vos cours actifs !",
+        sound: 'default',
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        data: {
+          type: 'rappel_vip_j2',
+          route: 'Bibliotheque',
+          cible: 'ModaleVip',
+        },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: triggerDate,
+      },
+    });
+
+    console.log(`✅ [Notification VIP] Rappel local J-2 programmé pour le ${triggerDate.toLocaleString('fr-FR')}`);
+  } catch (error) {
+    console.warn('Erreur programmation rappel expiration VIP :', error);
+  }
+};
+
 // Ré-export des utilitaires d'émission haute priorité FlashScore
 export {
   envoyerNotificationFlashScore,
   notifierNouveauDocumentDisponible,
   notifierAlerteExamen,
 } from './serviceEnvoiNotification';
+
