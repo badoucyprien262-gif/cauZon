@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions, Platform, Easing } from 'react-native';
 
 interface Props {
   onFinish: () => void;
@@ -11,102 +11,145 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) {
   const letters = ['c', 'a', 'u', 'Z', 'o', 'n'];
   const useNative = Platform.OS !== 'web';
-  const estPretRef = useRef(estPret);
-  estPretRef.current = estPret;
 
-  // Valeurs animées pour chaque lettre
+  // 🛡️ Verrouillage du cycle de vie : état explicite de complétion de l'animation
+  const [animationComplete, setAnimationComplete] = useState(false);
+
+  // Valeurs animées pour chaque lettre du mot-symbole cauZon
   const letterAnims = useRef(
     letters.map(() => ({
       opacity: new Animated.Value(0),
-      translateX: new Animated.Value(-12),
-      scale: new Animated.Value(0.7),
+      translateY: new Animated.Value(10),
+      scale: new Animated.Value(0.75),
     }))
   ).current;
 
-  // Valeurs animées globales pour le Twist Zoom et le Fade Out
+  // Valeurs animées globales (sous-titre, logo zoom et fondu de sortie progressif)
+  const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const logoZoomScale = useRef(new Animated.Value(1)).current;
-  const logoZoomOpacity = useRef(new Animated.Value(1)).current;
   const overlayOpacity = useRef(new Animated.Value(1)).current;
-  const overlayScale = useRef(new Animated.Value(1)).current;
 
+  const estPretRef = useRef(estPret);
+  estPretRef.current = estPret;
+
+  const sortieDeclencheeRef = useRef(false);
+  const unmountedRef = useRef(false);
+
+  // 1. Séquence d'écriture caractère par caractère (autonome et garantie sans saut d'index)
   useEffect(() => {
-    let unmounted = false;
+    unmountedRef.current = false;
+    let timerEcriture: any = null;
+    let timerPause: any = null;
 
-    // Timer de sécurité absolue (max 3.5s) pour garantir la libération de l'écran quoi qu'il arrive
+    // Timer de sécurité absolue (max 4.0s) pour garantir la libération en toute circonstance
     const safetyTimer = setTimeout(() => {
-      if (!unmounted && onFinish) onFinish();
-    }, 3500);
-
-    // 1. Séquence en cascade (Stagger) de chaque lettre (0.0s -> 0.50s)
-    const staggerAnimations = letterAnims.map((anim) =>
-      Animated.parallel([
-        Animated.timing(anim.opacity, {
-          toValue: 1,
-          duration: 240,
-          useNativeDriver: useNative,
-        }),
-        Animated.timing(anim.translateX, {
-          toValue: 0,
-          duration: 240,
-          useNativeDriver: useNative,
-        }),
-        Animated.timing(anim.scale, {
-          toValue: 1,
-          duration: 240,
-          useNativeDriver: useNative,
-        }),
-      ])
-    );
-
-    // Phase 1 : Cascade vive et prestigieuse de lettres (~500ms)
-    Animated.sequence([
-      Animated.stagger(40, staggerAnimations),
-      Animated.delay(60),
-    ]).start(async () => {
-      if (unmounted) return;
-
-      // 🛡️ Barrière de synchronisation : attendre que les données soient prêtes (max 1.2s supplémentaire)
-      const startTime = Date.now();
-      while (!estPretRef.current && Date.now() - startTime < 1200) {
-        await new Promise((r) => setTimeout(r, 40));
-        if (unmounted) return;
+      if (!unmountedRef.current && !sortieDeclencheeRef.current) {
+        sortieDeclencheeRef.current = true;
+        declencherSortie();
       }
+    }, 4000);
 
-      // Phase 2 : Twist Zoom Immersif vers le plein écran avec transition d'opacité fluide (200ms)
+    // Paramètres temporels de l'effet écriture progressive
+    const CADENCE_MS = 30; // Cadence stable et fluide (25ms - 35ms par caractère)
+    const DUREE_LETTRE_MS = 180; // Transition d'apparition de chaque lettre
+    const PAUSE_LECTURE_MS = 400; // Pause de confort pour lire le résultat final
+
+    let indexCourant = 0;
+
+    const animerLettre = (index: number) => {
+      if (unmountedRef.current || index >= letters.length) return;
+
       Animated.parallel([
-        Animated.timing(logoZoomScale, {
-          toValue: 3.2,
-          duration: 200,
+        Animated.timing(letterAnims[index].opacity, {
+          toValue: 1,
+          duration: DUREE_LETTRE_MS,
+          easing: Easing.out(Easing.quad),
           useNativeDriver: useNative,
         }),
-        Animated.timing(logoZoomOpacity, {
+        Animated.timing(letterAnims[index].translateY, {
           toValue: 0,
-          duration: 180,
+          duration: DUREE_LETTRE_MS,
+          easing: Easing.out(Easing.quad),
           useNativeDriver: useNative,
         }),
-        Animated.timing(overlayScale, {
-          toValue: 1.08,
-          duration: 200,
+        Animated.timing(letterAnims[index].scale, {
+          toValue: 1,
+          duration: DUREE_LETTRE_MS,
+          easing: Easing.out(Easing.back(1.4)),
           useNativeDriver: useNative,
         }),
-        Animated.timing(overlayOpacity, {
-          toValue: 0,
-          duration: 200,
+      ]).start();
+    };
+
+    // Déclenchement de la première lettre immédiatement
+    animerLettre(0);
+    indexCourant = 1;
+
+    // Écriture cadencée progressive garantie pour chaque lettre
+    timerEcriture = setInterval(() => {
+      if (indexCourant < letters.length) {
+        animerLettre(indexCourant);
+        indexCourant++;
+      } else {
+        clearInterval(timerEcriture);
+        timerEcriture = null;
+
+        // 100% des lettres ont été déclenchées -> apparition élégante du sous-titre
+        Animated.timing(subtitleOpacity, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.out(Easing.ease),
           useNativeDriver: useNative,
-        }),
-      ]).start(() => {
-        clearTimeout(safetyTimer);
-        if (!unmounted && onFinish) {
-          onFinish();
-        }
-      });
-    });
+        }).start();
+
+        // Verrouillage du cycle de vie :
+        // Attendre que la dernière lettre ait terminé son animation (DUREE_LETTRE_MS)
+        // + temps de pause obligatoire de 400ms pour permettre la lecture complète
+        timerPause = setTimeout(() => {
+          if (!unmountedRef.current) {
+            setAnimationComplete(true);
+          }
+        }, DUREE_LETTRE_MS + PAUSE_LECTURE_MS);
+      }
+    }, CADENCE_MS);
 
     return () => {
-      unmounted = true;
+      unmountedRef.current = true;
+      if (timerEcriture) clearInterval(timerEcriture);
+      if (timerPause) clearTimeout(timerPause);
       clearTimeout(safetyTimer);
     };
-  }, [letterAnims, logoZoomScale, logoZoomOpacity, overlayOpacity, overlayScale, onFinish, useNative]);
+  }, []);
+
+  // 2. Transition de sortie fluide en fondu progressif (~300ms)
+  const declencherSortie = () => {
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: useNative,
+      }),
+      Animated.timing(logoZoomScale, {
+        toValue: 1.05,
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: useNative,
+      }),
+    ]).start(() => {
+      if (!unmountedRef.current && onFinish) {
+        onFinish();
+      }
+    });
+  };
+
+  // 3. Condition stricte de démontage : isAppReady && animationComplete
+  useEffect(() => {
+    if (estPret && animationComplete && !sortieDeclencheeRef.current) {
+      sortieDeclencheeRef.current = true;
+      declencherSortie();
+    }
+  }, [estPret, animationComplete]);
 
   return (
     <Animated.View
@@ -114,7 +157,6 @@ export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) 
         styles.container,
         {
           opacity: overlayOpacity,
-          transform: [{ scale: overlayScale }],
         },
       ]}
       pointerEvents="none"
@@ -127,34 +169,40 @@ export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) 
         style={[
           styles.logoContainer,
           {
-            opacity: logoZoomOpacity,
             transform: [{ scale: logoZoomScale }],
           },
         ]}
       >
-        {letters.map((letter, index) => {
-          const anim = letterAnims[index];
-          const isSpecialZ = letter === 'Z';
+        <View style={styles.lettersRow}>
+          {letters.map((letter, index) => {
+            const anim = letterAnims[index];
+            const isSpecialZ = letter === 'Z';
 
-          return (
-            <Animated.Text
-              key={index}
-              style={[
-                styles.letter,
-                isSpecialZ && styles.letterZ,
-                {
-                  opacity: anim.opacity,
-                  transform: [
-                    { translateX: anim.translateX },
-                    { scale: anim.scale },
-                  ],
-                },
-              ]}
-            >
-              {letter}
-            </Animated.Text>
-          );
-        })}
+            return (
+              <Animated.Text
+                key={index}
+                style={[
+                  styles.letter,
+                  isSpecialZ && styles.letterZ,
+                  {
+                    opacity: anim.opacity,
+                    transform: [
+                      { translateY: anim.translateY },
+                      { scale: anim.scale },
+                    ],
+                  },
+                ]}
+              >
+                {letter}
+              </Animated.Text>
+            );
+          })}
+        </View>
+
+        {/* Sous-titre institutionnel cauZon révélé en fin d'écriture */}
+        <Animated.View style={[styles.subtitleContainer, { opacity: subtitleOpacity }]}>
+          <Text style={styles.subtitleText}>EXCELLENCE ACADÉMIQUE</Text>
+        </Animated.View>
       </Animated.View>
     </Animated.View>
   );
@@ -182,6 +230,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
   logoContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lettersRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -198,5 +250,20 @@ const styles = StyleSheet.create({
   },
   letterZ: {
     letterSpacing: -1,
+  },
+  subtitleContainer: {
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  subtitleText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.9)',
+    letterSpacing: 2.2,
   },
 });
