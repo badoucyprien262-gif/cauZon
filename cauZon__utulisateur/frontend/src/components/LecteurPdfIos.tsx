@@ -1,21 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { LecteurPdfProps } from './PdfViewer/types';
 import { LecteurPdfErrorBoundary } from './LecteurPdfDesktop';
 
 /**
- * LecteurPdfIos (PWA Mobile iOS — Safari)
+ * LecteurPdfIos (PWA Mobile iOS — Safari / WebKit)
  * 
- * Conteneur préliminaire sécurisé pour iOS Safari :
- * - Exploite le moteur WebKit natif d'affichage PDF via <iframe> avec défilement inertiel touch
- * - Verrouillage DRM / Paywall pour les documents fermés
- * - Enveloppé dans un ErrorBoundary étanche
+ * Exploite le moteur de rendu PDF natif de WebKit (Safari iOS) via une iframe optimisée :
+ * 1. Rendu natif instantané et fluide sans bibliothèque JS lourde.
+ * 2. Gestes tactiles et pinch-to-zoom natifs pris en charge directement par le système iOS.
+ * 3. Propriétés spécifiques WebKit (-webkit-overflow-scrolling: touch) pour éliminer les débordements.
+ * 4. Gestion d'états fluide : spinner d'ouverture, gestion d'erreur et protection du paywall.
  */
 const LecteurPdfIosInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
   pdfUrl,
   estVerrouille = false,
-  limiteApercuPages = 1,
-  limiteApercuType = 'pourcentage',
   limiteApercuValeur = 30,
   prix = 100,
   estSombre = false,
@@ -25,17 +24,38 @@ const LecteurPdfIosInternal: React.FC<LecteurPdfProps> = ({
   onError,
   onReessayer,
 }) => {
-  const [chargement, setChargement] = useState<boolean>(true);
-  const source = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
+  const [enChargement, setEnChargement] = useState<boolean>(true);
+  const [erreurChargement, setErreurChargement] = useState<boolean>(false);
+  const [cleIframe, setCleIframe] = useState<number>(0);
 
+  // 1. Récupération et formatage de l'URL valide
+  const targetUrl = (typeof pdfUrl === 'string' && pdfUrl) || (typeof urlFichier === 'string' && urlFichier) || '';
+
+  // Neutralisation des défilements externes parasites sur le viewport iOS
   useEffect(() => {
-    if (source) {
-      setChargement(false);
-      onDocumentLoad?.(1);
-    }
-  }, [source, onDocumentLoad]);
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    const originalBodyOverscroll = document.body.style.overscrollBehavior;
 
-  // Si document totalement verrouillé
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      document.body.style.overscrollBehavior = originalBodyOverscroll;
+    };
+  }, []);
+
+  const rechargerIframe = useCallback(() => {
+    setErreurChargement(false);
+    setEnChargement(true);
+    setCleIframe((c) => c + 1);
+    onReessayer?.();
+  }, [onReessayer]);
+
+  // 3. Document totalement verrouillé (0 page autorisée)
   if (estVerrouille && limiteApercuValeur === 0) {
     return (
       <div
@@ -68,7 +88,7 @@ const LecteurPdfIosInternal: React.FC<LecteurPdfProps> = ({
             Document Verrouillé
           </h3>
           <p style={{ margin: '0 0 20px 0', fontSize: '13px', lineHeight: '19px', color: estSombre ? '#94A3B8' : '#64748B' }}>
-            Ce document nécessite une acquisition pour être consulté. Débloquez-le à l'unité ou profitez du Pass VIP.
+            Ce cours complet nécessite une acquisition pour être consulté. Débloquez-le à l'unité ou profitez du Pass VIP.
           </p>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
@@ -109,51 +129,171 @@ const LecteurPdfIosInternal: React.FC<LecteurPdfProps> = ({
     );
   }
 
-  if (!source) {
+  // URL du document absente
+  if (!targetUrl) {
     return (
       <div
         style={{
-          flex: 1,
           width: '100%',
           height: '100%',
-          minHeight: '260px',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: estSombre ? '#0F172A' : '#F8FAFC',
-          color: estSombre ? '#94A3B8' : '#64748B',
+          padding: '24px',
+          backgroundColor: estSombre ? '#0F172A' : '#171717',
+          color: '#FFFFFF',
+          textAlign: 'center',
           fontFamily: 'sans-serif',
-          fontSize: '13px',
         }}
       >
-        Préparation du document iOS...
+        <div style={{ fontSize: '38px', marginBottom: '8px' }}>⚠️</div>
+        <div style={{ color: '#EF4444', fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
+          URL du document introuvable
+        </div>
+        <div style={{ color: '#94A3B8', fontSize: '13px', marginBottom: '16px', maxWidth: '300px' }}>
+          Le document PDF demandé n'a pas pu être chargé.
+        </div>
+        <button
+          onClick={rechargerIframe}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: '#7F011F',
+            color: '#FFFFFF',
+            border: 'none',
+            borderRadius: '10px',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+          }}
+        >
+          🔄 Réessayer
+        </button>
       </div>
     );
   }
 
+  // 2. Structure d'affichage adaptée à WebKit Mobile iOS
   return (
     <div
+      className="w-full h-full relative overflow-hidden flex flex-col bg-neutral-900"
       style={{
         position: 'relative',
         width: '100%',
         height: '100%',
-        minHeight: 'calc(100vh - 64px)',
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: estSombre ? '#0F172A' : '#F1F5F9',
+        backgroundColor: '#171717',
         overflow: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        fontFamily: 'sans-serif',
       }}
     >
+      <style>{`
+        @keyframes cauzon-spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
+      {/* 3. Indicateur visuel de chargement fluide et discret */}
+      {enChargement && !erreurChargement && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: estSombre ? '#0F172A' : '#171717',
+            gap: '14px',
+            zIndex: 10,
+          }}
+        >
+          <div
+            style={{
+              width: '38px',
+              height: '38px',
+              border: '3.5px solid rgba(255, 255, 255, 0.15)',
+              borderTopColor: '#7F011F',
+              borderRadius: '50%',
+              animation: 'cauzon-spin 0.8s linear infinite',
+            }}
+          />
+          <div style={{ color: '#FFFFFF', fontSize: '14px', fontWeight: 600, letterSpacing: '0.2px' }}>
+            Ouverture du document...
+          </div>
+          <div style={{ color: '#94A3B8', fontSize: '11.5px' }}>
+            Moteur WebKit iOS Safari
+          </div>
+        </div>
+      )}
+
+      {/* 3. Gestion d'erreur sans plantage de l'écran */}
+      {erreurChargement && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            backgroundColor: estSombre ? '#0F172A' : '#171717',
+            color: '#FFFFFF',
+            textAlign: 'center',
+            zIndex: 15,
+          }}
+        >
+          <div style={{ fontSize: '38px', marginBottom: '8px' }}>⚠️</div>
+          <div style={{ color: '#EF4444', fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>
+            Impossible de charger le document
+          </div>
+          <div style={{ color: '#94A3B8', fontSize: '12.5px', maxWidth: '320px', marginBottom: '16px' }}>
+            Le chargement du fichier PDF a échoué. Veuillez actualiser pour retenter.
+          </div>
+          <button
+            onClick={rechargerIframe}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#7F011F',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '10px',
+              fontWeight: 700,
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            🔄 Actualiser
+          </button>
+        </div>
+      )}
+
+      {/* Iframe optimisée pour WebKit iOS */}
       <iframe
-        src={`${source}#toolbar=0`}
-        title="Lecteur PDF iOS Safari"
+        key={cleIframe}
+        src={targetUrl}
+        className="w-full h-full border-0"
+        title="Document de cours"
+        loading="eager"
+        onLoad={() => {
+          setEnChargement(false);
+          onDocumentLoad?.(1);
+        }}
+        onError={(e) => {
+          setEnChargement(false);
+          setErreurChargement(true);
+          onError?.(e);
+        }}
         style={{
           width: '100%',
           height: '100%',
-          flex: 1,
           border: 'none',
-          backgroundColor: estSombre ? '#0F172A' : '#FFFFFF',
+          flex: 1,
+          backgroundColor: '#171717',
         }}
       />
     </div>
