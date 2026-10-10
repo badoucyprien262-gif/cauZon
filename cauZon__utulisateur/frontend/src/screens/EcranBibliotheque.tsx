@@ -490,14 +490,14 @@ export default function EcranBibliotheque() {
     <SafeAreaView style={styles.container}>
       {/* 1. Entête avec Switch Double Dossier & Bouton Importer */}
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <View>
-            <Text style={styles.title}>Ma Bibliothèque</Text>
-            <Text style={styles.subtitle}>Gérez vos espaces d'apprentissage</Text>
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.title} numberOfLines={1}>Ma Bibliothèque</Text>
+            <Text style={styles.subtitle} numberOfLines={1}>Gérez vos espaces d'apprentissage</Text>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {/* ⚡ Bouton "Tout synchroniser pour le hors-ligne" */}
+          <View style={styles.headerActionsContainer}>
+            {/* ⚡ Badge / Bouton de synchronisation hors-ligne compact */}
             <TouchableOpacity
               style={[
                 styles.boutonSyncHeader,
@@ -505,22 +505,28 @@ export default function EcranBibliotheque() {
                 documentsEnCacheCount === totalDocuments && totalDocuments > 0 && styles.boutonSyncHeaderComplet,
               ]}
               onPress={lancerSynchronisationComplete}
-              disabled={estEnSynchronisation}
+              disabled={estEnSynchronisation || (documentsEnCacheCount === totalDocuments && totalDocuments > 0)}
               activeOpacity={0.8}
             >
               {estEnSynchronisation ? (
-                <ActivityIndicator size={13} color="#FFFFFF" />
+                <ActivityIndicator size={12} color="#0D9488" />
               ) : (
                 <Ionicons
                   name={documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? "checkmark-circle" : "cloud-download-outline"}
-                  size={15}
-                  color="#FFFFFF"
+                  size={13}
+                  color={documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? "#047857" : "#0D9488"}
                 />
               )}
-              <Text style={styles.texteBoutonSync}>
+              <Text
+                style={[
+                  styles.texteBoutonSync,
+                  documentsEnCacheCount === totalDocuments && totalDocuments > 0 && styles.texteBoutonSyncComplet,
+                ]}
+                numberOfLines={1}
+              >
                 {estEnSynchronisation
                   ? `${progression?.faits || 0}/${progression?.total || totalDocuments}`
-                  : (documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? 'Synchronisé' : 'Tout synchroniser')}
+                  : (documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? 'Synchronisé' : 'Sync tout')}
               </Text>
             </TouchableOpacity>
 
@@ -530,7 +536,7 @@ export default function EcranBibliotheque() {
               onPress={demarrerProcessusImport}
               activeOpacity={0.8}
             >
-              <Ionicons name="cloud-upload" size={15} color="#FFFFFF" />
+              <Ionicons name="cloud-upload" size={14} color="#FFFFFF" />
               <Text style={styles.texteBoutonImporter}>Importer</Text>
             </TouchableOpacity>
           </View>
@@ -1007,18 +1013,36 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     paddingTop: 15,
     paddingBottom: 10,
   },
-  boutonImporterHeader: {
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    marginRight: 8,
+    minWidth: 0,
+  },
+  headerActionsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
+  },
+  boutonImporterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: couleurs.primaire,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 20,
+    flexShrink: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
-    shadowRadius: 3,
+    shadowRadius: 2,
     elevation: 2,
   },
   texteBoutonImporter: {
@@ -1029,28 +1053,30 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   boutonSyncHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#0F766E',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 3,
-    elevation: 2,
+    gap: 4,
+    backgroundColor: couleurs.estSombre ? 'rgba(13, 148, 136, 0.12)' : '#F0FDFA',
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(13, 148, 136, 0.3)' : '#99F6E4',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 16,
+    flexShrink: 0,
   },
   boutonSyncHeaderActif: {
-    backgroundColor: '#0D9488',
-    opacity: 0.9,
+    backgroundColor: couleurs.estSombre ? 'rgba(13, 148, 136, 0.25)' : '#CCFBF1',
+    borderColor: '#0D9488',
   },
   boutonSyncHeaderComplet: {
-    backgroundColor: '#15803D',
+    backgroundColor: couleurs.estSombre ? 'rgba(16, 185, 129, 0.12)' : '#ECFDF5',
+    borderColor: couleurs.estSombre ? 'rgba(16, 185, 129, 0.25)' : '#A7F3D0',
   },
   texteBoutonSync: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    color: '#0F766E',
+    fontSize: 11,
     fontWeight: '700',
+  },
+  texteBoutonSyncComplet: {
+    color: '#047857',
   },
   barreProgressionSyncConteneur: {
     backgroundColor: couleurs.estSombre ? 'rgba(15, 118, 110, 0.15)' : '#F0FDFA',
