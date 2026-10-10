@@ -358,62 +358,64 @@ export default function EcranLecteurDocument() {
         barStyle="light-content" 
         backgroundColor={couleurs.fondEntete} 
       />
-      {/* Entête Adaptatif (Compact en Mode Paysage) */}
-      <View style={[styles.header, estPaysage && styles.headerPaysage]}>
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={estPaysage ? 20 : 24} color="#FFFFFF" />
-        </TouchableOpacity>
-        
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, estPaysage && styles.headerTitlePaysage]} numberOfLines={1}>
-            {document.titre}
-          </Text>
-          <Text style={[styles.headerSubtitle, estPaysage && styles.headerSubtitlePaysage]} numberOfLines={1}>
-            {document.categorie} • {nombrePagesReel} page{nombrePagesReel > 1 ? 's' : ''}
-          </Text>
+      {/* Entête Adaptatif (Uniquement sur Mobile Natif ; sur Web Desktop, le lecteur possède sa barre d'outils fixe dédiée) */}
+      {Platform.OS !== 'web' && (
+        <View style={[styles.header, estPaysage && styles.headerPaysage]}>
+          <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={estPaysage ? 20 : 24} color="#FFFFFF" />
+          </TouchableOpacity>
+          
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, estPaysage && styles.headerTitlePaysage]} numberOfLines={1}>
+              {document.titre}
+            </Text>
+            <Text style={[styles.headerSubtitle, estPaysage && styles.headerSubtitlePaysage]} numberOfLines={1}>
+              {document.categorie} • {nombrePagesReel} page{nombrePagesReel > 1 ? 's' : ''}
+            </Text>
+          </View>
+
+          {document.estCertifie && (
+            <View style={[styles.certifiedBadge, estPaysage && { paddingVertical: 1, paddingHorizontal: 4 }]}>
+              <Text style={[styles.certifiedBadgeText, estPaysage && { fontSize: 8 }]}>🎓 Certifié</Text>
+            </View>
+          )}
+
+          {/* Boutons d'Action (uniquement si débloqué et hors Web pour éviter toute fuite du fichier brut) */}
+          {!estVerrouille && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity
+                style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]}
+                onPress={async () => {
+                  const res = await exporterDocumentVersAppareil(document);
+                  afficherToast(
+                    res.message,
+                    "Exportation 💾",
+                    res.success ? "succes" : "erreur"
+                  );
+                }}
+              >
+                <Ionicons name="download-outline" size={estPaysage ? 15 : 18} color="#FFFFFF" />
+                <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>Exporter</Text>
+              </TouchableOpacity>
+
+              {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
+              <TouchableOpacity 
+                style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
+                onPress={basculerOrientationManuelle}
+              >
+                <Ionicons 
+                  name={estPaysage ? "phone-portrait" : "phone-landscape"} 
+                  size={estPaysage ? 15 : 18} 
+                  color="#FFFFFF" 
+                />
+                <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
+                  {estPaysage ? "Portrait" : "Paysage"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-
-        {document.estCertifie && (
-          <View style={[styles.certifiedBadge, estPaysage && { paddingVertical: 1, paddingHorizontal: 4 }]}>
-            <Text style={[styles.certifiedBadgeText, estPaysage && { fontSize: 8 }]}>🎓 Certifié</Text>
-          </View>
-        )}
-
-        {/* Boutons d'Action (uniquement si débloqué et hors Web pour éviter toute fuite du fichier brut) */}
-        {!estVerrouille && Platform.OS !== 'web' && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <TouchableOpacity
-              style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]}
-              onPress={async () => {
-                const res = await exporterDocumentVersAppareil(document);
-                afficherToast(
-                  res.message,
-                  "Exportation 💾",
-                  res.success ? "succes" : "erreur"
-                );
-              }}
-            >
-              <Ionicons name="download-outline" size={estPaysage ? 15 : 18} color="#FFFFFF" />
-              <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>Exporter</Text>
-            </TouchableOpacity>
-
-            {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
-            <TouchableOpacity 
-              style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
-              onPress={basculerOrientationManuelle}
-            >
-              <Ionicons 
-                name={estPaysage ? "phone-portrait" : "phone-landscape"} 
-                size={estPaysage ? 15 : 18} 
-                color="#FFFFFF" 
-              />
-              <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
-                {estPaysage ? "Portrait" : "Paysage"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+      )}
 
       {/* Zone du document */}
       <View style={styles.pdfContainer}>

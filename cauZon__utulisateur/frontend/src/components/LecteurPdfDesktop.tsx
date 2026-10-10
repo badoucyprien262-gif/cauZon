@@ -79,12 +79,14 @@ export class LecteurPdfErrorBoundary extends React.Component<ErrorBoundaryProps,
 }
 
 /**
- * LecteurPdfDesktop (Moteur Paginé Dynamique PDF.js avec Synchronisation Scroll Temps Réel)
+ * LecteurPdfDesktop (Moteur Vectoriel Ultra-Net PDF.js avec Barre d'Outils Fixe Isolée)
  *
- * 1. Rendu paginé dynamique & haute fidélité Retina (PDF.js Canvas avec viewport ajusté au devicePixelRatio).
- * 2. Synchronisation en direct du compteur de page au scroll (IntersectionObserver).
- * 3. Navigation bidirectionnelle fluide (◀, ▶, scrollIntoView).
- * 4. Barre bordeaux cauZon fixe en haut (sticky, indépendante du scroll).
+ * 1. Isolation totale de la barre cauZon : position: fixed, z-index: 1000, 52px invariable,
+ *    totalement immune au zoom et au scroll du document.
+ * 2. Rendu vectoriel ultra-net au zoom : calcul dynamique PDF.js avec viewport à l'échelle
+ *    multipliée par le devicePixelRatio (Retina HD). Zéro flou, zéro étirement d'image.
+ * 3. Synchronisation en direct au scroll via IntersectionObserver (Page X / Y).
+ * 4. Navigation bidirectionnelle fluide (◀, ▶, scrollIntoView).
  * 5. Bouclier de sécurité anti-fuite : interception Ctrl+P / Ctrl+S, clic droit désactivé, paywall DRM.
  */
 const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
@@ -99,8 +101,10 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   limiteApercuValeur = 30,
   prix = 100,
   estSombre = false,
+  scale = 1.0,
   onAcheter,
   onVip,
+  onFermer,
   onPageChange,
   onDocumentLoad,
   onError,
@@ -123,16 +127,17 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   const [estPleinEcran, setEstPleinEcran] = useState<boolean>(false);
   const [messageNotification, setMessageNotification] = useState<string | null>(null);
 
-  // Dimensions de base de la première page pour réserver l'espace vertical (zéro layout shift)
+  // Échelle de zoom dynamique du document (1.0 = 100%)
+  const [zoomScale, setZoomScale] = useState<number>(scale || 1.15);
   const [aspectRatioPage1, setAspectRatioPage1] = useState<number>(1.414);
-  const [largeurAffichagePage, setLargeurAffichagePage] = useState<number>(820);
+  const [baseWidthPage1, setBaseWidthPage1] = useState<number>(595);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
   const pageContainerRefs = useRef<{ [pageNumber: number]: HTMLDivElement | null }>({});
   const canvasRefs = useRef<{ [pageNumber: number]: HTMLCanvasElement | null }>({});
-  const pagesRenduesRef = useRef<Set<number>>(new Set());
+  const pagesRenduesRef = useRef<Map<number, number>>(new Map()); // pageNum -> scale rendu
   const tachesRenduRef = useRef<{ [pageNumber: number]: any }>({});
   const timerNotificationRef = useRef<any>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
@@ -170,10 +175,16 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   // Total effectif de pages accessibles
   const totalEffectifPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
 
-  // 2. Rastérisation Haute Fidélité Retina d'une page individuelle sur Canvas
-  const rasteriserPage = useCallback(async (pageNum: number) => {
+  // 2. RASTÉRISATION HAUTE DÉFINITION VECTORIELLE AU NIVEAU DE ZOOM EXACT
+  const rasteriserPage = useCallback(async (pageNum: number, currentScale: number) => {
     const pdfDoc = pdfDocRef.current;
-    if (!pdfDoc || pagesRenduesRef.current.has(pageNum)) return;
+    if (!pdfDoc) return;
+
+    // Si déjà rendu exactement à cette échelle de zoom, ignorer
+    const scaleRendu = pagesRenduesRef.current.get(pageNum);
+    if (scaleRendu !== undefined && Math.abs(scaleRendu - currentScale) < 0.01) {
+      return;
+    }
 
     // Annuler une tâche précédente si déjà active sur cette page
     if (tachesRenduRef.current[pageNum]) {
@@ -189,30 +200,25 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
 
     try {
       const page = await pdfDoc.getPage(pageNum);
-      const unscaledViewport = page.getViewport({ scale: 1.0 });
 
-      // Plafond DPR optimal pour netteté vectorielle cristalline sans saturation mémoire
-      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2.2) : 1.5;
+      // 🎯 Formule vectorielle Retina HD exacte prescrite :
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const viewport = page.getViewport({ scale: currentScale * dpr });
 
-      // Calcul de l'échelle d'affichage pour une lecture confortable
-      const containerWidth = scrollContainerRef.current?.clientWidth || 900;
-      const targetWidth = Math.min(Math.max(containerWidth - 64, 480), 920);
-      const scaleBase = targetWidth / unscaledViewport.width;
-      const viewport = page.getViewport({ scale: scaleBase });
+      // Dimensions physiques haute résolution (pixels du buffer)
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
 
-      const cssWidth = Math.floor(viewport.width);
-      const cssHeight = Math.floor(viewport.height);
-
-      // Résolution physique haute définition Retina
-      canvas.width = Math.floor(viewport.width * dpr);
-      canvas.height = Math.floor(viewport.height * dpr);
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
+      // Dimensions CSS d'affichage net (taille logique à l'écran)
+      const cssW = Math.floor(viewport.width / dpr);
+      const cssH = Math.floor(viewport.height / dpr);
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
       canvas.style.display = 'block';
 
-      // Ajuster le conteneur parent
-      wrapper.style.width = `${cssWidth}px`;
-      wrapper.style.height = `${cssHeight}px`;
+      // Dimensions du conteneur parent pour un défilement géométriquement parfait
+      wrapper.style.width = `${cssW}px`;
+      wrapper.style.height = `${cssH}px`;
 
       const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
       if (placeholder) {
@@ -226,12 +232,12 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
 
       const renderTask = page.render({
         canvasContext: ctx,
-        viewport: page.getViewport({ scale: scaleBase * dpr }),
+        viewport: viewport,
       });
       tachesRenduRef.current[pageNum] = renderTask;
       await renderTask.promise;
 
-      pagesRenduesRef.current.add(pageNum);
+      pagesRenduesRef.current.set(pageNum, currentScale);
     } catch (err: any) {
       if (err?.name !== 'RenderingCancelledException') {
         console.warn(`[LecteurPdfDesktop] Note rendu page ${pageNum} :`, err);
@@ -241,17 +247,16 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }
   }, []);
 
-  // 3. Chargement initial du document via PDF.js
+  // 3. Initialisation du document PDF via PDF.js
   useEffect(() => {
     let estActif = true;
 
-    async function initialiserPdfJs() {
+    async function initialiserDocument() {
       try {
         setChargement(true);
         setErreur(null);
         pagesRenduesRef.current.clear();
 
-        // Document totalement verrouillé
         if (estVerrouille && limiteApercuValeur === 0) {
           if (estActif) {
             setPagesApercuAutorisees(0);
@@ -284,7 +289,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         setNombrePagesTotal(total);
         onDocumentLoad?.(total);
 
-        // Calcul des pages autorisées en cas de verrouillage
+        // Calcul des pages autorisées en cas de verrouillage DRM
         let allowed = total;
         if (estVerrouille) {
           if (limiteApercuType === 'page') {
@@ -297,21 +302,22 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         }
         setPagesApercuAutorisees(allowed);
 
-        // Calibrer la taille de la page 1
+        // Dimensions de référence de la Page 1
         const page1 = await pdfDoc.getPage(1);
         const vp1 = page1.getViewport({ scale: 1.0 });
-        const ratio = vp1.height / vp1.width;
-        setAspectRatioPage1(ratio);
+        setBaseWidthPage1(vp1.width);
+        setAspectRatioPage1(vp1.height / vp1.width);
 
-        const containerWidth = scrollContainerRef.current?.clientWidth || 900;
-        const targetW = Math.min(Math.max(containerWidth - 64, 480), 920);
-        setLargeurAffichagePage(targetW);
+        // Ajuster l'échelle de départ optimale par rapport à la largeur de l'écran
+        const containerWidth = scrollContainerRef.current?.clientWidth || window.innerWidth || 900;
+        const initialFitScale = Math.min(Math.max((containerWidth - 80) / vp1.width, 0.8), 1.6);
+        setZoomScale(Number(initialFitScale.toFixed(2)));
 
         if (estActif) {
           setChargement(false);
         }
       } catch (err: any) {
-        console.error('[LecteurPdfDesktop] Erreur chargement document PDF.js :', err);
+        console.error('[LecteurPdfDesktop] Erreur initialisation PDF.js :', err);
         if (estActif) {
           setErreur(err?.message || 'Impossible d\'afficher le document.');
           setChargement(false);
@@ -320,7 +326,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       }
     }
 
-    initialiserPdfJs();
+    initialiserDocument();
 
     return () => {
       estActif = false;
@@ -332,14 +338,30 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     };
   }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur]);
 
-  // 4. Rendu prioritaire de la Page 1 dès que le conteneur DOM est prêt
+  // 4. Re-rastérisation vectorielle HD des pages visibles à chaque changement de zoom
   useEffect(() => {
-    if (!chargement && !erreur && pdfDocRef.current) {
-      rasteriserPage(1);
-    }
-  }, [chargement, erreur, rasteriserPage]);
+    if (chargement || erreur || !pdfDocRef.current) return;
 
-  // 5. Lazy-Rendering des pages à l'approche du viewport (rootMargin: '600px')
+    // Vider le cache de rendu pour forcer la regénération HD au nouveau zoom
+    pagesRenduesRef.current.clear();
+
+    // Rendre immédiatement la page courante en cours de lecture
+    rasteriserPage(pageCourante, zoomScale);
+
+    // Mettre à jour immédiatement la géométrie réservée de toutes les pages pour éviter tout décalage
+    for (let p = 1; p <= totalEffectifPages; p++) {
+      const wrapper = pageContainerRefs.current[p];
+      if (wrapper) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        const approxW = Math.floor(baseWidthPage1 * zoomScale);
+        const approxH = Math.floor(approxW * aspectRatioPage1);
+        wrapper.style.width = `${approxW}px`;
+        wrapper.style.height = `${approxH}px`;
+      }
+    }
+  }, [zoomScale, chargement, erreur, pageCourante, totalEffectifPages, baseWidthPage1, aspectRatioPage1, rasteriserPage]);
+
+  // 5. Lazy-Rendering haute fidélité des pages visibles via IntersectionObserver
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || chargement || erreur || !pdfDocRef.current) return;
@@ -349,15 +371,15 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             const pageNum = Number(entry.target.getAttribute('data-page'));
-            if (pageNum && !pagesRenduesRef.current.has(pageNum)) {
-              rasteriserPage(pageNum);
+            if (pageNum) {
+              rasteriserPage(pageNum, zoomScale);
             }
           }
         });
       },
       {
         root: scrollContainer,
-        rootMargin: '600px 0px 600px 0px',
+        rootMargin: '500px 0px 500px 0px',
       }
     );
 
@@ -367,7 +389,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }
 
     return () => lazyObserver.disconnect();
-  }, [chargement, erreur, totalEffectifPages, rasteriserPage]);
+  }, [chargement, erreur, totalEffectifPages, zoomScale, rasteriserPage]);
 
   // 6. SYNCHRONISATION EN DIRECT DU COMPTEUR DE PAGES AU SCROLL (IntersectionObserver)
   useEffect(() => {
@@ -378,7 +400,6 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
 
     const scrollSyncObserver = new IntersectionObserver(
       (entries) => {
-        // Ignorer temporairement la synchronisation si un scroll programmatique est en cours
         if (isProgrammaticScrollRef.current) return;
 
         entries.forEach((entry) => {
@@ -392,7 +413,6 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           }
         });
 
-        // Identifier la page ayant la plus grande surface visible à l'écran
         let pageLaPlusVisible = pageCourante;
         let maxRatio = -1;
 
@@ -422,7 +442,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     return () => scrollSyncObserver.disconnect();
   }, [chargement, erreur, totalEffectifPages, pageCourante, onPageChange]);
 
-  // 7. Navigation bidirectionnelle programmatique (◀, ▶ ou sélection directe)
+  // 7. Navigation bidirectionnelle fluide
   const allerPage = useCallback((p: number) => {
     const cible = Math.min(Math.max(1, p), totalEffectifPages);
     setPageCourante(cible);
@@ -433,14 +453,34 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       isProgrammaticScrollRef.current = true;
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-      // Rendre immédiatement la page cible si pas encore rendue
-      rasteriserPage(cible);
+      // Rastérisation immédiate de la page ciblée
+      rasteriserPage(cible, zoomScale);
 
       setTimeout(() => {
         isProgrammaticScrollRef.current = false;
       }, 700);
     }
-  }, [totalEffectifPages, onPageChange, rasteriserPage]);
+  }, [totalEffectifPages, onPageChange, zoomScale, rasteriserPage]);
+
+  // 8. Contrôles de zoom vectoriel
+  const zoomer = () => {
+    setZoomScale(prev => Number(Math.min(prev + 0.2, 2.8).toFixed(2)));
+  };
+
+  const dezoomer = () => {
+    setZoomScale(prev => Number(Math.max(prev - 0.2, 0.6).toFixed(2)));
+  };
+
+  const reinitialiserZoom = () => {
+    setZoomScale(1.0);
+  };
+
+  const ajusterALaLargeur = () => {
+    if (!scrollContainerRef.current || !baseWidthPage1) return;
+    const containerW = scrollContainerRef.current.clientWidth || 900;
+    const fitScale = Math.max((containerW - 80) / baseWidthPage1, 0.6);
+    setZoomScale(Number(fitScale.toFixed(2)));
+  };
 
   // Bascule mode plein écran
   const basculerPleinEcran = () => {
@@ -548,18 +588,16 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     );
   }
 
-  const hauteurEstimeePage = Math.floor(largeurAffichagePage * aspectRatioPage1);
+  const largeurInitialePx = Math.floor(baseWidthPage1 * zoomScale);
+  const hauteurInitialePx = Math.floor(largeurInitialePx * aspectRatioPage1);
 
   return (
     <div
       ref={rootRef}
       style={{
         width: '100%',
-        height: '100%',
-        minHeight: 'calc(100vh - 64px)',
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
+        height: '100vh',
+        maxHeight: '100vh',
         position: 'relative',
         backgroundColor: estSombre ? '#0F172A' : '#525659',
         overflow: 'hidden',
@@ -570,33 +608,56 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* ─────────────────────────────────────────────────────────────────────────── */}
-      {/* 1. BARRE D'OUTILS CAUZON FIXE (STICKY / TOTALE INDÉPENDANCE DU SCROLL)       */}
+      {/* 1. BARRE D'OUTILS CAUZON FIXE (TOTALEMENT ISOLÉE DU FLUX DE ZOOM & SCROLL)    */}
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       <div
+        id="cauzon-desktop-fixed-toolbar"
         style={{
-          width: '100%',
-          height: '52px',
-          minHeight: '52px',
-          maxHeight: '52px',
-          flexShrink: 0,
-          position: 'sticky',
+          position: 'fixed',
           top: 0,
           left: 0,
           right: 0,
-          zIndex: 50,
-          backgroundColor: estSombre ? '#1E293B' : '#7F011F',
+          height: '52px',
+          minHeight: '52px',
+          maxHeight: '52px',
+          width: '100%',
+          zIndex: 1000,
+          backgroundColor: '#7F011F',
           color: '#FFFFFF',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 16px',
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)',
-          borderBottom: estSombre ? '1px solid #334155' : '1px solid rgba(0, 0, 0, 0.12)',
+          boxShadow: '0 2px 12px rgba(0, 0, 0, 0.3)',
+          borderBottom: '1px solid rgba(0, 0, 0, 0.15)',
           boxSizing: 'border-box',
+          transform: 'none',
         }}
       >
-        {/* Section Gauche : Titre et Statut du Document */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, maxWidth: '35%' }}>
+        {/* Section Gauche : Retour, Titre & Statut */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, maxWidth: '32%' }}>
+          {onFermer && (
+            <button
+              onClick={onFermer}
+              style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                border: 'none',
+                color: '#FFFFFF',
+                borderRadius: '8px',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontSize: '16px',
+                flexShrink: 0,
+              }}
+              title="Fermer le lecteur"
+            >
+              ←
+            </button>
+          )}
           <span style={{ fontSize: '18px', flexShrink: 0 }}>📄</span>
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span
@@ -614,19 +675,20 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             </span>
             <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)' }}>
               {estVerrouille
-                ? `🔒 Aperçu limité (${pagesApercuAutorisees}/${nombrePagesTotal} page${pagesApercuAutorisees > 1 ? 's' : ''})`
+                ? `🔒 Extrait (${pagesApercuAutorisees}/${nombrePagesTotal} page${pagesApercuAutorisees > 1 ? 's' : ''})`
                 : `✅ Document complet (${nombrePagesTotal} page${nombrePagesTotal > 1 ? 's' : ''})`}
             </span>
           </div>
         </div>
 
-        {/* Section Centre : Navigation & Synchronisation en Direct au Scroll */}
+        {/* Section Centre : Pagination en Direct & Contrôles Zoom Vectoriels */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Indicateur de Page & Navigation */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.24)',
+              backgroundColor: 'rgba(0, 0, 0, 0.28)',
               borderRadius: '8px',
               padding: '3px 8px',
               gap: 6,
@@ -650,7 +712,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
               ◀
             </button>
 
-            <span style={{ fontSize: '12px', fontWeight: 600 }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, minWidth: '70px', textAlign: 'center' }}>
               Page {pageCourante} / {totalEffectifPages}
             </span>
 
@@ -677,45 +739,129 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             </button>
           </div>
 
-          {/* Bouton Mode Plein Écran */}
+          {/* Contrôles de Zoom Vectoriel Ultra-Net */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'rgba(0, 0, 0, 0.28)',
+              borderRadius: '8px',
+              padding: '3px 6px',
+              gap: 4,
+            }}
+          >
+            <button
+              onClick={dezoomer}
+              disabled={zoomScale <= 0.6}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: zoomScale <= 0.6 ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
+                cursor: zoomScale <= 0.6 ? 'default' : 'pointer',
+                fontSize: '15px',
+                fontWeight: 800,
+                padding: '2px 7px',
+                borderRadius: '4px',
+              }}
+              title="Dézoomer (−)"
+            >
+              −
+            </button>
+
+            <button
+              onClick={reinitialiserZoom}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                padding: '2px 5px',
+                minWidth: '44px',
+                textAlign: 'center',
+              }}
+              title="Réinitialiser à 100%"
+            >
+              {Math.round(zoomScale * 100)}%
+            </button>
+
+            <button
+              onClick={zoomer}
+              disabled={zoomScale >= 2.8}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: zoomScale >= 2.8 ? 'rgba(255,255,255,0.3)' : '#FFFFFF',
+                cursor: zoomScale >= 2.8 ? 'default' : 'pointer',
+                fontSize: '15px',
+                fontWeight: 800,
+                padding: '2px 7px',
+                borderRadius: '4px',
+              }}
+              title="Zoomer (+)"
+            >
+              +
+            </button>
+
+            <button
+              onClick={ajusterALaLargeur}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '3px 7px',
+                borderRadius: '5px',
+                marginLeft: '2px',
+              }}
+              title="Ajuster à la largeur de l'écran"
+            >
+              ↔️ Ajuster
+            </button>
+          </div>
+
+          {/* Bouton Plein Écran */}
           <button
             onClick={basculerPleinEcran}
             style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.14)',
+              backgroundColor: 'rgba(255, 255, 255, 0.15)',
               border: 'none',
               color: '#FFFFFF',
               borderRadius: '8px',
-              padding: '6px 12px',
+              padding: '6px 10px',
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: 5,
+              gap: 4,
             }}
             title={estPleinEcran ? 'Quitter le plein écran' : 'Passer en plein écran'}
           >
             <span>{estPleinEcran ? '🗗' : '⛶'}</span>
-            <span>{estPleinEcran ? 'Fenêtré' : 'Plein écran'}</span>
+            <span>{estPleinEcran ? 'Fenêtre' : 'Plein écran'}</span>
           </button>
         </div>
 
-        {/* Section Droite : Statut de Sécurité & Actions */}
+        {/* Section Droite : Protection & Achat */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 5,
               fontSize: '11px',
-              color: 'rgba(255, 255, 255, 0.75)',
-              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              color: 'rgba(255, 255, 255, 0.85)',
+              backgroundColor: 'rgba(0, 0, 0, 0.22)',
               padding: '4px 10px',
               borderRadius: '6px',
             }}
           >
             <span>🛡️</span>
-            <span>Document Protégé cauZon</span>
+            <span>Protégé cauZon</span>
           </div>
 
           {estVerrouille && onAcheter && (
@@ -741,22 +887,22 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         </div>
       </div>
 
-      {/* Notification Toast discrète */}
+      {/* Notification Toast */}
       {messageNotification && (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: '64px',
             left: '50%',
             transform: 'translateX(-50%)',
-            backgroundColor: 'rgba(15, 23, 42, 0.94)',
+            backgroundColor: 'rgba(15, 23, 42, 0.95)',
             color: '#FFFFFF',
             padding: '8px 18px',
             borderRadius: '20px',
             fontSize: '12px',
             fontWeight: 600,
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
-            zIndex: 60,
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)',
+            zIndex: 1100,
             backdropFilter: 'blur(8px)',
             border: '1px solid rgba(255, 255, 255, 0.15)',
             pointerEvents: 'none',
@@ -767,24 +913,28 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────── */}
-      {/* 2. CONTENEUR SCROLLABLE VERTICAL DES PAGES AVEC RENDU CANVA HAUTE NETTETÉ    */}
+      {/* 2. CONTENEUR DU DOCUMENT (PARFAITEMENT DÉCOUPLÉ ET CALÉ SOUS LA BARRE FIXE)   */}
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       <div
         ref={scrollContainerRef}
+        id="cauzon-desktop-scroll-viewport"
         style={{
+          position: 'absolute',
+          top: '52px',
+          left: 0,
+          right: 0,
+          bottom: 0,
           width: '100%',
-          height: 'calc(100% - 52px)',
-          flex: 1,
-          position: 'relative',
+          height: 'calc(100vh - 52px)',
           overflowY: 'auto',
-          overflowX: 'hidden',
+          overflowX: 'auto',
           backgroundColor: estSombre ? '#0F172A' : '#525659',
-          padding: '24px 16px 80px 16px',
+          padding: '28px 16px 80px 16px',
           boxSizing: 'border-box',
           scrollBehavior: 'smooth',
         }}
       >
-        {/* Écran de chargement initial */}
+        {/* Écran de chargement */}
         {chargement && (
           <div
             style={{
@@ -821,7 +971,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                 color: estSombre ? '#E2E8F0' : '#334155',
               }}
             >
-              Préparation de la liseuse haute netteté...
+              Rendu vectoriel haute netteté Retina...
             </p>
           </div>
         )}
@@ -866,7 +1016,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           </div>
         )}
 
-        {/* Flux vertical des pages haute netteté */}
+        {/* Flux paginé des Canvas haute fidélité */}
         {!chargement && !erreur && (
           <div
             style={{
@@ -875,14 +1025,15 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
               alignItems: 'center',
               gap: '24px',
               margin: '0 auto',
-              width: '100%',
+              width: 'fit-content',
+              minWidth: '100%',
             }}
           >
             {Array.from({ length: totalEffectifPages }, (_, idx) => {
               const pageNum = idx + 1;
               return (
                 <div
-                  key={`cauzon-page-${pageNum}`}
+                  key={`cauzon-desktop-page-${pageNum}`}
                   ref={(el) => {
                     pageContainerRefs.current[pageNum] = el;
                   }}
@@ -890,20 +1041,22 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                   data-page={pageNum}
                   id={`cauzon-desktop-page-${pageNum}`}
                   style={{
-                    width: `${largeurAffichagePage}px`,
-                    minHeight: `${hauteurEstimeePage}px`,
+                    width: `${largeurInitialePx}px`,
+                    height: `${hauteurInitialePx}px`,
                     position: 'relative',
                     backgroundColor: '#FFFFFF',
                     borderRadius: '4px',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.28)',
+                    boxShadow: '0 6px 24px rgba(0, 0, 0, 0.35)',
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    margin: '0 auto',
+                    flexShrink: 0,
                   }}
                 >
-                  {/* Placeholder élégant pendant le lazy-rendering */}
+                  {/* Placeholder pendant le rendu vectoriel */}
                   <div
                     className="cauzon-page-placeholder"
                     style={{
@@ -956,7 +1109,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
               <div
                 style={{
                   width: '100%',
-                  maxWidth: `${largeurAffichagePage}px`,
+                  maxWidth: `${largeurInitialePx}px`,
                   backgroundColor: estSombre ? '#1E293B' : '#FFFFFF',
                   borderRadius: '16px',
                   padding: '32px 24px',
@@ -965,6 +1118,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                   border: estSombre ? '1px solid #334155' : '1px solid #E2E8F0',
                   marginTop: '12px',
                   marginBottom: '40px',
+                  boxSizing: 'border-box',
                 }}
               >
                 <div
