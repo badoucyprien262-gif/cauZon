@@ -16,6 +16,8 @@ import {
   Tag,
   Shield,
   RefreshCw,
+  Image as ImageIcon,
+  Trash2,
 } from 'lucide-react';
 import { extraireNombrePagesPdf } from '../services/serviceDocuments';
 import {
@@ -26,6 +28,10 @@ import type {
   UploadR2Response,
   R2TestResponse,
 } from '../services/serviceR2Upload';
+import {
+  extraireCouverturePdfPage1,
+  uploaderImageCouverture,
+} from '../services/servicePdfCouverture';
 
 interface ModalAjoutDocumentProps {
   isOpen: boolean;
@@ -45,6 +51,15 @@ export function ModalAjoutDocument({
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [detectedPages, setDetectedPages] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── États Image de Couverture / Miniature ───────────────────────────────
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [autoCoverBlob, setAutoCoverBlob] = useState<Blob | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [isAutoCover, setIsAutoCover] = useState<boolean>(false);
+  const [isExtractingCover, setIsExtractingCover] = useState<boolean>(false);
+  const [coverDragActive, setCoverDragActive] = useState<boolean>(false);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   // ── États Métadonnées ───────────────────────────────────────────────────
   const [titre, setTitre] = useState('');
@@ -79,6 +94,15 @@ export function ModalAjoutDocument({
     }
   }, [isOpen]);
 
+  // Nettoyage de l'URL objet d'aperçu
+  useEffect(() => {
+    return () => {
+      if (coverPreviewUrl) {
+        URL.revokeObjectURL(coverPreviewUrl);
+      }
+    };
+  }, [coverPreviewUrl]);
+
   if (!isOpen) return null;
 
   const testerConnexionR2 = async () => {
@@ -93,7 +117,65 @@ export function ModalAjoutDocument({
     }
   };
 
-  // ── Gestion de la sélection du fichier ──────────────────────────────────
+  // ── Extraction automatique de la Page 1 (Fallback) ──────────────────────
+  const lancerExtractionPage1 = async (file: File) => {
+    setIsExtractingCover(true);
+    try {
+      const blob = await extraireCouverturePdfPage1(file);
+      setAutoCoverBlob(blob);
+      setCoverPreviewUrl((prev) => {
+        if (prev && isAutoCover) {
+          URL.revokeObjectURL(prev);
+        }
+        return URL.createObjectURL(blob);
+      });
+      setIsAutoCover(true);
+    } catch (err) {
+      console.warn('Note : Extraction automatique de la page 1 ignorée ou impossible :', err);
+    } finally {
+      setIsExtractingCover(false);
+    }
+  };
+
+  // ── Gestion de la sélection manuelle de couverture ──────────────────────
+  const handleCoverChange = (file: File) => {
+    if (!file) return;
+    if (!file.type.match(/^image\/(png|jpeg|jpg|webp)$/i)) {
+      setErrorMessage('Seuls les formats PNG, JPEG ou WebP sont acceptés pour la couverture.');
+      return;
+    }
+    setErrorMessage('');
+    setCoverFile(file);
+    setIsAutoCover(false);
+    if (coverPreviewUrl && isAutoCover) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    const preview = URL.createObjectURL(file);
+    setCoverPreviewUrl(preview);
+  };
+
+  const handleSupprimerCouverture = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (coverPreviewUrl) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverFile(null);
+    if (!isAutoCover && autoCoverBlob) {
+      // Rétablir la miniature extraite de la Page 1
+      const preview = URL.createObjectURL(autoCoverBlob);
+      setCoverPreviewUrl(preview);
+      setIsAutoCover(true);
+    } else {
+      setAutoCoverBlob(null);
+      setCoverPreviewUrl(null);
+      setIsAutoCover(false);
+    }
+    if (coverInputRef.current) {
+      coverInputRef.current.value = '';
+    }
+  };
+
+  // ── Gestion de la sélection du fichier PDF ──────────────────────────────
   const handleFileChange = async (file: File) => {
     if (!file || file.type !== 'application/pdf') {
       setErrorMessage('Seuls les fichiers PDF sont acceptés.');
@@ -120,6 +202,11 @@ export function ModalAjoutDocument({
       const catFolder = categorie ? categorie.toLowerCase().replace(/[^a-z0-9]/g, '_') : 'cours';
       setStorageKey(`${catFolder}/${slug}`);
     }
+
+    // Extraction automatique de la page 1 si aucune image manuelle n'a été spécifiée
+    if (!coverFile) {
+      lancerExtractionPage1(file);
+    }
   };
 
   // ── Estimation de compression ──────────────────────────────────────────
@@ -145,7 +232,7 @@ export function ModalAjoutDocument({
     }
 
     setIsUploading(true);
-    setUploadProgress(15);
+    setUploadProgress(12);
     setProgressLabel('🗜️ Optimisation et compression du PDF via pdf-lib…');
     setErrorMessage('');
     setUploadResult(null);
@@ -153,9 +240,9 @@ export function ModalAjoutDocument({
     // Progression visuelle animée
     const progressInterval = setInterval(() => {
       setUploadProgress((prev) => {
-        if (prev < 45) {
+        if (prev < 40) {
           setProgressLabel('🗜️ Compression et suppression des métadonnées…');
-          return prev + 8;
+          return prev + 7;
         } else if (prev < 75) {
           setProgressLabel('📤 Transfert chiffré vers Cloudflare R2 (0 FCFA d\'egress)…');
           return prev + 6;
@@ -168,6 +255,22 @@ export function ModalAjoutDocument({
     }, 450);
 
     try {
+      // 1. Téléversement de l'image de couverture si présente (manuelle ou extraite Page 1)
+      let finalCoverUrl: string | null = null;
+      const coverToUpload = coverFile || autoCoverBlob;
+
+      if (coverToUpload) {
+        setProgressLabel('🖼️ Téléversement de la miniature / couverture…');
+        try {
+          finalCoverUrl = await uploaderImageCouverture(
+            coverToUpload,
+            titre.trim() || selectedFile.name
+          );
+        } catch (coverErr) {
+          console.warn('Avertissement téléversement couverture :', coverErr);
+        }
+      }
+
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('titre', titre.trim());
@@ -194,6 +297,11 @@ export function ModalAjoutDocument({
         formData.append('storageKey', storageKey.trim());
       }
 
+      // Persistance de l'URL finale de la couverture dans Supabase
+      if (finalCoverUrl) {
+        formData.append('cover_url', finalCoverUrl);
+      }
+
       const res = await uploaderDocumentViaBackend(formData);
 
       clearInterval(progressInterval);
@@ -216,7 +324,15 @@ export function ModalAjoutDocument({
   };
 
   const handleReinitialiser = () => {
+    if (coverPreviewUrl) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
     setSelectedFile(null);
+    setCoverFile(null);
+    setAutoCoverBlob(null);
+    setCoverPreviewUrl(null);
+    setIsAutoCover(false);
+    setIsExtractingCover(false);
     setTitre('');
     setCategorie('');
     setNiveau('');
@@ -227,6 +343,8 @@ export function ModalAjoutDocument({
     setUploadResult(null);
     setErrorMessage('');
     setUploadProgress(0);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (coverInputRef.current) coverInputRef.current.value = '';
   };
 
   // ── Styles Thématiques ──────────────────────────────────────────────────
@@ -429,6 +547,44 @@ export function ModalAjoutDocument({
                 </div>
               )}
 
+              {coverPreviewUrl && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    backgroundColor: darkMode ? '#111119' : '#FFFFFF',
+                    border: `1px solid ${border}`,
+                    marginTop: '2px',
+                  }}
+                >
+                  <img
+                    src={coverPreviewUrl}
+                    alt="Miniature"
+                    style={{
+                      width: '42px',
+                      height: '56px',
+                      objectFit: 'cover',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(0,0,0,0.1)',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>
+                      Couverture &amp; Miniature associées
+                    </div>
+                    <div style={{ fontSize: '11px', color: textSub }}>
+                      {isAutoCover
+                        ? 'Miniature extraite de la Page 1 (sauvegardée et synchronisée)'
+                        : 'Image de couverture personnalisée sauvegardée'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div style={{ fontSize: '12px', color: textSub, wordBreak: 'break-all', marginTop: '4px' }}>
                 <strong>Clé R2 :</strong> <code>{uploadResult.fileKey}</code>
                 {uploadResult.supabaseId && (
@@ -473,82 +629,369 @@ export function ModalAjoutDocument({
             </div>
           )}
 
-          {/* Section 1 : Sélection & Drag and Drop du PDF */}
+          {/* Section 1 : Sélection & Drag and Drop du PDF & Couverture */}
           {!uploadResult && (
             <>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: textColor, marginBottom: '8px' }}>
-                  Fichier PDF du cours <span style={{ color: '#EF4444' }}>*</span>
-                </label>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+                  gap: '16px',
+                }}
+              >
+                {/* Colonne Gauche : Dépôt PDF (Obligatoire) */}
+                <div>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: textColor,
+                      marginBottom: '8px',
+                    }}
+                  >
+                    Fichier PDF du cours <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
 
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragActive(true);
-                  }}
-                  onDragLeave={() => setDragActive(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragActive(false);
-                    if (e.dataTransfer.files[0]) handleFileChange(e.dataTransfer.files[0]);
-                  }}
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{
-                    border: `2px dashed ${dragActive || selectedFile ? '#6B1124' : border}`,
-                    borderRadius: '12px',
-                    padding: '24px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    backgroundColor: selectedFile
-                      ? darkMode
-                        ? 'rgba(107,17,36,0.15)'
-                        : 'rgba(107,17,36,0.04)'
-                      : bgInput,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/pdf"
-                    style={{ display: 'none' }}
-                    onChange={(e) => e.target.files?.[0] && handleFileChange(e.target.files[0])}
-                  />
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragActive(true);
+                    }}
+                    onDragLeave={() => setDragActive(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragActive(false);
+                      if (e.dataTransfer.files[0]) handleFileChange(e.dataTransfer.files[0]);
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border: `2px dashed ${dragActive || selectedFile ? '#6B1124' : border}`,
+                      borderRadius: '12px',
+                      padding: '16px',
+                      minHeight: '150px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      backgroundColor: selectedFile
+                        ? darkMode
+                          ? 'rgba(107,17,36,0.15)'
+                          : 'rgba(107,17,36,0.04)'
+                        : bgInput,
+                      transition: 'all 0.2s',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      style={{ display: 'none' }}
+                      onChange={(e) => e.target.files?.[0] && handleFileChange(e.target.files[0])}
+                    />
 
-                  {selectedFile ? (
-                    <div>
-                      <span style={{ fontSize: '32px' }}>📄</span>
-                      <p style={{ color: '#6B1124', fontWeight: 800, fontSize: '15px', margin: '8px 0 4px' }}>
-                        {selectedFile.name}
-                      </p>
-                      <p style={{ color: textSub, fontSize: '13px', margin: 0 }}>
-                        Taille originale : <strong>{formatTailleMo(selectedFile.size)}</strong>
-                        {detectedPages > 0 && ` &bull; ${detectedPages} pages détectées ✨`}
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <div
+                    {selectedFile ? (
+                      <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                        <span style={{ fontSize: '30px' }}>📄</span>
+                        <p
+                          style={{
+                            color: '#6B1124',
+                            fontWeight: 800,
+                            fontSize: '14px',
+                            margin: '6px 0 2px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={selectedFile.name}
+                        >
+                          {selectedFile.name}
+                        </p>
+                        <p style={{ color: textSub, fontSize: '12px', margin: 0 }}>
+                          Taille : <strong>{formatTailleMo(selectedFile.size)}</strong>
+                          {detectedPages > 0 && ` &bull; ${detectedPages} pages ✨`}
+                        </p>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            marginTop: '6px',
+                            fontSize: '11px',
+                            color: '#6B1124',
+                            fontWeight: 600,
+                          }}
+                        >
+                          Cliquer pour changer de fichier
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <div
+                          style={{
+                            width: '42px',
+                            height: '42px',
+                            borderRadius: '50%',
+                            backgroundColor: darkMode ? '#2B2B3D' : '#E5E7EB',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#6B1124',
+                            marginBottom: '6px',
+                          }}
+                        >
+                          <UploadCloud size={22} />
+                        </div>
+                        <p style={{ color: textColor, fontWeight: 700, fontSize: '13px', margin: '2px 0' }}>
+                          Glissez le PDF ici ou cliquez
+                        </p>
+                        <p style={{ color: textSub, fontSize: '11px', margin: 0 }}>
+                          PDF jusqu'à 50 Mo &bull; Optimisation auto
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Colonne Droite : Image de Couverture / Miniature (Recommandée) */}
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: textColor }}>
+                      Image de couverture / Miniature{' '}
+                      <span style={{ color: textSub, fontWeight: 500 }}>(Recommandée)</span>
+                    </label>
+
+                    {isExtractingCover && (
+                      <span
                         style={{
-                          width: '46px',
-                          height: '46px',
-                          borderRadius: '50%',
-                          backgroundColor: darkMode ? '#2B2B3D' : '#E5E7EB',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          fontSize: '11px',
                           color: '#6B1124',
-                          marginBottom: '8px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
                         }}
                       >
-                        <UploadCloud size={24} />
+                        <RefreshCw size={11} className="spin" /> Extraction Page 1…
+                      </span>
+                    )}
+
+                    {!isExtractingCover && coverPreviewUrl && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: isAutoCover
+                            ? 'rgba(59,130,246,0.14)'
+                            : 'rgba(34,197,94,0.14)',
+                          color: isAutoCover ? '#3B82F6' : '#22C55E',
+                          border: `1px solid ${
+                            isAutoCover ? 'rgba(59,130,246,0.3)' : 'rgba(34,197,94,0.3)'
+                          }`,
+                        }}
+                      >
+                        {isAutoCover ? '✨ Auto (Page 1)' : '📸 Personnalisée'}
+                      </span>
+                    )}
+                  </div>
+
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/png, image/jpeg, image/webp"
+                    style={{ display: 'none' }}
+                    onChange={(e) => e.target.files?.[0] && handleCoverChange(e.target.files[0])}
+                  />
+
+                  {coverPreviewUrl ? (
+                    <div
+                      style={{
+                        position: 'relative',
+                        borderRadius: '12px',
+                        border: `2px solid ${border}`,
+                        backgroundColor: darkMode ? '#0B0B10' : '#F3F4F6',
+                        overflow: 'hidden',
+                        height: '150px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <img
+                        src={coverPreviewUrl}
+                        alt="Aperçu couverture"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                        }}
+                      />
+
+                      {/* Boutons d'actions overlay */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '8px',
+                          right: '8px',
+                          display: 'flex',
+                          gap: '6px',
+                          zIndex: 3,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => coverInputRef.current?.click()}
+                          title="Remplacer par une image personnalisée"
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(0,0,0,0.75)',
+                            color: '#FAF6EB',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backdropFilter: 'blur(4px)',
+                          }}
+                        >
+                          <ImageIcon size={12} /> Remplacer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSupprimerCouverture}
+                          title="Supprimer la couverture"
+                          style={{
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: 'rgba(239,68,68,0.85)',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
-                      <p style={{ color: textColor, fontWeight: 700, fontSize: '14px', margin: '4px 0' }}>
-                        Glissez-déposez le PDF ici ou cliquez pour parcourir
-                      </p>
-                      <p style={{ color: textSub, fontSize: '12px', margin: 0 }}>
-                        Fichier PDF accepté jusqu'à 50 Mo &bull; Optimisation automatique à l'upload
-                      </p>
+
+                      {/* Bandeau d'information bas */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          padding: '4px 10px',
+                          backgroundColor: 'rgba(0,0,0,0.7)',
+                          backdropFilter: 'blur(3px)',
+                          color: '#FAF6EB',
+                          fontSize: '11px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          zIndex: 2,
+                        }}
+                      >
+                        <span
+                          style={{
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '75%',
+                          }}
+                        >
+                          {isAutoCover
+                            ? 'Page 1 extraite automatiquement (Défaut)'
+                            : coverFile?.name || 'Image personnalisée'}
+                        </span>
+                        <span style={{ fontSize: '10px', opacity: 0.85 }}>Ratio carte</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setCoverDragActive(true);
+                      }}
+                      onDragLeave={() => setCoverDragActive(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setCoverDragActive(false);
+                        if (e.dataTransfer.files[0]) handleCoverChange(e.dataTransfer.files[0]);
+                      }}
+                      onClick={() => coverInputRef.current?.click()}
+                      style={{
+                        border: `2px dashed ${coverDragActive ? '#6B1124' : border}`,
+                        borderRadius: '12px',
+                        minHeight: '150px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        backgroundColor: coverDragActive
+                          ? darkMode
+                            ? 'rgba(107,17,36,0.15)'
+                            : 'rgba(107,17,36,0.04)'
+                          : bgInput,
+                        transition: 'all 0.2s',
+                        padding: '16px',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      {isExtractingCover ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                          <RefreshCw size={26} color="#6B1124" className="spin" />
+                          <p style={{ color: textColor, fontWeight: 700, fontSize: '13px', margin: '4px 0 0' }}>
+                            Extraction de la Page 1…
+                          </p>
+                          <p style={{ color: textSub, fontSize: '11px', margin: 0 }}>
+                            Génération d'une miniature haute fidélité
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <div
+                            style={{
+                              width: '42px',
+                              height: '42px',
+                              borderRadius: '50%',
+                              backgroundColor: darkMode ? '#2B2B3D' : '#E5E7EB',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#6B1124',
+                              marginBottom: '6px',
+                            }}
+                          >
+                            <ImageIcon size={22} />
+                          </div>
+                          <p style={{ color: textColor, fontWeight: 700, fontSize: '13px', margin: '2px 0' }}>
+                            Glisser une image ou parcourir
+                          </p>
+                          <p style={{ color: textSub, fontSize: '11px', margin: 0 }}>
+                            PNG, JPEG, WebP &bull; Fallback auto sur Page 1 ✨
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
