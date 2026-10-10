@@ -46,6 +46,7 @@ import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexi
 import ModaleVip from '../components/ModaleVip';
 import BandeauAlerteVip from '../components/BandeauAlerteVip';
 import BanniereIncitationPwa from '../components/BanniereIncitationPwa';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { 
   fetchCatalogueDocuments, 
   souscrireChangementsDocuments, 
@@ -71,6 +72,7 @@ export default function EcranAccueil() {
     photoProfil, 
     aReponseNonLue, 
     estVip,
+    utilisateur,
     estConnecteGoogle,
     estEligibleOffreBienvenue,
     estSuspendu,
@@ -554,14 +556,21 @@ export default function EcranAccueil() {
 
 
   const handleUnlock = async (docId: string, docPrix: number) => {
-    // 🛡️ GATING AUTHENTIFICATION : Si l'utilisateur n'est pas connecté, interdire et afficher le pop-up
-    if (!estConnecteGoogle) {
-      const docCible = documents.find((d) => d.id === docId);
-      setCibleGating({ id: docId, prix: docPrix, titre: docCible?.titre });
-      setMotifGating(estEligibleOffreBienvenue ? 'bienvenue' : 'achat');
-      setModaleGatingVisible(true);
-      return;
-    }
+    const docCible = documents.find((d) => d.id === docId);
+
+    // 🛡️ Garde universelle : vérifie connectivité Internet et authentification
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setCibleGating({ id: docId, prix: docPrix, titre: docCible?.titre });
+        setMotifGating(m || (estEligibleOffreBienvenue ? 'bienvenue' : 'achat'));
+        setModaleGatingVisible(true);
+      },
+      motif: estEligibleOffreBienvenue ? 'bienvenue' : 'achat',
+    });
+    if (!eligible) return;
 
     // Si l'utilisateur est abonné VIP : acquisition gratuite directe dans l'espace VIP
     if (estVip) {
@@ -588,6 +597,23 @@ export default function EcranAccueil() {
       afficherToast(result.message || 'Document débloqué avec succès !', 'Déblocage Réussi 🎉', 'succes');
     } else {
       afficherToast(result.message || 'Échec du déblocage.', 'Erreur ❌', 'erreur');
+    }
+  };
+
+  // 🛡️ Garde universelle d'ouverture du Pass VIP
+  const handleOuvrirVip = async () => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setMotifGating(m || 'vip');
+        setModaleGatingVisible(true);
+      },
+      motif: 'vip',
+    });
+    if (eligible) {
+      setVipModalVisible(true);
     }
   };
 
@@ -799,7 +825,7 @@ export default function EcranAccueil() {
 
         {/* ⚠️ Bandeau d'alerte expiration VIP à J-2 / J-1 */}
         <BandeauAlerteVip 
-          onRenouveler={() => setVipModalVisible(true)}
+          onRenouveler={handleOuvrirVip}
           style={{ marginBottom: 14 }}
         />
 

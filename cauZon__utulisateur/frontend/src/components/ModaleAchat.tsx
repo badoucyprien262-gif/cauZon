@@ -29,6 +29,7 @@ import {
   formatPhoneFeexPay,
   FeexPayOperateur,
 } from '../services/payment/feexpay';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 
 interface PurchaseModalProps {
   visible: boolean;
@@ -174,11 +175,18 @@ export default function ModaleAchat({
 
   /** Action d'acquisition directe VIP (0 FCFA) */
   const executerAcquisitionVip = async () => {
-    if (!estConnecteGoogle) {
-      setMotifGating('vip');
-      setModaleGatingVisible(true);
-      return;
-    }
+    // 🛡️ Garde universelle : vérifie connectivité Internet et authentification
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setMotifGating(m || 'vip');
+        setModaleGatingVisible(true);
+      },
+      motif: 'vip',
+    });
+    if (!eligible) return;
 
     setChargementEnCours(true);
     const res = await acquerirDocumentVIP(documentId);
@@ -199,12 +207,19 @@ export default function ModaleAchat({
   };
 
   /** Étape 1 : afficher le sélecteur d'opérateur pour non-VIP ou transfert permanent */
-  const demarrerPaiementFeexPay = () => {
-    if (!estConnecteGoogle) {
-      setMotifGating('achat');
-      setModaleGatingVisible(true);
-      return;
-    }
+  const demarrerPaiementFeexPay = async () => {
+    // 🛡️ Garde universelle : vérifie connectivité Internet et authentification
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setMotifGating(m || 'achat');
+        setModaleGatingVisible(true);
+      },
+      motif: 'achat',
+    });
+    if (!eligible) return;
 
     const amount = selectedOption === 'single' ? prixReel : 500;
     const desc = forcerAchatPermanent
@@ -220,7 +235,23 @@ export default function ModaleAchat({
   };
 
   /** Étape 2 : opérateur choisi → ouvre le guichet FeexPay interactif (Web & Mobile) */
-  const choisirOperateur = (operateur?: FeexPayOperateur) => {
+  const choisirOperateur = async (operateur?: FeexPayOperateur) => {
+    // 🛡️ Double verrouillage : interdire formellement l'ouverture du guichet de paiement si hors-ligne
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setMotifGating(m || 'achat');
+        setModaleGatingVisible(true);
+      },
+      motif: 'achat',
+    });
+    if (!eligible) {
+      setShowOperateurSelector(false);
+      return;
+    }
+
     setOperateurSelectionne(operateur);
     setShowOperateurSelector(false);
     setShowFeexPay(true);

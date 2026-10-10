@@ -21,6 +21,8 @@ import {
   formatPhoneFeexPay,
   FeexPayOperateur,
 } from '../services/payment/feexpay';
+import ModaleConnexionRequise from './ModaleConnexionRequise';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 
 interface StorageModalProps {
   visible: boolean;
@@ -29,7 +31,7 @@ interface StorageModalProps {
 }
 
 export default function ModaleStockage({ visible, onClose, onSuccess }: StorageModalProps) {
-  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, utilisateur, limiteStockage, afficherToast } = useApp();
+  const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, utilisateur, estConnecteGoogle, limiteStockage, afficherToast } = useApp();
   const styles = getStyles(couleurs);
 
   const limiteActuelle = limiteStockage || 75;
@@ -37,6 +39,7 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
 
   const [chargementEnCours, setChargementEnCours] = useState<boolean>(false);
   const [emailUtilisateur, setEmailUtilisateur] = useState<string>('');
+  const [modaleGatingVisible, setModaleGatingVisible] = useState<boolean>(false);
 
   // FeexPay states
   const [showFeexPay, setShowFeexPay] = useState<boolean>(false);
@@ -107,14 +110,41 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
   };
 
   /** Étape 1 : afficher le sélecteur d'opérateur */
-  const demarrerPaiementStockage = () => {
+  const demarrerPaiementStockage = async () => {
+    // 🛡️ Garde universelle : vérifie connectivité Internet et authentification
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => {
+        setModaleGatingVisible(true);
+      },
+      motif: 'achat',
+    });
+    if (!eligible) return;
+
     const newTransId = generateFeexPayTransactionId();
     setTransId(newTransId);
     setShowOperateurSelector(true);
   };
 
   /** Étape 2 : opérateur choisi → ouvre le guichet FeexPay interactif (Web & Mobile) */
-  const choisirOperateur = (operateur?: FeexPayOperateur) => {
+  const choisirOperateur = async (operateur?: FeexPayOperateur) => {
+    // 🛡️ Double verrouillage : interdire formellement l'ouverture du guichet de paiement si hors-ligne
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => {
+        setModaleGatingVisible(true);
+      },
+      motif: 'achat',
+    });
+    if (!eligible) {
+      setShowOperateurSelector(false);
+      return;
+    }
+
     setOperateurSelectionne(operateur);
     setShowOperateurSelector(false);
     setShowFeexPay(true);
@@ -163,6 +193,7 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
   };
 
   return (
+    <>
     <Modal
       animationType="fade"
       transparent={true}
@@ -448,6 +479,12 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
         </View>
       </View>
     </Modal>
+    <ModaleConnexionRequise
+      visible={modaleGatingVisible}
+      onClose={() => setModaleGatingVisible(false)}
+      motif="achat"
+    />
+    </>
   );
 }
 

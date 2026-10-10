@@ -28,3 +28,11 @@ export type {
   FeexPayResult,
   FeexPayMetadata,
 } from './feexpay';
+
+// ─── Garde Universelle d'Éligibilité Achat ────────────────────
+export {
+  verifierEligibiliteAchat,
+  verifierEstEnLigne,
+  useEligibiliteAchat,
+} from '../servicePaiement';
+export type { OptionsEligibiliteAchat } from '../servicePaiement';

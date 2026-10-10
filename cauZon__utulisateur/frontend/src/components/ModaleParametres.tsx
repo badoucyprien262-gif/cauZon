@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useApp } from '../store/ContexteApp';
 import ModaleVip from './ModaleVip';
 import ModaleLegale from './ModaleLegale';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import ModaleDemandeNotification from './ModaleDemandeNotification';
 import ModaleConfirmationCauzon from './ModaleConfirmationCauzon';
 import AvatarDynamique from './AvatarDynamique';
@@ -925,7 +926,20 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                   ) : (
                     <TouchableOpacity 
                       style={styles.actionBtnMini} 
-                      onPress={() => setVipVisible(true)}
+                      onPress={async () => {
+                        const eligible = await verifierEligibiliteAchat({
+                          utilisateur,
+                          estConnecteGoogle,
+                          afficherToast: (msg, titre, type) => afficherToast(msg, titre, type),
+                          onDeclencherAuth: () => {
+                            afficherToast('Veuillez vous connecter avec votre compte étudiant pour louer le catalogue.', 'Connexion Requise', 'info');
+                          },
+                          motif: 'vip',
+                        });
+                        if (eligible) {
+                          setVipVisible(true);
+                        }
+                      }}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.actionBtnMiniText}>Louer</Text>

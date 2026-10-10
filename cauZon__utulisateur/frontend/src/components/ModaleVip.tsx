@@ -24,6 +24,7 @@ import {
   FeexPayOperateur,
 } from '../services/payment/feexpay';
 import { activerPassVIP } from '../services/serviceDocument';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 
 interface VipModalProps {
   visible: boolean;
@@ -118,11 +119,18 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
   };
 
   /** Étape 1 : afficher le sélecteur d'opérateur */
-  const demarrerPaiementVIP = () => {
-    if (!estConnecteGoogle) {
-      setModaleGatingVisible(true);
-      return;
-    }
+  const demarrerPaiementVIP = async () => {
+    // 🛡️ Garde universelle : vérifie connectivité Internet et authentification
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => {
+        setModaleGatingVisible(true);
+      },
+      motif: 'vip',
+    });
+    if (!eligible) return;
 
     const newTransId = generateFeexPayTransactionId();
     setTransId(newTransId);
@@ -130,7 +138,22 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
   };
 
   /** Étape 2 : opérateur choisi → ouvre le guichet FeexPay interactif (Web & Mobile) */
-  const choisirOperateur = (operateur?: FeexPayOperateur) => {
+  const choisirOperateur = async (operateur?: FeexPayOperateur) => {
+    // 🛡️ Double verrouillage : interdire formellement l'ouverture du guichet de paiement si hors-ligne
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => {
+        setModaleGatingVisible(true);
+      },
+      motif: 'vip',
+    });
+    if (!eligible) {
+      setShowOperateurSelector(false);
+      return;
+    }
+
     setOperateurSelectionne(operateur);
     setShowOperateurSelector(false);
     setShowFeexPay(true);

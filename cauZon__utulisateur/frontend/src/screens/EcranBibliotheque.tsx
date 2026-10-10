@@ -27,6 +27,7 @@ import ModaleAchat from '../components/ModaleAchat';
 import ModaleImportDocument, { FichierImporte } from '../components/ModaleImportDocument';
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal, preparerSourceEnArrierePlan } from '../services/serviceDocument';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -77,6 +78,50 @@ export default function EcranBibliotheque() {
   const styles = getStyles(couleurs);
 
   const isVipActive = aAccesVip ?? (estVip || estAbonneVIP);
+
+  // 🛡️ Garde universelle d'ouverture du stockage
+  const handleOuvrirStockage = async () => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => setConnexionModalVisible(true),
+      motif: 'achat',
+    });
+    if (eligible) {
+      setStorageModalVisible(true);
+    }
+  };
+
+  // 🛡️ Garde universelle d'achat / transfert permanent
+  const handleOuvrirAchatPermanent = async (doc: Document) => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => setConnexionModalVisible(true),
+      motif: 'achat',
+    });
+    if (eligible) {
+      setDocumentPourAchat(doc);
+      setForcerAchatPermanent(true);
+      setAchatModalVisible(true);
+    }
+  };
+
+  // 🛡️ Garde universelle d'ouverture VIP
+  const handleOuvrirVip = async () => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => setConnexionModalVisible(true),
+      motif: 'vip',
+    });
+    if (eligible) {
+      setVipModalVisible(true);
+    }
+  };
 
   const executerSuppression = async (docId: string, estImporte: boolean = false) => {
     try {
@@ -314,10 +359,9 @@ export default function EcranBibliotheque() {
   }
 
   const ouvrirDocument = (doc: Document) => {
-    // Si document VIP et pass expiré -> bloquer et proposer l'achat
+    // Si document VIP et pass expiré -> bloquer et proposer l'achat sécurisé
     if (doc.is_vip_consultation && !isVipActive) {
-      setDocumentPourAchat(doc);
-      setAchatModalVisible(true);
+      handleOuvrirAchatPermanent(doc);
       return;
     }
 
@@ -381,7 +425,7 @@ export default function EcranBibliotheque() {
         "Pass VIP Requis 👑",
         "info"
       );
-      setVipModalVisible(true);
+      handleOuvrirVip();
       return;
     }
 
@@ -445,7 +489,7 @@ export default function EcranBibliotheque() {
 
         {/* ⚠️ Bandeau d'alerte expiration VIP à J-2 / J-1 */}
         <BandeauAlerteVip 
-          onRenouveler={() => setVipModalVisible(true)} 
+          onRenouveler={handleOuvrirVip} 
           style={{ marginHorizontal: 0, marginTop: 8, marginBottom: 10 }}
         />
 
@@ -552,7 +596,7 @@ export default function EcranBibliotheque() {
           {/* Jauge de capacité */}
           <JaugeStockage 
             nombreDocuments={mesDocs.length} 
-            surClicAmeliorer={() => setStorageModalVisible(true)} 
+            surClicAmeliorer={handleOuvrirStockage} 
           />
 
           {/* Grille de Dossiers */}
@@ -684,11 +728,7 @@ export default function EcranBibliotheque() {
                             {dossierActif === 'vip' && (
                               <TouchableOpacity 
                                 style={[styles.actionBtn, styles.buyTransferBtn]}
-                                onPress={() => {
-                                  setDocumentPourAchat(doc);
-                                  setForcerAchatPermanent(true);
-                                  setAchatModalVisible(true);
-                                }}
+                                onPress={() => handleOuvrirAchatPermanent(doc)}
                               >
                                 <Ionicons name="shield-checkmark" size={14} color="#15803D" style={{ marginRight: 4 }} />
                                 <Text style={styles.buyTransferBtnText}>Transférer à vie ({doc.prix ?? 100} F)</Text>
@@ -707,11 +747,7 @@ export default function EcranBibliotheque() {
                           <>
                             <TouchableOpacity 
                               style={[styles.actionBtn, styles.buyNowLockedBtn]}
-                              onPress={() => {
-                                setDocumentPourAchat(doc);
-                                setForcerAchatPermanent(true);
-                                setAchatModalVisible(true);
-                              }}
+                              onPress={() => handleOuvrirAchatPermanent(doc)}
                             >
                               <Ionicons name="cart-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                               <Text style={styles.buyNowLockedBtnText}>Débloquer à vie ({doc.prix ?? 100} FCFA)</Text>

@@ -24,6 +24,8 @@ import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersA
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
+import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
+import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { LecteurPdf } from '../components/PdfViewer';
 
 type DocumentViewerRouteProp = RouteProp<RootStackParamList, 'DocumentViewer'>;
@@ -32,7 +34,7 @@ export default function EcranLecteurDocument() {
   const navigation = useNavigation();
   const route = useRoute<DocumentViewerRouteProp>();
   const { document, onUnlock } = route.params;
-  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions } = useApp();
+  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions, utilisateur, estConnecteGoogle } = useApp();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
@@ -120,6 +122,41 @@ export default function EcranLecteurDocument() {
 
   const [modaleAchatVisible, setModaleAchatVisible] = useState(false);
   const [modaleVipVisible, setModaleVipVisible] = useState(false);
+  const [modaleConnexionVisible, setModaleConnexionVisible] = useState(false);
+  const [motifConnexion, setMotifConnexion] = useState<'achat' | 'vip'>('achat');
+
+  // 🛡️ Gardes universelles d'achat de document et pass VIP
+  const ouvrirModaleAchatSecurisee = async () => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: (m) => {
+        setMotifConnexion(m === 'vip' ? 'vip' : 'achat');
+        setModaleConnexionVisible(true);
+      },
+      motif: 'achat',
+    });
+    if (eligible) {
+      setModaleAchatVisible(true);
+    }
+  };
+
+  const ouvrirModaleVipSecurisee = async () => {
+    const eligible = await verifierEligibiliteAchat({
+      utilisateur,
+      estConnecteGoogle,
+      afficherToast,
+      onDeclencherAuth: () => {
+        setMotifConnexion('vip');
+        setModaleConnexionVisible(true);
+      },
+      motif: 'vip',
+    });
+    if (eligible) {
+      setModaleVipVisible(true);
+    }
+  };
   const [nombrePagesReel, setNombrePagesReel] = useState<number>(document.nombrePages || 1);
   const [pageState, setPageState] = useState({ current: 1, total: document.nombrePages || 1 });
   const [hasError, setHasError] = useState(false);
@@ -463,8 +500,8 @@ export default function EcranLecteurDocument() {
               prix={document.prix}
               estSombre={couleurs.estSombre}
               scale={zoomMobileActif}
-              onAcheter={() => setModaleAchatVisible(true)}
-              onVip={() => setModaleVipVisible(true)}
+              onAcheter={ouvrirModaleAchatSecurisee}
+              onVip={ouvrirModaleVipSecurisee}
               onFermer={handleBack}
               onPageChange={(current, total) => {
                 setPageState({ current, total });
@@ -618,7 +655,7 @@ export default function EcranLecteurDocument() {
             <View style={styles.ctaContainer}>
               <TouchableOpacity
                 style={styles.buyBtn}
-                onPress={() => setModaleAchatVisible(true)}
+                onPress={ouvrirModaleAchatSecurisee}
               >
                 <Ionicons name="cart" size={14} color={couleurs.blanc} />
                 <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 100} F)</Text>
@@ -626,7 +663,7 @@ export default function EcranLecteurDocument() {
 
               <TouchableOpacity
                 style={styles.vipBtn}
-                onPress={() => setModaleVipVisible(true)}
+                onPress={ouvrirModaleVipSecurisee}
               >
                 <Ionicons name="gift" size={14} color={couleurs.primaire} />
                 <Text style={styles.vipBtnText}>Pass VIP (500 F)</Text>
@@ -651,6 +688,12 @@ export default function EcranLecteurDocument() {
         visible={modaleVipVisible}
         onClose={() => setModaleVipVisible(false)}
         onSuccess={handleUnlockSuccess}
+      />
+
+      <ModaleConnexionRequise
+        visible={modaleConnexionVisible}
+        onClose={() => setModaleConnexionVisible(false)}
+        motif={motifConnexion}
       />
     </SafeAreaView>
   );
