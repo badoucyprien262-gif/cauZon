@@ -106,6 +106,18 @@ export default function App() {
   // Seul appReady=true est positionné ; c'est onAnimationFinish qui déclenchera la sortie.
   useEffect(() => {
     async function synchroniserDemarrage() {
+      // Déblocage immédiat de l'App Shell si l'appareil est hors-ligne sur le Web
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine) {
+        console.log('⚡ [PWA Démarrage] Hors-ligne au lancement -> Déblocage instantané du splash');
+        setAppReady(true);
+        return;
+      }
+
+      // Garde-fou absolu pour garantir que le splash screen ne reste jamais bloqué
+      const watchdog = setTimeout(() => {
+        setAppReady(true);
+      }, Platform.OS === 'web' ? 1200 : 2500);
+
       try {
         await Promise.all([
           // Préchargement immédiat Stale-While-Revalidate (instantané dès présence de cache)
@@ -114,6 +126,7 @@ export default function App() {
       } catch (err) {
         console.warn('[Init] Erreur préchargement accueil accéléré (silencieux) :', err);
       } finally {
+        clearTimeout(watchdog);
         setAppReady(true);
       }
     }
@@ -295,7 +308,20 @@ export default function App() {
       ]}
     >
       <FournisseurApp>
-        <NavigationContainer ref={navigationRef} linking={linkingConfig}>
+        <NavigationContainer
+          ref={navigationRef}
+          linking={linkingConfig}
+          onReady={() => {
+            const estHorsLigne = Platform.OS === 'web'
+              ? (typeof navigator !== 'undefined' && !navigator.onLine)
+              : false;
+
+            if (estHorsLigne) {
+              console.log('⚡ [PWA Routage Initial] App hors-ligne -> Navigation directe vers Bibliothèque');
+              navigationRef.navigate('MainTabs', { screen: 'Bibliothèque' });
+            }
+          }}
+        >
           <NavigateurApp />
           <BarreDeStatutDynamique splashMounted={splashMounted} />
         </NavigationContainer>

@@ -199,6 +199,15 @@ export const prechargerDonneesAccueil = async (): Promise<{
       };
     }
 
+    // Si hors-ligne sur Web, ne pas bloquer en attendant le réseau
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        documents: cacheCatalogueMemoire || [],
+        annonces: cacheAnnoncesMemoire || [],
+        promoConfig: cachePromoMemoire || null,
+      };
+    }
+
     // Si tout premier lancement sans cache, attendre la fin de la requête réseau (max 2.5s)
     await revaliderDepuisReseau();
 
@@ -725,7 +734,10 @@ const DOCUMENTS_IMPORTES_CACHE_KEY = 'cauzon_documents_importes_cache';
  */
 export const chargerDocumentsImportes = async (): Promise<DocumentCourse[]> => {
   try {
-    const cached = await AsyncStorage.getItem(DOCUMENTS_IMPORTES_CACHE_KEY);
+    let cached = await AsyncStorage.getItem(DOCUMENTS_IMPORTES_CACHE_KEY);
+    if (!cached && Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      cached = window.localStorage.getItem(DOCUMENTS_IMPORTES_CACHE_KEY);
+    }
     return cached ? JSON.parse(cached) : [];
   } catch (error) {
     console.error('Erreur lors du chargement des documents importés :', error);
@@ -738,7 +750,11 @@ export const chargerDocumentsImportes = async (): Promise<DocumentCourse[]> => {
  */
 export const sauvegarderDocumentsImportes = async (documents: DocumentCourse[]) => {
   try {
-    await AsyncStorage.setItem(DOCUMENTS_IMPORTES_CACHE_KEY, JSON.stringify(documents));
+    const json = JSON.stringify(documents);
+    await AsyncStorage.setItem(DOCUMENTS_IMPORTES_CACHE_KEY, json);
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(DOCUMENTS_IMPORTES_CACHE_KEY, json);
+    }
   } catch (error) {
     console.error('Erreur lors de la sauvegarde des documents importés :', error);
   }
@@ -2203,22 +2219,29 @@ export const exporterDocumentVersTelephone = async (document: {
 export const exporterDocumentVersAppareil = exporterDocumentVersTelephone;
 
 /**
- * Sauvegarde la bibliothèque locale dans AsyncStorage
+ * Sauvegarde la bibliothèque locale dans AsyncStorage (et localStorage sur Web)
  */
 export const sauvegarderBibliothequeLocale = async (documents: DocumentCourse[]) => {
   try {
-    await AsyncStorage.setItem(LOCAL_LIBRARY_CACHE_KEY, JSON.stringify(documents));
+    const json = JSON.stringify(documents);
+    await AsyncStorage.setItem(LOCAL_LIBRARY_CACHE_KEY, json);
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(LOCAL_LIBRARY_CACHE_KEY, json);
+    }
   } catch (error) {
     console.error('Erreur lors de la sauvegarde de la bibliothèque locale :', error);
   }
 };
 
 /**
- * Récupère la bibliothèque locale depuis AsyncStorage
+ * Récupère la bibliothèque locale depuis AsyncStorage (ou localStorage sur Web)
  */
 export const chargerBibliothequeLocale = async (): Promise<DocumentCourse[]> => {
   try {
-    const cached = await AsyncStorage.getItem(LOCAL_LIBRARY_CACHE_KEY);
+    let cached = await AsyncStorage.getItem(LOCAL_LIBRARY_CACHE_KEY);
+    if (!cached && Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      cached = window.localStorage.getItem(LOCAL_LIBRARY_CACHE_KEY);
+    }
     return cached ? JSON.parse(cached) : [];
   } catch (error) {
     console.error('Erreur lors du chargement de la bibliothèque locale :', error);
@@ -2230,6 +2253,13 @@ export const chargerBibliothequeLocale = async (): Promise<DocumentCourse[]> => 
  * Récupère tous les documents débloqués par cet appareil / utilisateur (avec fusion des imports)
  */
 export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
+  // ⚡ FAST-PATH HORS-LIGNE : si hors-ligne sur Web, renvoyer immédiatement les documents locaux sans solliciter Supabase
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine) {
+    const docsImportes = await chargerDocumentsImportes();
+    const localDocs = await chargerBibliothequeLocale();
+    return [...docsImportes, ...localDocs.filter(d => !d.id.startsWith('imported_'))];
+  }
+
   try {
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();

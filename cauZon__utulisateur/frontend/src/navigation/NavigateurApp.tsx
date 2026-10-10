@@ -35,21 +35,57 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 import { verifierConnexionReseauRapide } from '../services/serviceReseau';
 
-function NavigateurTabsPrincipales() {
+function NavigateurTabsPrincipales({ navigation }: any) {
   const { couleurs, estEnLigne } = useApp();
-  const [estConnecte, setEstConnecte] = React.useState<boolean>(estEnLigne ?? (
-    Platform.OS === 'web' && typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true
-  ));
+  const [estConnecte, setEstConnecte] = React.useState<boolean>(() => {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return estEnLigne ?? true;
+  });
+
+  React.useEffect(() => {
+    // Si l'appareil est hors-ligne au démarrage sur le Web, basculer immédiatement sur l'onglet Bibliothèque
+    const horsLigneInitial = Platform.OS === 'web' && typeof navigator !== 'undefined'
+      ? !navigator.onLine
+      : !estConnecte;
+
+    if (horsLigneInitial) {
+      console.log('⚡ [PWA Routeur] Démarrage hors-ligne détecté -> Basculement sur Bibliothèque');
+      navigation?.navigate('Bibliothèque');
+    }
+
+    // Écouteurs Web standards online / offline
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleOnline = () => setEstConnecte(true);
+      const handleOffline = () => {
+        setEstConnecte(false);
+        navigation?.navigate('Bibliothèque');
+      };
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, []);
 
   React.useEffect(() => {
     // Vérification rapide non bloquante
     verifierConnexionReseauRapide().then((enLigne) => {
       setEstConnecte(enLigne);
+      if (!enLigne) {
+        navigation?.navigate('Bibliothèque');
+      }
     });
 
     const unsubscribe = NetInfo.addEventListener((state) => {
       const enLigne = state.isConnected !== false && state.isInternetReachable !== false;
       setEstConnecte(enLigne);
+      if (!enLigne) {
+        navigation?.navigate('Bibliothèque');
+      }
     });
 
     return () => unsubscribe();
@@ -61,27 +97,30 @@ function NavigateurTabsPrincipales() {
         <View
           style={{
             backgroundColor: couleurs.estSombre
-              ? 'rgba(231, 76, 60, 0.2)'
-              : 'rgba(231, 76, 60, 0.1)',
-            paddingVertical: 8,
+              ? 'rgba(127, 1, 31, 0.4)'
+              : 'rgba(127, 1, 31, 0.08)',
+            paddingVertical: 7,
             paddingHorizontal: 16,
             borderBottomWidth: 1,
-            borderBottomColor: 'rgba(231, 76, 60, 0.3)',
+            borderBottomColor: couleurs.estSombre
+              ? 'rgba(249, 168, 184, 0.2)'
+              : 'rgba(127, 1, 31, 0.15)',
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
             gap: 6,
           }}
         >
-          <Ionicons name="cloud-offline-outline" size={14} color="#E74C3C" />
+          <Ionicons name="cloud-offline-outline" size={13.5} color={couleurs.primaire} />
           <Text
             style={{
-              color: '#E74C3C',
-              fontSize: 11.5,
-              fontWeight: 'bold',
+              color: couleurs.primaire,
+              fontSize: 12,
+              fontWeight: '700',
+              letterSpacing: 0.1,
             }}
           >
-            Mode Hors-ligne (Connexion Internet absente)
+            Mode hors-ligne : Accès à vos documents enregistrés
           </Text>
         </View>
       )}

@@ -5,7 +5,7 @@
  * ==============================================================================
  */
 
-const CACHE_SHELL_NAME = 'cauzon-shell-v1';
+const CACHE_SHELL_NAME = 'cauzon-shell-v2';
 const CACHE_DOCS_NAME = 'cauzon-pdf-documents-v1';
 
 // Ressources critiques de l'App Shell à précharger à l'installation
@@ -14,21 +14,29 @@ const ASSETS_APP_SHELL = [
   '/index.html',
   '/manifest.json',
   '/favicon.png',
+  '/icon.png',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
   '/assets/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js',
 ];
 
-// ─── 1. Étape d'installation : Mise en cache du Shell ─────────────────────────
+// ─── 1. Étape d'installation : Mise en cache robuste du Shell ─────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_SHELL_NAME).then(async (cache) => {
       console.log('📦 [SW] Pré-mise en cache du shell applicatif cauZon...');
-      try {
-        await cache.addAll(ASSETS_APP_SHELL);
-      } catch (err) {
-        console.warn('⚠️ [SW] Certains assets du shell n\'ont pas pu être préchargés :', err);
-      }
+      await Promise.allSettled(
+        ASSETS_APP_SHELL.map((url) =>
+          cache.add(url).catch((err) => {
+            console.warn(`⚠️ [SW] Asset optionnel non préchargé (${url}) :`, err?.message || err);
+          })
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -73,6 +81,10 @@ self.addEventListener('fetch', (event) => {
     url.searchParams.has('response-content-type') ||
     request.headers.get('accept')?.includes('application/pdf') ||
     url.pathname.includes('/storage/v1/object/public/') ||
+    url.pathname.includes('/storage/v1/object/sign/') ||
+    url.pathname.includes('/storage/v1/object/authenticated/') ||
+    url.pathname.includes('documents_utilisateurs') ||
+    url.pathname.includes('cours-documents') ||
     url.hostname.includes('r2.cloudflarestorage.com');
 
   if (isPdfRequest) {
@@ -81,8 +93,8 @@ self.addEventListener('fetch', (event) => {
         const docsCache = await caches.open(CACHE_DOCS_NAME);
 
         // Clé normalisée (sans les paramètres temporaires de signature d'URL pour matching hors-ligne)
-        const cacheKey = new Request(url.origin + url.pathname, { method: 'GET' });
-        const cachedResponse = await docsCache.match(cacheKey);
+        const cleanPathKey = new Request(url.origin + url.pathname, { method: 'GET' });
+        const cachedResponse = (await docsCache.match(request)) || (await docsCache.match(cleanPathKey));
 
         if (cachedResponse) {
           console.log('⚡ [SW] PDF servi instantanément depuis le cache hors-ligne :', url.pathname);
@@ -91,14 +103,29 @@ self.addEventListener('fetch', (event) => {
 
         try {
           const networkResponse = await fetch(request);
-          if (networkResponse && (networkResponse.status === 200 || networkResponse.status === 206)) {
+          if (networkResponse && networkResponse.status === 200) {
             // Mettre en cache pour relecture hors-ligne future
-            docsCache.put(cacheKey, networkResponse.clone());
+            try {
+              await docsCache.put(cleanPathKey, networkResponse.clone());
+              await docsCache.put(request, networkResponse.clone());
+            } catch (errPut) {
+              console.warn('⚠️ [SW] Erreur mise en cache PDF 200 :', errPut);
+            }
+          } else if (networkResponse && networkResponse.status === 206) {
+            // Requête partielle : récupérer en tâche de fond le PDF complet (status 200) pour l'accès hors-ligne
+            fetch(request.url, { headers: { Accept: 'application/pdf' } })
+              .then(async (fullRes) => {
+                if (fullRes && fullRes.status === 200) {
+                  await docsCache.put(cleanPathKey, fullRes.clone());
+                  await docsCache.put(request, fullRes.clone());
+                }
+              })
+              .catch(() => {});
           }
           return networkResponse;
         } catch (error) {
           console.warn('⚠️ [SW] Réseau indisponible pour le PDF, tentative fallback cache direct...');
-          const fallback = await docsCache.match(request);
+          const fallback = (await docsCache.match(request)) || (await docsCache.match(cleanPathKey));
           if (fallback) return fallback;
           throw error;
         }
@@ -107,14 +134,50 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 🌐 B. Stratégie pour la navigation (HTML SPA) : Network-First avec fallback index.html
+  // 🌐 B. Stratégie pour la navigation (HTML SPA) : Fallback immédiat si réseau indisponible ou timeout 1.5s
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(CACHE_SHELL_NAME);
-        const cachedIndex = await cache.match('/index.html');
-        return cachedIndex || Response.error();
-      })
+      (async () => {
+        const shellCache = await caches.open(CACHE_SHELL_NAME);
+        const matchCachedShell = async () => {
+          return (
+            (await shellCache.match('/index.html')) ||
+            (await shellCache.match('/')) ||
+            (await caches.match('/index.html')) ||
+            (await caches.match('/'))
+          );
+        };
+
+        // Course rapide : réseau vs timeout 1500ms
+        try {
+          const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500));
+          const networkPromise = fetch(request).catch(() => null);
+
+          const response = await Promise.race([networkPromise, timeoutPromise]);
+          if (response && response.ok) {
+            // Rafraîchir l'index du cache en arrière-plan
+            shellCache.put('/index.html', response.clone()).catch(() => {});
+            return response;
+          }
+        } catch (_) {}
+
+        // Fallback immédiat vers l'App Shell mis en cache (mode avion / hors-ligne instantané)
+        const cachedShell = await matchCachedShell();
+        if (cachedShell) {
+          console.log('⚡ [SW] App Shell servi instantanément hors-ligne (mode avion / réseau coupé)');
+          return cachedShell;
+        }
+
+        // Dernier recours : retenter le réseau sans timeout
+        try {
+          return await fetch(request);
+        } catch (err) {
+          return new Response(
+            '<!DOCTYPE html><html><head><meta charset="utf-8"><title>cauZon Hors-ligne</title></head><body><h3>cauZon est prêt hors-ligne</h3><p>Veuillez recharger la page.</p></body></html>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        }
+      })()
     );
     return;
   }
@@ -127,7 +190,11 @@ self.addEventListener('fetch', (event) => {
     url.pathname.endsWith('.woff2') ||
     url.pathname.endsWith('.ttf') ||
     url.pathname.endsWith('.png') ||
-    url.pathname.endsWith('.svg');
+    url.pathname.endsWith('.jpg') ||
+    url.pathname.endsWith('.jpeg') ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.wasm') ||
+    url.hostname.includes('cdnjs.cloudflare.com');
 
   if (isStaticAsset) {
     event.respondWith(
@@ -150,5 +217,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Comportement par défaut : passage direct au réseau
+  // Comportement par défaut : passage direct au réseau avec fallback cache
+  event.respondWith(
+    fetch(request).catch(() => caches.match(request))
+  );
 });
+

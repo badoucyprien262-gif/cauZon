@@ -214,9 +214,11 @@ export default function EcranBibliotheque() {
       );
 
       // Filtrer les cours officiels du cache par les IDs débloqués
-      const officielsValides = cachedOfficiels.filter((d: any) =>
-        docsDebloquesIds && docsDebloquesIds.includes(d.id)
-      );
+      // FIX HORS-LIGNE : si docsDebloquesIds est encore vide lors de l'ouverture hors-ligne,
+      // conserver l'intégralité du cache officiel (ces documents ont déjà été acquis lors des sessions précédentes)
+      const officielsValides = (docsDebloquesIds && docsDebloquesIds.length > 0)
+        ? cachedOfficiels.filter((d: any) => docsDebloquesIds.includes(d.id))
+        : cachedOfficiels;
 
       // Fusion locale : Documents importés locaux + cours officiels débloqués
       const localCombines = [...(imported || []), ...officielsValides];
@@ -241,7 +243,8 @@ export default function EcranBibliotheque() {
       }
 
       // 2. Si hors-ligne, s'arrêter immédiatement sans attendre de requêtes distantes
-      if (estEnLigne === false) {
+      const estHorsLigne = estEnLigne === false || (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine);
+      if (estHorsLigne) {
         setLoading(false);
         return;
       }

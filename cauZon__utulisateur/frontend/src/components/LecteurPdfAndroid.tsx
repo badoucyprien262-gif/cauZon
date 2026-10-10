@@ -1,29 +1,38 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { LecteurPdfProps } from './PdfViewer/types';
 import { LecteurPdfErrorBoundary } from './LecteurPdfDesktop';
+import { LecteurPwaMobile } from './PdfViewer/LecteurPwaMobile';
 
 /**
- * LecteurPdfAndroid (PWA Mobile Android — Visualiseur Intégré Google Docs Viewer)
+ * LecteurPdfAndroid (PWA Mobile Android — Visualiseur Intégré Google Docs Viewer avec repli hors-ligne PDF.js)
  * 
  * Solution éprouvée, robuste et zéro crash pour la consultation mobile sur Android :
- * 1. Moteur Google Docs Viewer en iframe plein écran (aucun plugin requis, zoom tactile natif).
- * 2. Neutralisation des scrolls externes parasites sur le conteneur parent / body.
- * 3. Indicateur de chargement soigné et fluide ("Ouverture du document...").
- * 4. Gestion d'erreur robuste avec rechargement sans crash.
+ * 1. En ligne : Moteur Google Docs Viewer en iframe plein écran (zoom tactile natif).
+ * 2. Hors-ligne : Moteur local haute fidélité PDF.js (LecteurPwaMobile) servi directement par le Service Worker.
+ * 3. Neutralisation des scrolls externes parasites sur le conteneur parent / body.
+ * 4. Indicateur de chargement soigné et fluide ("Ouverture du document...").
+ * 5. Gestion d'erreur robuste avec rechargement sans crash.
  */
-const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = ({
-  urlFichier,
-  pdfUrl,
-  estVerrouille = false,
-  limiteApercuValeur = 30,
-  prix = 100,
-  estSombre = false,
-  onAcheter,
-  onVip,
-  onDocumentLoad,
-  onError,
-  onReessayer,
-}) => {
+const LecteurPdfAndroidInternal: React.FC<LecteurPdfProps> = (props) => {
+  const {
+    urlFichier,
+    pdfUrl,
+    estVerrouille = false,
+    limiteApercuValeur = 30,
+    prix = 100,
+    estSombre = false,
+    onAcheter,
+    onVip,
+    onDocumentLoad,
+    onError,
+    onReessayer,
+  } = props;
+
+  // ⚡ Repli hors-ligne immédiat sur le moteur autonome PDF.js (desservi par le Service Worker)
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return <LecteurPwaMobile {...props} />;
+  }
+
   const [enChargement, setEnChargement] = useState<boolean>(true);
   const [erreurChargement, setErreurChargement] = useState<boolean>(false);
   const [cleIframe, setCleIframe] = useState<number>(0);

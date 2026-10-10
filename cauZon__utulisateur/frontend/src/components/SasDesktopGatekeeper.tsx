@@ -53,7 +53,7 @@ const GIS_BUTTON_CONTAINER_ID = 'googleSignInButtonGis';
 
 export default function SasDesktopGatekeeper() {
   const { width } = useWindowDimensions();
-  const { utilisateur, chargementAuth, sessionVerifiee } = useApp();
+  const { utilisateur, chargementAuth, sessionVerifiee, estEnLigne } = useApp();
   const [timeoutDepasse, setTimeoutDepasse] = useState(false);
   const [boutonRendu, setBoutonRendu] = useState(false);
   const tentativesRef = useRef(0);
@@ -114,6 +114,11 @@ export default function SasDesktopGatekeeper() {
 
   // 1. Sur mobile natif (Android / iOS) ne jamais bloquer
   if (Platform.OS !== 'web') {
+    return null;
+  }
+
+  // 2. Si l'appareil est hors-ligne sur le Web, ne jamais bloquer la consultation des documents locaux
+  if (estEnLigne === false || (typeof navigator !== 'undefined' && !navigator.onLine)) {
     return null;
   }
 
