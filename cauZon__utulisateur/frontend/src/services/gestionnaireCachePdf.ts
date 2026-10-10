@@ -170,6 +170,43 @@ export async function estPdfEnCacheLocal(docId: string): Promise<boolean> {
 }
 
 /**
+ * Récupère en une seule lecture rapide l'ensemble des IDs de documents présents dans IndexedDB (< 5 ms)
+ */
+export async function obtenirIdsPdfsEnCache(): Promise<Set<string>> {
+  if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof indexedDB === 'undefined') {
+    return new Set<string>();
+  }
+
+  try {
+    const db = await ouvrirBaseIndexedDB();
+    if (!db) return new Set<string>();
+
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.getAllKeys();
+
+      req.onsuccess = () => {
+        const setIds = new Set<string>();
+        const keys = req.result || [];
+        for (const k of keys) {
+          const str = String(k);
+          const docId = str.replace(/^pdf_blob_/, '');
+          setIds.add(docId);
+        }
+        resolve(setIds);
+      };
+
+      req.onerror = () => {
+        resolve(new Set<string>());
+      };
+    });
+  } catch (_) {
+    return new Set<string>();
+  }
+}
+
+/**
  * Récupère une URL Blob locale utilisable directement par LecteurPdfDesktop ou LecteurPwaMobile
  */
 export async function recupererUrlBlobPdf(docId: string): Promise<string | null> {

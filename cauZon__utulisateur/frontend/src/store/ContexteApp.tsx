@@ -963,6 +963,12 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
       if (prev.includes(id)) return prev;
       return [...prev, id];
     });
+    // ⚡ Persistance binaire immédiate dans le cache hors-ligne
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      import('../services/serviceSynchronisationHorsLigne')
+        .then(({ synchroniserDocumentUnique }) => synchroniserDocumentUnique({ id } as any))
+        .catch(() => {});
+    }
   };
 
 

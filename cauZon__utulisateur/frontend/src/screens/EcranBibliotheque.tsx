@@ -29,6 +29,7 @@ import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
 import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal, preparerSourceEnArrierePlan } from '../services/serviceDocument';
+import { useSynchronisationHorsLigne } from '../services/serviceSynchronisationHorsLigne';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -78,6 +79,22 @@ export default function EcranBibliotheque() {
   const styles = getStyles(couleurs);
 
   const isVipActive = aAccesVip ?? (estVip || estAbonneVIP);
+
+  // ⚡ Gestionnaire Offline-First & Auto-Sync
+  const {
+    idsEnCache,
+    idsEnCours,
+    estEnSynchronisation,
+    progression,
+    lancerSynchronisationComplete,
+    synchroniserUnDocument,
+    documentsEnCacheCount,
+    totalDocuments,
+  } = useSynchronisationHorsLigne(mesDocs, {
+    autoSync: true,
+    estEnLigne,
+    onToast: afficherToast,
+  });
 
   // 🛡️ Garde universelle d'ouverture du stockage
   const handleOuvrirStockage = async () => {
@@ -479,16 +496,67 @@ export default function EcranBibliotheque() {
             <Text style={styles.subtitle}>Gérez vos espaces d'apprentissage</Text>
           </View>
 
-          {/* 📥 Bouton Importer un Document (Réservé aux VIP) */}
-          <TouchableOpacity
-            style={styles.boutonImporterHeader}
-            onPress={demarrerProcessusImport}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="cloud-upload" size={15} color="#FFFFFF" />
-            <Text style={styles.texteBoutonImporter}>Importer</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* ⚡ Bouton "Tout synchroniser pour le hors-ligne" */}
+            <TouchableOpacity
+              style={[
+                styles.boutonSyncHeader,
+                estEnSynchronisation && styles.boutonSyncHeaderActif,
+                documentsEnCacheCount === totalDocuments && totalDocuments > 0 && styles.boutonSyncHeaderComplet,
+              ]}
+              onPress={lancerSynchronisationComplete}
+              disabled={estEnSynchronisation}
+              activeOpacity={0.8}
+            >
+              {estEnSynchronisation ? (
+                <ActivityIndicator size={13} color="#FFFFFF" />
+              ) : (
+                <Ionicons
+                  name={documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? "checkmark-circle" : "cloud-download-outline"}
+                  size={15}
+                  color="#FFFFFF"
+                />
+              )}
+              <Text style={styles.texteBoutonSync}>
+                {estEnSynchronisation
+                  ? `${progression?.faits || 0}/${progression?.total || totalDocuments}`
+                  : (documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? 'Synchronisé' : 'Tout synchroniser')}
+              </Text>
+            </TouchableOpacity>
+
+            {/* 📥 Bouton Importer un Document (Réservé aux VIP) */}
+            <TouchableOpacity
+              style={styles.boutonImporterHeader}
+              onPress={demarrerProcessusImport}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="cloud-upload" size={15} color="#FFFFFF" />
+              <Text style={styles.texteBoutonImporter}>Importer</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* 📊 Barre de progression interactive si synchronisation en cours */}
+        {estEnSynchronisation && progression && (
+          <View style={styles.barreProgressionSyncConteneur}>
+            <View style={styles.barreProgressionSyncEntete}>
+              <Text style={styles.barreProgressionSyncTitre} numberOfLines={1}>
+                ⚡ Synchronisation : {progression.docCourantTitre || 'Téléchargement sécurisé...'}
+              </Text>
+              <Text style={styles.barreProgressionSyncPourcent}>
+                {Math.round((progression.faits / Math.max(1, progression.total)) * 100)}% ({progression.faits}/{progression.total})
+              </Text>
+            </View>
+            <View style={styles.barreProgressionSyncPiste}>
+              <View
+                style={[
+                  styles.barreProgressionSyncRemplissage,
+                  { width: `${Math.round((progression.faits / Math.max(1, progression.total)) * 100)}%` },
+                ]}
+              />
+            </View>
+          </View>
+        )}
 
         {/* ⚠️ Bandeau d'alerte expiration VIP à J-2 / J-1 */}
         <BandeauAlerteVip 
@@ -602,6 +670,34 @@ export default function EcranBibliotheque() {
             surClicAmeliorer={handleOuvrirStockage} 
           />
 
+          {/* 📶 Bandeau d'état hors-ligne interactif */}
+          <View style={styles.banniereEtatSync}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <Ionicons
+                name={documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? "checkmark-circle" : "cloud-done-outline"}
+                size={18}
+                color={documentsEnCacheCount === totalDocuments && totalDocuments > 0 ? "#15803D" : "#0F766E"}
+              />
+              <Text style={styles.banniereEtatSyncTexte}>
+                {totalDocuments === 0
+                  ? 'Aucun document dans la bibliothèque'
+                  : documentsEnCacheCount === totalDocuments
+                  ? `Tous vos documents (${documentsEnCacheCount}) sont prêts hors-ligne 💾`
+                  : `${documentsEnCacheCount} sur ${totalDocuments} document${totalDocuments > 1 ? 's' : ''} disponible${documentsEnCacheCount > 1 ? 's' : ''} hors-ligne`}
+              </Text>
+            </View>
+            {documentsEnCacheCount < totalDocuments && !estEnSynchronisation && (
+              <TouchableOpacity
+                style={styles.boutonSyncRapide}
+                onPress={lancerSynchronisationComplete}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="cloud-download-outline" size={13} color="#FFFFFF" />
+                <Text style={styles.texteBoutonSyncRapide}>Synchroniser tout</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           {/* Grille de Dossiers */}
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>
@@ -666,6 +762,8 @@ export default function EcranBibliotheque() {
               ) : (
                 docsFiltresCategorie.map((doc) => {
                   const estVerrouilleVip = doc.is_vip_consultation && !isVipActive;
+                  const estEnCoursSync = idsEnCours.has(doc.id);
+                  const estPretHorsLigne = idsEnCache.has(doc.id);
 
                   return (
                     <View key={doc.id} style={[styles.docItemCard, estVerrouilleVip && styles.docItemCardLocked]}>
@@ -687,6 +785,28 @@ export default function EcranBibliotheque() {
                                 <Ionicons name="document-attach" size={12} color="#7F011F" />
                                 <Text style={styles.texteBadgeImporte}>Document Importé</Text>
                               </View>
+                            )}
+
+                            {/* 📶 Indicateur visuel d'état hors-ligne */}
+                            {estEnCoursSync ? (
+                              <View style={styles.badgeTelechargementHorsLigne}>
+                                <ActivityIndicator size={10} color="#2563EB" style={{ marginRight: 3 }} />
+                                <Text style={styles.texteBadgeTelechargement}>Téléchargement...</Text>
+                              </View>
+                            ) : estPretHorsLigne ? (
+                              <View style={styles.badgeHorsLignePret}>
+                                <Ionicons name="cloud-done" size={12} color="#15803D" />
+                                <Text style={styles.texteBadgeHorsLignePret}>Prêt hors-ligne</Text>
+                              </View>
+                            ) : (
+                              <TouchableOpacity
+                                style={styles.badgeNonSynchronise}
+                                onPress={() => synchroniserUnDocument(doc)}
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons name="cloud-download-outline" size={12} color="#B45309" />
+                                <Text style={styles.texteBadgeNonSynchronise}>Télécharger</Text>
+                              </TouchableOpacity>
                             )}
                           </View>
                           <Text style={styles.docMeta}>
@@ -904,6 +1024,151 @@ const getStyles = (couleurs: any) => StyleSheet.create({
   texteBoutonImporter: {
     color: '#FFFFFF',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  boutonSyncHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#0F766E',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  boutonSyncHeaderActif: {
+    backgroundColor: '#0D9488',
+    opacity: 0.9,
+  },
+  boutonSyncHeaderComplet: {
+    backgroundColor: '#15803D',
+  },
+  texteBoutonSync: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  barreProgressionSyncConteneur: {
+    backgroundColor: couleurs.estSombre ? 'rgba(15, 118, 110, 0.15)' : '#F0FDFA',
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(15, 118, 110, 0.3)' : '#CCFBF1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 10,
+    gap: 6,
+  },
+  barreProgressionSyncEntete: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  barreProgressionSyncTitre: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0F766E',
+    flex: 1,
+  },
+  barreProgressionSyncPourcent: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F766E',
+    marginLeft: 8,
+  },
+  barreProgressionSyncPiste: {
+    height: 6,
+    backgroundColor: couleurs.estSombre ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  barreProgressionSyncRemplissage: {
+    height: '100%',
+    backgroundColor: '#0D9488',
+    borderRadius: 3,
+  },
+  banniereEtatSync: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: couleurs.estSombre ? 'rgba(15, 118, 110, 0.12)' : '#F0FDFA',
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(15, 118, 110, 0.25)' : '#CCFBF1',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+    gap: 8,
+  },
+  banniereEtatSyncTexte: {
+    fontSize: 12,
+    color: '#0F766E',
+    fontWeight: '600',
+    flex: 1,
+  },
+  boutonSyncRapide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#0F766E',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  texteBoutonSyncRapide: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  badgeHorsLignePret: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: couleurs.estSombre ? 'rgba(34, 197, 94, 0.15)' : '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(34, 197, 94, 0.35)' : '#86EFAC',
+  },
+  texteBadgeHorsLignePret: {
+    fontSize: 10,
+    color: '#15803D',
+    fontWeight: '700',
+  },
+  badgeTelechargementHorsLigne: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: couleurs.estSombre ? 'rgba(37, 99, 235, 0.15)' : '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(37, 99, 235, 0.35)' : '#BFDBFE',
+  },
+  texteBadgeTelechargement: {
+    fontSize: 10,
+    color: '#2563EB',
+    fontWeight: '700',
+  },
+  badgeNonSynchronise: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: couleurs.estSombre ? 'rgba(217, 119, 6, 0.12)' : '#FEF3C7',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: couleurs.estSombre ? 'rgba(217, 119, 6, 0.3)' : '#FDE68A',
+  },
+  texteBadgeNonSynchronise: {
+    fontSize: 10,
+    color: '#B45309',
     fontWeight: '700',
   },
   badgeImporte: {
