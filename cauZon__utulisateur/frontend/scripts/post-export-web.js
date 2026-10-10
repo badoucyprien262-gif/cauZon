@@ -245,21 +245,28 @@ if (fs.existsSync(htmlFile)) {
   html = html.replace('</head>', headInjections + '</head>');
   console.log('✅ Pack Référencement & SEO Google, Open Graph et Schema.org injecté dans dist/index.html.');
 
-  // 🛡️ Bouclier Sécurité cauZon : Anti-Inspection & Anti-Fuite Web
-  const securityScript = `<script id="cauzon-security-shield">` +
-    `(function(){` +
-    `document.addEventListener('contextmenu',function(e){e.preventDefault();return false;});` +
-    `document.addEventListener('keydown',function(e){` +
-    `if(e.key==='F12'||e.keyCode===123){e.preventDefault();return false;}` +
-    `var isCtrlOrMeta=e.ctrlKey||e.metaKey;` +
-    `if((isCtrlOrMeta&&(e.key==='u'||e.key==='U'||e.key==='s'||e.key==='S'))||` +
-    `(isCtrlOrMeta&&e.shiftKey&&(e.key==='i'||e.key==='I'||e.key==='j'||e.key==='J'))){` +
-    `e.preventDefault();return false;}` +
+  // 🚀 Enregistrement du Service Worker PWA cauZon
+  const swScript = `<script id="cauzon-sw-registration">` +
+    `if('serviceWorker' in navigator){` +
+    `window.addEventListener('load',function(){` +
+    `navigator.serviceWorker.register('/sw.js',{scope:'/'})` +
+    `.then(function(reg){console.log('✅ [PWA] Service Worker cauZon actif. Scope:',reg.scope);})` +
+    `.catch(function(err){console.warn('⚠️ [PWA] Échec enregistrement Service Worker:',err);});` +
     `});` +
-    `})();` +
+    `}` +
     `</script>`;
 
-  html = html.replace('</body>', securityScript + '</body>');
+  // 🛡️ Bouclier Anti-Fuite Web cauZon (Neutralisation de Ctrl+P et Ctrl+S)
+  const securityScript = `<script id="cauzon-security-shield">` +
+    `window.addEventListener('keydown',function(e){` +
+    `if((e.ctrlKey||e.metaKey)&&(e.key==='p'||e.key==='P'||e.key==='s'||e.key==='S')){` +
+    `e.preventDefault();` +
+    `}` +
+    `});` +
+    `</script>`;
+
+  html = html.replace('</body>', swScript + securityScript + '</body>');
+  console.log('🚀 [PWA] Enregistrement Service Worker injecté dans dist/index.html.');
   console.log('🛡️ [Sécurité] Bouclier Anti-Inspection et Anti-Fuite Web injecté.');
 
   fs.writeFileSync(htmlFile, html, 'utf8');
@@ -315,7 +322,8 @@ const publicDir = path.join(rootDir, 'public');
   'sitemap.xml',
   'google0a16ebf370de0768.html',
   'politique-de-confidentialite.html',
-  'confidentialite.html'
+  'confidentialite.html',
+  'sw.js'
 ].forEach(fileName => {
   const src = path.join(publicDir, fileName);
   if (fs.existsSync(src)) {

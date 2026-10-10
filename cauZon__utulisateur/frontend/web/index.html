@@ -126,5 +126,19 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- 🚀 Enregistrement du Service Worker PWA cauZon -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(function(registration) {
+              console.log('✅ [PWA] Service Worker cauZon actif. Scope:', registration.scope);
+            })
+            .catch(function(error) {
+              console.warn('⚠️ [PWA] Échec enregistrement Service Worker:', error);
+            });
+        });
+      }
+    </script>
   </body>
 </html>

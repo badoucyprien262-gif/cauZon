@@ -184,31 +184,6 @@ export const buildFeexPayCheckoutUrl = (
   return `${baseUrl}?${params.toString()}`;
 };
 
-/**
- * Initialise une transaction de test en mode Sandbox.
- * Permet de tester le flux de paiement de manière programmatique sans débit réel.
- */
-export const initierTransactionSandboxFeexPay = async (
-  payload: FeexPayPaymentPayload,
-  publicKey: string = FEEXPAY_TEST_PUBLIC_KEY
-): Promise<FeexPayResult> => {
-  const transId = payload.transId || generateFeexPayTransactionId();
-
-  // Simulation contrôlée en mode Sandbox
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        status: 'SUCCESS',
-        reference: `FP-SANDBOX-${Date.now()}`,
-        amount: payload.amount,
-        transId: transId,
-        operator: payload.operator || 'ORANGE_CI',
-        message: `Transaction de test Sandbox validée avec succès (${payload.amount} FCFA).`,
-        date: new Date().toISOString(),
-      });
-    }, 1200);
-  });
-};
 
 /**
  * Génère le code HTML complet pour afficher le guichet FeexPay dans une WebView React Native.

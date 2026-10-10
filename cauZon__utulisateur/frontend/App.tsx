@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, BackHandler, ToastAndroid } from 'react-native';
+import { Platform, BackHandler, ToastAndroid, Animated, Easing } from 'react-native';
+import * as ExpoSplashScreen from 'expo-splash-screen';
+
+// Empêche Expo de cacher automatiquement le splash natif avant que
+// SplashScreenCauzon ait pris le relais (appelé dès l'import du module).
+try { ExpoSplashScreen.preventAutoHideAsync().catch(() => {}); } catch (_) {}
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
@@ -42,14 +47,21 @@ function OverlayChargementAuth() {
 }
 
 
-function BarreDeStatutDynamique({ splashVisible }: { splashVisible: boolean }) {
+function BarreDeStatutDynamique({ splashMounted }: { splashMounted: boolean }) {
   const { modeTheme } = useApp();
-  return <StatusBar style={splashVisible ? "light" : (modeTheme === 'dark' ? "light" : "dark")} />;
+  return <StatusBar style={splashMounted ? "light" : (modeTheme === 'dark' ? "light" : "dark")} />;
 }
 
 export default function App() {
-  const [splashVisible, setSplashVisible] = useState(true);
-  const [estPret, setEstPret] = useState(false);
+  // ── Contrat de Synchronisation UX ─────────────────────────────────────────
+  // appReady      : données/auth chargées (indépendant de l'animation)
+  // splashMounted : le composant Splash est encore dans l'arbre React
+  const [appReady, setAppReady] = useState(false);
+  const [splashMounted, setSplashMounted] = useState(true);
+
+  // Opacité de l'overlay Splash géré par App.tsx (fade-out 250 ms)
+  const splashOverlayOpacity = useRef(new Animated.Value(1)).current;
+
   const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const dernierAppuiRetourRef = useRef<number>(0);
@@ -90,24 +102,36 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  // 🚀 Barrière de synchronisation UX : Démarrage ultra-rapide (< 650-850ms)
+  // 🚀 Chargement des données/auth — NE modifie PAS l'affichage du Splash ici.
+  // Seul appReady=true est positionné ; c'est onAnimationFinish qui déclenchera la sortie.
   useEffect(() => {
     async function synchroniserDemarrage() {
       try {
         await Promise.all([
-          // Durée plancher réduite pour permettre au logo de s'exprimer sans bloquer inutilement
-          new Promise((resolve) => setTimeout(resolve, 300)),
           // Préchargement immédiat Stale-While-Revalidate (instantané dès présence de cache)
           prechargerDonneesAccueil(),
         ]);
       } catch (err) {
         console.warn('[Init] Erreur préchargement accueil accéléré (silencieux) :', err);
       } finally {
-        setEstPret(true);
+        setAppReady(true);
       }
     }
     synchroniserDemarrage();
   }, []);
+
+  // 🎬 Callback appelé par SplashScreenCauzon quand animation + hold sont terminés
+  // ET que appReady est vrai. Déclenche le fade-out 250ms, puis démonte le Splash.
+  const handleAnimationFinish = () => {
+    Animated.timing(splashOverlayOpacity, {
+      toValue: 0,
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      setSplashMounted(false);
+    });
+  };
 
   // 🌐 Préchargement du SDK Google Identity Services sur Web
   useEffect(() => {
@@ -273,13 +297,22 @@ export default function App() {
       <FournisseurApp>
         <NavigationContainer ref={navigationRef} linking={linkingConfig}>
           <NavigateurApp />
-          <BarreDeStatutDynamique splashVisible={splashVisible} />
+          <BarreDeStatutDynamique splashMounted={splashMounted} />
         </NavigationContainer>
-        {splashVisible && (
-          <SplashScreenCauzon 
-            onFinish={() => setSplashVisible(false)} 
-            estPret={estPret}
-          />
+        {/* Fade-out overlay géré par App.tsx (250 ms) — démonté après la fin du fondu */}
+        {splashMounted && (
+          <Animated.View
+            style={[
+              { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998 },
+              { opacity: splashOverlayOpacity },
+            ]}
+            pointerEvents="none"
+          >
+            <SplashScreenCauzon
+              onAnimationFinish={handleAnimationFinish}
+              appReady={appReady}
+            />
+          </Animated.View>
         )}
         <SasDesktopGatekeeper />
         <OverlayChargementAuth />

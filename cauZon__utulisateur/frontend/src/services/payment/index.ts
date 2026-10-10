@@ -18,7 +18,6 @@ export {
   generateFeexPayTransactionId,
   formatPhoneFeexPay,
   encoderCustomIdFeexPay,
-  initierTransactionSandboxFeexPay,
   generateFeexPayHtml,
   buildFeexPayCheckoutUrl,
 } from './feexpay';

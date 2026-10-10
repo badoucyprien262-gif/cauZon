@@ -187,22 +187,14 @@ export default function EcranLecteurDocument() {
           return;
         }
 
-        if (resolution.isLocal && Platform.OS !== 'web') {
-          // Lecture en Base64 pure (sans préfixe MIME) pour transmission sécurisée à PDF.js via Uint8Array
-          const base64Brut = await FileSystem.readAsStringAsync(resolution.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          const cleanBase64 = base64Brut.replace(/^data:application\/pdf;base64,/i, '');
-          if (estMonte) {
-            setSourcePdfData(cleanBase64);
-            setChargementLocal(false);
-          }
-        } else {
-          // Streaming direct HTTP/HTTPS ou blob Web
-          if (estMonte) {
-            setSourcePdfData(resolution.uri);
-            setChargementLocal(false);
-          }
+        // Transmission directe de l'URI native (file://...) ou Web (http/blob) sans passer par Base64
+        // Évite la saturation de la mémoire vive (OOM) sur mobile et exploite le streaming disque natif
+        if (estMonte) {
+          const uriFinale = (resolution.isLocal && Platform.OS !== 'web' && !resolution.uri.startsWith('file://'))
+            ? `file://${resolution.uri}`
+            : resolution.uri;
+          setSourcePdfData(uriFinale);
+          setChargementLocal(false);
         }
       } catch (err) {
         if (__DEV__) console.error('Erreur chargement source PDF :', err);
@@ -387,8 +379,8 @@ export default function EcranLecteurDocument() {
           </View>
         )}
 
-        {/* Boutons d'Action (uniquement si débloqué) */}
-        {!estVerrouille && (
+        {/* Boutons d'Action (uniquement si débloqué et hors Web pour éviter toute fuite du fichier brut) */}
+        {!estVerrouille && Platform.OS !== 'web' && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <TouchableOpacity
               style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]}
@@ -406,21 +398,19 @@ export default function EcranLecteurDocument() {
             </TouchableOpacity>
 
             {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
-            {Platform.OS !== 'web' && (
-              <TouchableOpacity 
-                style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
-                onPress={basculerOrientationManuelle}
-              >
-                <Ionicons 
-                  name={estPaysage ? "phone-portrait" : "phone-landscape"} 
-                  size={estPaysage ? 15 : 18} 
-                  color="#FFFFFF" 
-                />
-                <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
-                  {estPaysage ? "Portrait" : "Paysage"}
-                </Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity 
+              style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
+              onPress={basculerOrientationManuelle}
+            >
+              <Ionicons 
+                name={estPaysage ? "phone-portrait" : "phone-landscape"} 
+                size={estPaysage ? 15 : 18} 
+                color="#FFFFFF" 
+              />
+              <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
+                {estPaysage ? "Portrait" : "Paysage"}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>

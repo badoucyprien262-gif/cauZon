@@ -73,7 +73,6 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
     deconnexion,
     desactiverCompte,
     mettreAJourProfil, 
-    reinitialiserDemo, 
     modeTheme, 
     preferenceTheme,
     definirPreferenceTheme,
@@ -401,22 +400,7 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
 
 
 
-  const handleReset = () => {
-    confirmationUniverselle(
-      'Réinitialisation 🔄',
-      'Voulez-vous réinitialiser toutes les acquisitions de documents et restaurer la démo ?',
-      () => {
-        reinitialiserDemo();
-        setNomLocal('Jean Dupont');
-        setTelephoneLocal('+221 77 123 45 67');
-        setPhotoLocal('avatar-1');
-        afficherToast('Les acquisitions, photo et thèmes ont été réinitialisés.', 'Réinitialisation Réussie 🔄', 'success');
-      },
-      'Oui, réinitialiser',
-      'Annuler',
-      true
-    );
-  };
+
 
   /**
    * Désactivation du compte (Soft Delete) universelle :
@@ -1145,14 +1129,6 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                 </TouchableOpacity>
               </View>
 
-              {/* Section développeur */}
-              <View style={styles.devSection}>
-                <Text style={styles.devTitle}>Options de Démo</Text>
-                <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
-                  <Ionicons name="refresh-outline" size={16} color={couleurs.erreur} />
-                  <Text style={styles.resetBtnText}>Réinitialiser la démo</Text>
-                </TouchableOpacity>
-              </View>
 
               {/* Zone sensible — Désactivation de compte */}
               <View style={styles.dangerSection}>
@@ -1537,34 +1513,6 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     color: couleurs.primaire,
     fontWeight: 'bold',
     fontSize: 14,
-  },
-  devSection: {
-    borderTopWidth: 1,
-    borderTopColor: couleurs.bordure,
-    paddingTop: 14,
-    gap: 8,
-  },
-  devTitle: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: couleurs.texteSecondaire,
-    marginLeft: 4,
-  },
-  resetBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: couleurs.erreur,
-    backgroundColor: 'rgba(229, 62, 98, 0.03)',
-    gap: 6,
-  },
-  resetBtnText: {
-    color: couleurs.erreur,
-    fontSize: 11,
-    fontWeight: 'bold',
   },
   dangerSection: {
     borderTopWidth: 1,

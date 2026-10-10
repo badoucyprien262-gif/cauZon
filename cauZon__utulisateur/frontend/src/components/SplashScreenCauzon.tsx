@@ -1,60 +1,88 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, Platform, Easing } from 'react-native';
+import * as ExpoSplashScreen from 'expo-splash-screen';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chronologie cible (~1,55 s avant onAnimationFinish + 350 ms zoom + 250 ms fade) :
+//   100 ms  → délai initial (premier rendu RN + hideAsync natif)
+//   500 ms  → écriture progressive des 6 lettres (5 × 100 ms de stagger)
+//   600 ms  → durée d'animation de chaque lettre (bezier 0.22,1,0.36,1)
+//   150 ms  → Hold du logo complet stabilisé
+//   350 ms  → scale-up cinématographique 1→1.08 (chevauchement fade-out)
+//   250 ms  → fade-out overlay géré par App.tsx (en parallèle du zoom)
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface Props {
-  onFinish: () => void;
-  estPret?: boolean;
+  /** Appelé quand le cycle animation + hold est terminé (déclenche le fade-out App). */
+  onAnimationFinish: () => void;
+  /** Données/auth chargées — débloque le callback si l'animation est déjà finie. */
+  appReady?: boolean;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) {
+// Masquage one-shot du splash natif Expo (appelé au premier montage du composant)
+let _nativeHideCalled = false;
+function masquerSplashNatif(): void {
+  if (_nativeHideCalled || Platform.OS === 'web') return;
+  _nativeHideCalled = true;
+  ExpoSplashScreen.hideAsync().catch(() => {});
+}
+
+export default function SplashScreenCauzon({ onAnimationFinish, appReady = false }: Props) {
   const letters = ['c', 'a', 'u', 'Z', 'o', 'n'];
   const useNative = Platform.OS !== 'web';
 
-  // 🛡️ Verrouillage du cycle de vie : état explicite de complétion de l'animation
-  const [animationComplete, setAnimationComplete] = useState(false);
+  // État interne : animation construction + hold terminée
+  const [animationFinished, setAnimationFinished] = useState(false);
 
   // Valeurs animées pour chaque lettre du mot-symbole cauZon
   const letterAnims = useRef(
     letters.map(() => ({
       opacity: new Animated.Value(0),
-      translateY: new Animated.Value(10),
-      scale: new Animated.Value(0.75),
+      translateY: new Animated.Value(12),
+      scale: new Animated.Value(0.72),
     }))
   ).current;
 
-  // Valeurs animées globales (sous-titre, logo zoom et fondu de sortie progressif)
+  // Valeurs animées globales
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const logoZoomScale = useRef(new Animated.Value(1)).current;
-  const overlayOpacity = useRef(new Animated.Value(1)).current;
 
-  const estPretRef = useRef(estPret);
-  estPretRef.current = estPret;
-
-  const sortieDeclencheeRef = useRef(false);
   const unmountedRef = useRef(false);
+  const finishCalledRef = useRef(false);
 
-  // 1. Séquence d'écriture caractère par caractère (autonome et garantie sans saut d'index)
+  // ─── Masquage du splash natif dès le premier rendu ───────────────────────
+  useEffect(() => {
+    masquerSplashNatif();
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
+
+  // ─── Séquence d'animation principale ────────────────────────────────────
   useEffect(() => {
     unmountedRef.current = false;
-    let timerEcriture: any = null;
-    let timerPause: any = null;
 
-    // Timer de sécurité absolue (max 4.0s) pour garantir la libération en toute circonstance
+    // Paramètres chronologiques (directives affinées)
+    const DELAI_INITIAL_MS = 100;   // Pause avant la première lettre
+    const CADENCE_MS = 100;          // Stagger typographique : 100 ms entre chaque lettre
+    const DUREE_LETTRE_MS = 600;     // Animation d'apparition de chaque lettre (distincte)
+    const HOLD_MS = 150;             // Maintien logo complet stabilisé avant callback
+
+    // Courbe premium : "spring naturel" (ease-out très prononcé)
+    const EASING_LETTRE = Easing.bezier(0.22, 1, 0.36, 1);
+
+    // Timer de sécurité absolue (max 5 s)
     const safetyTimer = setTimeout(() => {
-      if (!unmountedRef.current && !sortieDeclencheeRef.current) {
-        sortieDeclencheeRef.current = true;
-        declencherSortie();
+      if (!unmountedRef.current && !finishCalledRef.current) {
+        setAnimationFinished(true);
       }
-    }, 4000);
+    }, 5000);
 
-    // Paramètres temporels de l'effet écriture progressive
-    const CADENCE_MS = 30; // Cadence stable et fluide (25ms - 35ms par caractère)
-    const DUREE_LETTRE_MS = 180; // Transition d'apparition de chaque lettre
-    const PAUSE_LECTURE_MS = 400; // Pause de confort pour lire le résultat final
-
-    let indexCourant = 0;
+    let timerDelai: ReturnType<typeof setTimeout> | null = null;
+    let timerEcriture: ReturnType<typeof setInterval> | null = null;
+    let timerHold: ReturnType<typeof setTimeout> | null = null;
 
     const animerLettre = (index: number) => {
       if (unmountedRef.current || index >= letters.length) return;
@@ -63,104 +91,99 @@ export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) 
         Animated.timing(letterAnims[index].opacity, {
           toValue: 1,
           duration: DUREE_LETTRE_MS,
-          easing: Easing.out(Easing.quad),
+          easing: EASING_LETTRE,
           useNativeDriver: useNative,
         }),
         Animated.timing(letterAnims[index].translateY, {
           toValue: 0,
           duration: DUREE_LETTRE_MS,
-          easing: Easing.out(Easing.quad),
+          easing: EASING_LETTRE,
           useNativeDriver: useNative,
         }),
         Animated.timing(letterAnims[index].scale, {
           toValue: 1,
           duration: DUREE_LETTRE_MS,
-          easing: Easing.out(Easing.back(1.4)),
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: useNative,
         }),
       ]).start();
     };
 
-    // Déclenchement de la première lettre immédiatement
-    animerLettre(0);
-    indexCourant = 1;
+    // Délai initial de 100 ms
+    timerDelai = setTimeout(() => {
+      let indexCourant = 0;
 
-    // Écriture cadencée progressive garantie pour chaque lettre
-    timerEcriture = setInterval(() => {
-      if (indexCourant < letters.length) {
-        animerLettre(indexCourant);
-        indexCourant++;
-      } else {
-        clearInterval(timerEcriture);
-        timerEcriture = null;
+      // Première lettre immédiatement
+      animerLettre(0);
+      indexCourant = 1;
 
-        // 100% des lettres ont été déclenchées -> apparition élégante du sous-titre
-        Animated.timing(subtitleOpacity, {
-          toValue: 1,
-          duration: 220,
-          easing: Easing.out(Easing.ease),
-          useNativeDriver: useNative,
-        }).start();
+      // Écriture cadencée progressive
+      timerEcriture = setInterval(() => {
+        if (indexCourant < letters.length) {
+          animerLettre(indexCourant);
+          indexCourant++;
+        } else {
+          clearInterval(timerEcriture!);
+          timerEcriture = null;
 
-        // Verrouillage du cycle de vie :
-        // Attendre que la dernière lettre ait terminé son animation (DUREE_LETTRE_MS)
-        // + temps de pause obligatoire de 400ms pour permettre la lecture complète
-        timerPause = setTimeout(() => {
-          if (!unmountedRef.current) {
-            setAnimationComplete(true);
-          }
-        }, DUREE_LETTRE_MS + PAUSE_LECTURE_MS);
-      }
-    }, CADENCE_MS);
+          // Apparition élégante du sous-titre après la dernière lettre
+          Animated.timing(subtitleOpacity, {
+            toValue: 1,
+            duration: 300,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: useNative,
+          }).start();
+
+          // Hold : attendre la fin de la dernière lettre + 150 ms de stabilisation
+          timerHold = setTimeout(() => {
+            if (!unmountedRef.current) {
+              setAnimationFinished(true);
+            }
+          }, DUREE_LETTRE_MS + HOLD_MS);
+        }
+      }, CADENCE_MS);
+    }, DELAI_INITIAL_MS);
 
     return () => {
       unmountedRef.current = true;
+      if (timerDelai) clearTimeout(timerDelai);
       if (timerEcriture) clearInterval(timerEcriture);
-      if (timerPause) clearTimeout(timerPause);
+      if (timerHold) clearTimeout(timerHold);
       clearTimeout(safetyTimer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Transition de sortie fluide en fondu progressif (~300ms)
-  const declencherSortie = () => {
-    Animated.parallel([
-      Animated.timing(overlayOpacity, {
-        toValue: 0,
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: useNative,
-      }),
-      Animated.timing(logoZoomScale, {
-        toValue: 1.05,
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: useNative,
-      }),
-    ]).start(() => {
-      if (!unmountedRef.current && onFinish) {
-        onFinish();
-      }
-    });
-  };
-
-  // 3. Condition stricte de démontage : isAppReady && animationComplete
+  // ─── Contrat de Synchronisation : appReady && animationFinished ──────────
+  // Déclenche le scale-up cinématographique EN PARALLÈLE de onAnimationFinish,
+  // de sorte que le zoom (350 ms) chevauche le fade-out d'App.tsx (250 ms).
+  // L'effet final : le logo grossit doucement pendant qu'il s'estompe.
   useEffect(() => {
-    if (estPret && animationComplete && !sortieDeclencheeRef.current) {
-      sortieDeclencheeRef.current = true;
-      declencherSortie();
-    }
-  }, [estPret, animationComplete]);
+    if (appReady && animationFinished && !finishCalledRef.current) {
+      finishCalledRef.current = true;
 
+      // Scale-up cinématographique 1 → 1.08 sur 350 ms
+      // Courbe Easing.bezier(0.25, 0.1, 0.25, 1) : démarrage doux, progression naturelle
+      Animated.timing(logoZoomScale, {
+        toValue: 1.08,
+        duration: 350,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        useNativeDriver: useNative,
+      }).start();
+
+      // Déclencher le fade-out App.tsx immédiatement (en parallèle du zoom)
+      // Le zoom continue de s'exécuter pendant que l'overlay s'estompe.
+      if (!unmountedRef.current) {
+        onAnimationFinish();
+      }
+    }
+  }, [appReady, animationFinished]);
+
+  // Ce composant ne gère plus l'opacité de sortie (délégué à App.tsx).
+  // Il reste monté et visible (opacité 1) jusqu'à ce qu'App.tsx le démonte
+  // après son propre fade-out de 250 ms.
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        {
-          opacity: overlayOpacity,
-        },
-      ]}
-      pointerEvents="none"
-    >
+    <Animated.View style={styles.container} pointerEvents="none">
       {/* Halo d'ambiance blanc subtil */}
       <View style={styles.ambientHalo} />
 
@@ -168,9 +191,7 @@ export default function SplashScreenCauzon({ onFinish, estPret = true }: Props) 
       <Animated.View
         style={[
           styles.logoContainer,
-          {
-            transform: [{ scale: logoZoomScale }],
-          },
+          { transform: [{ scale: logoZoomScale }] },
         ]}
       >
         <View style={styles.lettersRow}>
@@ -239,7 +260,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   letter: {
-    color: '#FFFFFF', // Blanc Pur officiel
+    color: '#FFFFFF',
     fontSize: Platform.OS === 'web' ? 96 : 82,
     fontWeight: '900',
     letterSpacing: -1.5,

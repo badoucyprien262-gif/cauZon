@@ -1,9 +1,23 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, Filter, X, RefreshCw, Download, Eye, ShieldCheck, Shield, CheckCircle, Save, FileText, Lock, Unlock, Sliders } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Plus,
+  Search,
+  Filter,
+  RefreshCw,
+  Download,
+  Save,
+  X,
+  FileText,
+  Sliders,
+  Lock as LockIcon,
+  Unlock as UnlockIcon,
+  Eye,
+} from 'lucide-react';
 import type { DocumentRow } from '../types';
 import { DocumentCard } from '../components/DocumentCard';
 import { PdfPreviewIframe } from '../components/PdfPreviewIframe';
-import { extraireNombrePagesPdf, getDocumentPublicUrl, toggleDocumentCertified, toggleDocumentStatus, fetchAcquisitionsCount } from '../services/serviceDocuments';
+import { ModalAjoutDocument } from '../components/ModalAjoutDocument';
+import { getDocumentPublicUrl, toggleDocumentCertified, toggleDocumentStatus, fetchAcquisitionsCount } from '../services/serviceDocuments';
 import { supabase } from '../lib/supabase';
 
 interface CatalogViewProps {
@@ -13,7 +27,6 @@ interface CatalogViewProps {
   onReload: () => void;
 }
 
-type UploadStep = 1 | 2 | 3 | 4;
 type CatalogFilter = 'all' | 'published' | 'inactif' | 'scheduled';
 
 const FILTER_LABELS: Record<CatalogFilter, string> = {
@@ -23,32 +36,8 @@ const FILTER_LABELS: Record<CatalogFilter, string> = {
   scheduled: 'Planifiés',
 };
 
-function assainirNomFichier(nom: string, dossier = ''): string {
-  const idx = nom.lastIndexOf('.');
-  const base = idx !== -1 ? nom.substring(0, idx) : nom;
-  const ext = idx !== -1 ? nom.substring(idx).toLowerCase() : '';
-  const clean = base.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-  const result = `${clean || 'document'}_${Date.now()}${ext}`;
-  return dossier ? `${dossier.replace(/\/+$/, '')}/${result}` : result;
-}
-
-const EMPTY_WIZARD = {
-  titre: '', description: '', categorie: '', tags: '', prix: '100',
-  limiteApercuType: 'pourcentage' as 'page' | 'pourcentage', limiteApercuValeur: '30',
-  estCertifie: true, nombre_pages: '', taille_mo: '1.5',
-  scheduled_at: '', importance_level: 'normal', status: 'published'
-};
-
 export function CatalogView({ documents, setDocuments, darkMode, onReload }: CatalogViewProps) {
   const [showUploadPanel, setShowUploadPanel] = useState(false);
-  const [uploadStep, setUploadStep] = useState<UploadStep>(1);
-  const [wizard, setWizard] = useState({ ...EMPTY_WIZARD });
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState('');
-  const [uploadProgress, setUploadProgress] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
-  const pdfRef = useRef<HTMLInputElement>(null);
-  const coverRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CatalogFilter>('all');
@@ -73,7 +62,6 @@ export function CatalogView({ documents, setDocuments, darkMode, onReload }: Cat
   const textColor = darkMode ? '#FAF6EB' : '#1F2937';
   const subText = darkMode ? '#9CA3AF' : '#6B7280';
   const border = darkMode ? '#2D1220' : '#E5E7EB';
-  const cardBg = darkMode ? '#1e1e1e' : '#FFFFFF';
   const inputBg = darkMode ? '#121212' : '#F9FAFB';
 
   useEffect(() => {
@@ -88,71 +76,6 @@ export function CatalogView({ documents, setDocuments, darkMode, onReload }: Cat
   const filteredDocs = documents
     .filter(d => filter === 'all' || d.status === filter)
     .filter(d => !search || (d.titre ?? '').toLowerCase().includes(search.toLowerCase()) || (d.categorie ?? '').toLowerCase().includes(search.toLowerCase()) || (d.tags ?? '').toLowerCase().includes(search.toLowerCase()));
-
-  const updateWizard = (field: string, value: unknown) => setWizard(p => ({ ...p, [field]: value }));
-
-  const handlePdfChange = async (file: File) => {
-    setPdfFile(file);
-    const taille = (file.size / (1024 * 1024)).toFixed(1);
-    const pages = await extraireNombrePagesPdf(file);
-    updateWizard('file_path', file.name);
-    updateWizard('nombre_pages', String(pages));
-    updateWizard('taille_mo', taille);
-  };
-
-  const handleCoverChange = (file: File) => {
-    setCoverFile(file);
-    updateWizard('cover_url', file.name);
-    const reader = new FileReader();
-    reader.onloadend = () => setCoverPreview(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = async () => {
-    if (!pdfFile) { alert('Fichier PDF obligatoire.'); return; }
-    setUploadProgress('uploading');
-    try {
-      const cleanPdf = assainirNomFichier(pdfFile.name);
-      const { error: pdfErr } = await supabase.storage.from('cours-documents').upload(cleanPdf, pdfFile, { upsert: true });
-      if (pdfErr) throw new Error(`Upload PDF : ${pdfErr.message}`);
-
-      let coverUrl: string | null = null;
-      if (coverFile) {
-        const cleanCover = assainirNomFichier(coverFile.name, 'covers');
-        const { error: cErr } = await supabase.storage.from('cours-documents').upload(cleanCover, coverFile, { upsert: true });
-        if (!cErr) { const { data } = supabase.storage.from('cours-documents').getPublicUrl(cleanCover); coverUrl = data?.publicUrl ?? null; }
-      }
-
-      let pages = parseInt(wizard.nombre_pages);
-      if (!pages || isNaN(pages) || pages <= 0) pages = await extraireNombrePagesPdf(pdfFile);
-
-      const valPaywall = parseInt(wizard.limiteApercuValeur) || 0;
-      const payload = {
-        titre: wizard.titre, description: wizard.description, categorie: wizard.categorie,
-        tags: wizard.tags.trim() || null, prix: parseInt(wizard.prix) || 100,
-        est_certifie: wizard.estCertifie, est_verrouille: true, nombre_pages: pages,
-        limite_apercu_pages: wizard.limiteApercuType === 'page' ? valPaywall : Math.max(0, Math.round(pages * (valPaywall / 100))),
-        limite_apercu_type: wizard.limiteApercuType, limite_apercu_valeur: valPaywall,
-        taille_mo: parseFloat(wizard.taille_mo) || 1.5, file_path: cleanPdf, cover_url: coverUrl,
-        scheduled_at: wizard.status === 'scheduled' && wizard.scheduled_at ? new Date(wizard.scheduled_at).toISOString() : null,
-        importance_level: wizard.importance_level, status: wizard.status
-      };
-
-      const { error: insertErr } = await supabase.from('documents').insert([payload]);
-      if (insertErr) throw insertErr;
-
-      setUploadProgress('success');
-      onReload();
-      setTimeout(() => {
-        setWizard({ ...EMPTY_WIZARD }); setPdfFile(null); setCoverFile(null);
-        setCoverPreview(''); setUploadStep(1); setUploadProgress('idle');
-        setShowUploadPanel(false);
-      }, 1500);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert('Erreur : ' + msg); setUploadProgress('error');
-    }
-  };
 
   const handleDelete = async (id: string) => {
     const doc = documents.find(d => d.id === id);
@@ -308,7 +231,7 @@ export function CatalogView({ documents, setDocuments, darkMode, onReload }: Cat
           <button onClick={onReload} style={{ padding: '10px 16px', border: `1px solid ${border}`, borderRadius: '8px', background: 'none', color: subText, cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} title="Actualiser le catalogue">
             <RefreshCw size={15} /> Actualiser
           </button>
-          <button onClick={() => { setShowUploadPanel(true); setUploadStep(1); }} style={{ padding: '10px 20px', backgroundColor: '#6B1124', color: '#FAF6EB', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button onClick={() => setShowUploadPanel(true)} style={{ padding: '10px 20px', backgroundColor: '#6B1124', color: '#FAF6EB', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={16} /> Publier un cours
           </button>
         </div>
@@ -346,159 +269,15 @@ export function CatalogView({ documents, setDocuments, darkMode, onReload }: Cat
         </div>
       )}
 
-      {/* Upload Panel (slide-in) */}
-      {showUploadPanel && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 150, display: 'flex' }}>
-          <div style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowUploadPanel(false)} />
-          <div style={{ width: '100%', maxWidth: '520px', backgroundColor: darkMode ? '#1e1e1e' : '#FFFFFF', height: '100%', overflowY: 'auto', boxShadow: '-8px 0 24px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '20px 24px', backgroundColor: '#6B1124', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
-              <div>
-                <h2 style={{ color: '#FAF6EB', margin: 0, fontSize: '18px', fontWeight: 700 }}>📤 Publier un cours</h2>
-                <p style={{ color: 'rgba(250,246,235,0.7)', margin: '4px 0 0', fontSize: '13px' }}>Étape {uploadStep} / 4</p>
-              </div>
-              <button onClick={() => setShowUploadPanel(false)} style={{ background: 'none', border: 'none', color: '#FAF6EB', cursor: 'pointer' }}><X size={22} /></button>
-            </div>
-            {/* Progress bar */}
-            <div style={{ height: '4px', backgroundColor: '#2D1220' }}>
-              <div style={{ height: '100%', width: `${(uploadStep / 4) * 100}%`, backgroundColor: '#FAF6EB', transition: 'width 0.3s' }} />
-            </div>
-
-            <div style={{ padding: '24px', flex: 1 }}>
-              {uploadStep === 1 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h3 style={{ color: textColor, fontSize: '16px', fontWeight: 700, margin: 0 }}>📁 Fichiers du cours</h3>
-                  <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) handlePdfChange(e.dataTransfer.files[0]); }}
-                    onClick={() => pdfRef.current?.click()}
-                    style={{ border: `2px dashed ${pdfFile ? '#6B1124' : border}`, borderRadius: '10px', padding: '28px', textAlign: 'center', cursor: 'pointer', backgroundColor: pdfFile ? (darkMode ? '#2D1220' : '#FAF6EB') : 'transparent', transition: 'all 0.2s' }}>
-                    <input ref={pdfRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handlePdfChange(e.target.files[0])} />
-                    {pdfFile ? (
-                      <div>
-                        <span style={{ fontSize: '32px' }}>✅</span>
-                        <p style={{ color: '#6B1124', fontWeight: 700, margin: '8px 0 4px' }}>{pdfFile.name}</p>
-                        <p style={{ color: subText, fontSize: '13px', margin: 0 }}>{wizard.nombre_pages ? `${wizard.nombre_pages} pages auto-détectées ✨` : ''} · {wizard.taille_mo} Mo</p>
-                      </div>
-                    ) : (
-                      <div>
-                        <span style={{ fontSize: '40px' }}>📄</span>
-                        <p style={{ color: textColor, fontWeight: 600, margin: '8px 0 4px' }}>Déposer le fichier PDF ici</p>
-                        <p style={{ color: subText, fontSize: '13px', margin: 0 }}>ou cliquer pour parcourir vos fichiers</p>
-                      </div>
-                    )}
-                  </div>
-                  <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) handleCoverChange(e.dataTransfer.files[0]); }}
-                    onClick={() => coverRef.current?.click()}
-                    style={{ border: `2px dashed ${coverFile ? '#6B1124' : border}`, borderRadius: '10px', padding: '20px', textAlign: 'center', cursor: 'pointer', overflow: 'hidden', backgroundColor: 'transparent' }}>
-                    <input ref={coverRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleCoverChange(e.target.files[0])} />
-                    {coverPreview ? <img src={coverPreview} alt="Couverture" style={{ maxHeight: '100px', maxWidth: '100%', borderRadius: '6px', objectFit: 'cover' }} />
-                      : <><span style={{ fontSize: '28px' }}>🖼️</span><p style={{ color: subText, fontSize: '13px', margin: '6px 0 0' }}>Image de couverture (optionnelle)</p></>}
-                  </div>
-                </div>
-              )}
-              {uploadStep === 2 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h3 style={{ color: textColor, fontSize: '16px', fontWeight: 700, margin: 0 }}>📝 Informations du cours</h3>
-                  {[
-                    { label: 'Titre du cours *', field: 'titre', placeholder: 'Ex: Cours de Mathématiques L2', required: true },
-                    { label: 'Matière / Catégorie *', field: 'categorie', placeholder: 'Ex: Mathématiques, Physique, Droit…', required: true },
-                    { label: 'Description', field: 'description', placeholder: 'Présentez le sommaire ou les objectifs du cours…', textarea: true },
-                    { label: 'Tags (séparés par virgules)', field: 'tags', placeholder: 'licence, maths, algèbre' },
-                  ].map(({ label, field, placeholder, required, textarea }) => (
-                    <div key={field}>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>{label}</label>
-                      {textarea ? (
-                        <textarea value={(wizard as unknown as Record<string, string>)[field]} onChange={e => updateWizard(field, e.target.value)} placeholder={placeholder} rows={3}
-                          style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '14px', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
-                      ) : (
-                        <input value={(wizard as unknown as Record<string, string>)[field]} onChange={e => updateWizard(field, e.target.value)} placeholder={placeholder} required={required}
-                          style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${required && !(wizard as unknown as Record<string, string>)[field] ? '#E74C3C' : border}`, backgroundColor: inputBg, color: textColor, fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {uploadStep === 3 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h3 style={{ color: textColor, fontSize: '16px', fontWeight: 700, margin: 0 }}>💰 Prix & Réglage Paywall</h3>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '6px' }}>Prix d'achat (FCFA) *</label>
-                    <input type="number" value={wizard.prix} onChange={e => updateWizard('prix', e.target.value)} min="0"
-                      style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${border}`, backgroundColor: inputBg, color: textColor, fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: textColor, marginBottom: '8px' }}>Type de coupure aperçu gratuit</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {(['pourcentage', 'page'] as const).map(t => (
-                        <button key={t} onClick={() => updateWizard('limiteApercuType', t)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `2px solid ${wizard.limiteApercuType === t ? '#6B1124' : border}`, backgroundColor: wizard.limiteApercuType === t ? '#6B1124' : 'transparent', color: wizard.limiteApercuType === t ? '#FAF6EB' : subText, fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-                          {t === 'pourcentage' ? '% Pourcentage' : '📄 Pages fixes'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: 600, color: textColor }}>
-                        {wizard.limiteApercuType === 'pourcentage' ? 'Pourcentage visible en aperçu' : 'Nombre de pages visibles'} :
-                      </label>
-                      <span style={{ fontWeight: 800, color: '#6B1124' }}>
-                        {wizard.limiteApercuValeur}{wizard.limiteApercuType === 'pourcentage' ? '%' : ' pages'}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max={wizard.limiteApercuType === 'pourcentage' ? 100 : (parseInt(wizard.nombre_pages) || 50)}
-                      value={wizard.limiteApercuValeur}
-                      onChange={e => updateWizard('limiteApercuValeur', e.target.value)}
-                      style={{ width: '100%', accentColor: '#6B1124' }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: subText, marginTop: '4px' }}>
-                      <span>0% (Verrouillage total)</span>
-                      <span>50%</span>
-                      <span>100% (100% Gratuit)</span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <input type="checkbox" id="certifie" checked={wizard.estCertifie} onChange={e => updateWizard('estCertifie', e.target.checked)} style={{ width: '18px', height: '18px', accentColor: '#6B1124' }} />
-                    <label htmlFor="certifie" style={{ fontSize: '14px', color: textColor, fontWeight: 600, cursor: 'pointer' }}>🏅 Marquer comme cours officiel certifié</label>
-                  </div>
-                </div>
-              )}
-              {uploadStep === 4 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <h3 style={{ color: textColor, fontSize: '16px', fontWeight: 700, margin: 0 }}>📋 Récapitulatif & Publication</h3>
-                  <div style={{ backgroundColor: darkMode ? '#150a0e' : '#F9FAFB', borderRadius: '10px', padding: '16px', fontSize: '14px', lineHeight: 1.8 }}>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Titre :</strong> <span style={{ color: textColor }}>{wizard.titre || '—'}</span></p>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Catégorie :</strong> <span style={{ color: textColor }}>{wizard.categorie || '—'}</span></p>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Prix :</strong> <span style={{ color: textColor }}>{wizard.prix} FCFA</span></p>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Pages :</strong> <span style={{ color: '#10B981', fontWeight: 700 }}>{wizard.nombre_pages || '?'} ✨ auto-détecté</span></p>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Aperçu gratuit :</strong> <span style={{ color: textColor }}>{wizard.limiteApercuValeur}{wizard.limiteApercuType === 'pourcentage' ? '%' : ' pages'}</span></p>
-                    <p style={{ margin: 0 }}><strong style={{ color: '#6B1124' }}>Certifié :</strong> <span style={{ color: textColor }}>{wizard.estCertifie ? 'Oui 🏅' : 'Non'}</span></p>
-                  </div>
-                  {uploadProgress === 'uploading' && <div style={{ textAlign: 'center', padding: '16px', color: '#6B1124', fontWeight: 700 }}>⏳ Téléversement et insertion dans Supabase…</div>}
-                  {uploadProgress === 'success' && <div style={{ textAlign: 'center', padding: '16px', color: '#10B981', fontWeight: 700 }}>✅ Cours publié avec succès dans le catalogue !</div>}
-                  {uploadProgress === 'error' && <div style={{ textAlign: 'center', padding: '16px', color: '#E74C3C', fontWeight: 700 }}>❌ Erreur lors de la publication.</div>}
-                </div>
-              )}
-            </div>
-
-            {/* Footer buttons */}
-            <div style={{ padding: '16px 24px', borderTop: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', gap: '12px', position: 'sticky', bottom: 0, backgroundColor: darkMode ? '#1e1e1e' : '#FFFFFF' }}>
-              {uploadStep > 1 ? (
-                <button onClick={() => setUploadStep(s => (s - 1) as UploadStep)} style={{ padding: '10px 20px', borderRadius: '8px', border: `1px solid ${border}`, background: 'none', color: textColor, cursor: 'pointer', fontWeight: 600, fontSize: '14px' }}>← Précédent</button>
-              ) : <div />}
-              {uploadStep < 4 ? (
-                <button onClick={() => setUploadStep(s => (s + 1) as UploadStep)} disabled={uploadStep === 1 && !pdfFile} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', backgroundColor: uploadStep === 1 && !pdfFile ? '#4B5563' : '#6B1124', color: '#FAF6EB', cursor: uploadStep === 1 && !pdfFile ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '14px', opacity: uploadStep === 1 && !pdfFile ? 0.6 : 1 }}>
-                  Suivant →
-                </button>
-              ) : (
-                <button onClick={handleSubmit} disabled={uploadProgress === 'uploading'} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', backgroundColor: uploadProgress === 'uploading' ? '#4B5563' : '#6B1124', color: '#FAF6EB', cursor: uploadProgress === 'uploading' ? 'wait' : 'pointer', fontWeight: 700, fontSize: '14px' }}>
-                  🚀 Publier le cours
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modale d'Upload R2 & Compression Académique */}
+      <ModalAjoutDocument
+        isOpen={showUploadPanel}
+        onClose={() => setShowUploadPanel(false)}
+        onSuccess={() => {
+          onReload();
+        }}
+        darkMode={darkMode}
+      />
 
       {/* MODALE SPLIT-SCREEN : LECTEUR PDF INTÉGRÉ + PANNEAU D'ÉDITION & PAYWALL */}
       {previewDoc && (
@@ -664,9 +443,9 @@ export function CatalogView({ documents, setDocuments, darkMode, onReload }: Cat
                 {/* Explication dynamique */}
                 <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: darkMode ? '#1E1E1E' : '#FFFFFF', border: `1px solid ${border}`, fontSize: '12px', color: textColor, display: 'flex', alignItems: 'center', gap: '8px', lineHeight: 1.4 }}>
                   {tempValue === 0 ? (
-                    <><Lock size={15} color="#E74C3C" /> <span><strong>0% :</strong> Achat obligatoire dès la 1ère page.</span></>
+                    <><LockIcon size={15} color="#E74C3C" /> <span><strong>0% :</strong> Achat obligatoire dès la 1ère page.</span></>
                   ) : tempValue >= 100 ? (
-                    <><Unlock size={15} color="#10B981" /> <span><strong>100% :</strong> Document accessible en intégralité gratuitement.</span></>
+                    <><UnlockIcon size={15} color="#10B981" /> <span><strong>100% :</strong> Document accessible en intégralité gratuitement.</span></>
                   ) : tempType === 'fluide' ? (
                     <><Eye size={15} color="#8B5CF6" /> <span><strong>Mode Fluide :</strong> Coupure continue à <strong>{tempValue.toFixed(1)}%</strong> du document.</span></>
                   ) : (

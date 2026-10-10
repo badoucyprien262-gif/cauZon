@@ -101,10 +101,10 @@ export default function ModaleAchat({
     async function initialiser() {
       try {
         if (Platform.OS === 'android') {
-          setIdentifiantAppareil(Application.getAndroidId() || 'MOCK_ANDROID_ID_789456');
+          setIdentifiantAppareil(Application.getAndroidId() || 'ID_ANDROID_INDISPONIBLE');
         } else if (Platform.OS === 'ios') {
           const iosId = await Application.getIosIdForVendorAsync();
-          setIdentifiantAppareil(iosId || 'MOCK_IOS_ID_789456');
+          setIdentifiantAppareil(iosId || 'ID_IOS_INDISPONIBLE');
         } else {
           setIdentifiantAppareil('IDENTIFIANT_NAVIGATEUR_WEB');
         }

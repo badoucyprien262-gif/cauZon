@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { ShieldCheck, ArrowRight } from 'lucide-react';
 
 interface AuthGateProps {
@@ -12,13 +12,15 @@ export function AuthGate({ onAuthenticated, darkMode }: AuthGateProps) {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const serverSecret = (import.meta as any).env?.VITE_ADMIN_SECRET_KEY || 'cauZonAdmin2026';
-    if (secretKey === serverSecret) {
+    const serverSecret = (import.meta as any).env?.VITE_ADMIN_SECRET_KEY;
+    const serverApiKey = (import.meta as any).env?.VITE_ADMIN_API_KEY;
+    const validKey = serverSecret || serverApiKey;
+    if (validKey && secretKey === validKey) {
       localStorage.setItem('CAUZON_ADMIN_AUTH', 'true');
       sessionStorage.setItem('CAUZON_ADMIN_AUTH', 'true');
       onAuthenticated();
     } else {
-      setAuthError("Code d'accès incorrect. Veuillez réessayer.");
+      setAuthError("Code d'accès incorrect ou clé non configurée. Veuillez réessayer.");
     }
   };
 

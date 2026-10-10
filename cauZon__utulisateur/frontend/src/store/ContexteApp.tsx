@@ -39,7 +39,6 @@ interface AppContextType {
   utilisateur: any | null;
   setUtilisateur: React.Dispatch<React.SetStateAction<any | null>>;
   debloquerDocument: (id: string) => void;
-  reinitialiserDemo: () => void;
   desactiverCompte: () => Promise<{ success: boolean; message: string }>;
   couleurs: typeof couleursClair;
   modeTheme: 'light' | 'dark';
@@ -966,25 +965,6 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   };
 
-  const reinitialiserDemo = () => {
-    setDocsDebloquesIds([]);
-    setAcquisitions([]);
-    setDocumentsImportes([]);
-    setUtilisateur(null);
-    setEstVip(false);
-    setAStockageEtendu(false);
-    setLimiteStockage(75);
-    definirPreferenceTheme('systeme');
-    setPhotoProfil('avatar-1');
-    setNomUtilisateur('Étudiant cauZon');
-    setTelephoneFacturation('');
-    setAReponseNonLue(false);
-    setEstAbonneVIP(false);
-    setDateExpirationAbonnement(null);
-    setVipExpireAt(null);
-    setEstConnecteGoogle(false);
-    setEmailUtilisateur('');
-  };
 
   const marquerCommentairesCommeLus = () => {
     setAReponseNonLue(false);
@@ -1241,7 +1221,6 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         utilisateur,
         setUtilisateur,
         debloquerDocument,
-        reinitialiserDemo,
         desactiverCompte,
         couleurs,
         modeTheme,

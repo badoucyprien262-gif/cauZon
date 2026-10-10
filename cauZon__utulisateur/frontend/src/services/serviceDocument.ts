@@ -213,19 +213,26 @@ export const prechargerDonneesAccueil = async (): Promise<{
 };
 
 /**
- * Récupère tous les documents du catalogue pour le Feed / Écran d'accueil
- * Exclut automatiquement les documents déjà acquis par cet appareil.
+ * Récupère les documents du catalogue pour le Feed / Écran d'accueil avec pagination
+ * Utilise une pagination par tranche (.range) pour préserver la bande passante
+ * et exclut les documents déjà acquis en mémoire sans gonfler l'URL PostgREST.
+ *
+ * @param forceRefresh - Force le rechargement depuis le réseau sans utiliser le cache mémoire
+ * @param page - Numéro de page (0-indexed, défaut: 0)
+ * @param pageSize - Nombre de documents par page (défaut: 20)
  */
 export const fetchCatalogueDocuments = async (
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  page: number = 0,
+  pageSize: number = 20
 ): Promise<DocumentCourse[]> => {
-  if (!forceRefresh && cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
+  if (!forceRefresh && page === 0 && cacheCatalogueMemoire && cacheCatalogueMemoire.length > 0) {
     return cacheCatalogueMemoire;
   }
   try {
     const deviceId = await getDeviceId();
 
-    // 1. Récupérer les acquisitions de cet appareil
+    // 1. Récupérer les identifiants acquis pour cet appareil
     let acquiredIds: string[] = [];
     try {
       const { data: acquisitions, error: errAcq } = await supabase
@@ -242,17 +249,16 @@ export const fetchCatalogueDocuments = async (
       console.warn('Exception lecture acquisitions (tolérée) :', eAcq);
     }
 
-    // 2. Récupérer uniquement les documents actifs / publiés
-    // ATTENTION CRITIQUE : la colonne 'created_at' n'existe PAS dans la table 'documents' de Supabase !
-    // Ne jamais faire .order('created_at') sous peine d'erreur PostgREST 42703.
-    let query = supabase
+    // 2. Pagination par tranche (range)
+    // Évite de charger tout le catalogue d'un coup
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+
+    const query = supabase
       .from('documents')
       .select('*')
-      .neq('status', 'inactif');
-    
-    if (acquiredIds.length > 0) {
-      query = query.not('id', 'in', `(${acquiredIds.join(',')})`);
-    }
+      .neq('status', 'inactif')
+      .range(from, to);
 
     const { data, error } = await query;
 
@@ -260,8 +266,16 @@ export const fetchCatalogueDocuments = async (
       console.error("ERREUR CHARGEMENT CATALOGUE SUPABASE:", error);
       throw error;
     }
-    const resultat = (data || []) as DocumentCourse[];
-    if (resultat.length > 0) {
+
+    const docs = (data || []) as DocumentCourse[];
+
+    // 3. Filtrage en mémoire légère pour exclure les acquisitions
+    // Prévention absolue de l'erreur HTTP 414 URI Too Long (.not('id', 'in', ...))
+    const resultat = acquiredIds.length > 0
+      ? docs.filter((d) => !acquiredIds.includes(d.id))
+      : docs;
+
+    if (page === 0 && resultat.length > 0) {
       cacheCatalogueMemoire = resultat;
       sauvegarderCacheAccueilDisque({
         documents: resultat,
@@ -269,6 +283,7 @@ export const fetchCatalogueDocuments = async (
         promoConfig: cachePromoMemoire || null,
       });
     }
+
     return resultat;
   } catch (error: any) {
     console.error("ERREUR CHARGEMENT CATALOGUE SUPABASE:", error);
@@ -2305,33 +2320,35 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
           );
         }
 
-        // Source 2 : Table fallback 'documents' (status = 'user_imported')
-        const { data: fallbackDocs, error: errFallback } = await supabase
-          .from('documents')
-          .select('*')
-          .eq('status', 'user_imported');
+        // Source 2 : Table fallback 'documents' (filtrée strictement par les acquisitions de l'utilisateur connecté)
+        const userAcqIds = (acquisitions || []).map((a: any) => a.document_id).filter(Boolean);
+        if (userAcqIds.length > 0) {
+          const { data: fallbackDocs, error: errFallback } = await supabase
+            .from('documents')
+            .select('*')
+            .eq('status', 'user_imported')
+            .in('id', userAcqIds);
 
-        if (!errFallback && fallbackDocs && fallbackDocs.length > 0) {
-          const userAcqIds = (acquisitions || []).map((a: any) => a.document_id);
-          const mesFallback = fallbackDocs.filter((fd: any) => userAcqIds.includes(fd.id));
-          for (const fb of mesFallback) {
-            if (!cloudUserDocs.some((d) => d.id === fb.id)) {
-              const cleanFbPath = (fb.cloud_path || fb.file_path || '')
-                .replace(/^documents_utilisateurs\//, '')
-                .replace(/^\/+/, '');
+          if (!errFallback && fallbackDocs && fallbackDocs.length > 0) {
+            for (const fb of fallbackDocs) {
+              if (!cloudUserDocs.some((d) => d.id === fb.id)) {
+                const cleanFbPath = (fb.cloud_path || fb.file_path || '')
+                  .replace(/^documents_utilisateurs\//, '')
+                  .replace(/^\/+/, '');
 
-              cloudUserDocs.push({
-                ...fb,
-                is_vip_consultation: false,
-                est_importe: true,
-                file_path: cleanFbPath,
-                cloud_path: cleanFbPath,
-                bucket: 'documents_utilisateurs',
-                local_uri: fb.local_uri || '',
-                cheminLocal: '',
-                estImporte: true,
-                typeAcquisition: 'permanent',
-              } as DocumentCourse);
+                cloudUserDocs.push({
+                  ...fb,
+                  is_vip_consultation: false,
+                  est_importe: true,
+                  file_path: cleanFbPath,
+                  cloud_path: cleanFbPath,
+                  bucket: 'documents_utilisateurs',
+                  local_uri: fb.local_uri || '',
+                  cheminLocal: '',
+                  estImporte: true,
+                  typeAcquisition: 'permanent',
+                } as DocumentCourse);
+              }
             }
           }
         }
@@ -2467,16 +2484,8 @@ export const acquerirDocumentVIP = async (
     };
     if (user) insertData.user_id = user.id;
 
-    // 1. Enregistrement / Upsert dans Supabase
-    const { error } = await supabase
-      .from('acquisitions')
-      .upsert([insertData], { onConflict: 'document_id, device_id' });
-
-    if (error) {
-      console.warn('Note insertion acquisition Supabase :', error.message);
-      // Tentative fallback en insert simple
-      await supabase.from('acquisitions').insert([insertData]);
-    }
+    // 1. 🔒 SÉCURITÉ : Les écritures directes dans `acquisitions` depuis le client mobile sont neutralisées.
+    // L'accès VIP est validé dynamiquement via le profil VIP et géré dans le cache local de l'utilisateur.
 
     // 2. Synchronisation immédiate du cache local de la bibliothèque
     try {
@@ -2735,37 +2744,10 @@ export const enregistrerAchatDocument = async (documentId: string, montantPaye: 
       insertionData.user_id = user.id;
     }
 
-    // 1. Mettre à jour les éventuelles lignes d'acquisitions existantes pour ce document
-    // afin de convertir le statut VIP en permanent (is_vip_consultation: false)
-    try {
-      let updateQuery = supabase
-        .from('acquisitions')
-        .update({
-          is_vip_consultation: false,
-          montant_paye: montantPaye,
-          is_welcome_offer: false,
-        })
-        .eq('document_id', documentId);
-
-      if (user?.id) {
-        updateQuery = updateQuery.or(`device_id.eq.${deviceId},user_id.eq.${user.id}`);
-      } else {
-        updateQuery = updateQuery.eq('device_id', deviceId);
-      }
-      await updateQuery;
-    } catch (errUpdate) {
-      console.warn('Note mise à jour acquisition VIP -> Permanent :', errUpdate);
-    }
-
-    // 2. Upsert officiel pour garantir la persistance permanente
-    const { error } = await supabase
-      .from('acquisitions')
-      .upsert([insertionData], { onConflict: 'document_id, device_id' });
-
-    if (error) {
-      console.warn('Erreur upsert acquisition permanente :', error.message);
-      await supabase.from('acquisitions').insert([insertionData]);
-    }
+    // 1. 🔒 SÉCURITÉ : Les insertions directes dans la table `acquisitions` depuis le client mobile sont strictement verrouillées.
+    // L'enregistrement officiel d'un achat est exclusivement délégué aux webhooks de paiement serveur (FeexPay/FedaPay)
+    // qui attribuent les droits via service_role après confirmation de paiement.
+    console.log(`[Paiement] Achat enregistré pour le document ${documentId}. Validation finale orchestrée par webhook serveur.`);
 
     // 3. Mise à jour immédiate du cache local de la bibliothèque
     try {
@@ -2891,31 +2873,9 @@ export const activerPassVIP = async (
     const dateExpISO = nouvelleDate.toISOString();
     const dateAffichage = nouvelleDate.toLocaleDateString('fr-FR');
 
-    // 2. Persistance si utilisateur connecté
-    if (user) {
-      await supabase
-        .from('profiles')
-        .update({
-          has_vip_pass: true,
-          vip_expiration_date: dateExpISO,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
-      console.log('✅ Pass VIP persisté dans Supabase [profiles] pour user:', user.id);
-    }
-
-    // 3. Persistance systématique sur l'appareil (Device ID)
-    if (deviceId) {
-      await supabase
-        .from('appareils_historique_bienvenue')
-        .upsert({
-          device_id: deviceId,
-          has_vip_pass: true,
-          vip_expiration_date: dateExpISO,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'device_id' });
-      console.log('✅ Pass VIP persisté dans Supabase [appareils] pour device:', deviceId);
-    }
+    // 2. 🔒 SÉCURITÉ : L'attribution directe du statut VIP sur la table `profiles` depuis le client mobile est neutralisée.
+    // L'activation officielle et l'extension du pass VIP sont exclusivement orchestrées côté serveur via les webhooks de paiement (FeexPay/FedaPay).
+    console.log(`[VIP] Demande d'activation VIP traitée. Statut effectif synchronisé depuis le serveur pour user: ${user?.id || 'anonyme'}.`);
 
     // 4. Persistance en cache local immédiat
     await AsyncStorage.setItem('cauzon_vip_status', JSON.stringify({
