@@ -1,63 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LecteurPdfProps } from './PdfViewer/types';
-
-/**
- * Charge dynamiquement PDFLib sans inclusion statique dans le bundle Metro
- * Utilisé pour le calcul du nombre réel de pages et le découpage DRM sécurisé
- */
-async function getPDFDocumentClass(): Promise<any> {
-  if (typeof window === 'undefined') return null;
-  if ((window as any).PDFLib?.PDFDocument) {
-    return (window as any).PDFLib.PDFDocument;
-  }
-  if (typeof document === 'undefined') return null;
-
-  return new Promise((resolve, reject) => {
-    const scriptId = 'pdf-lib-bundle-loader';
-    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
-    if (script) {
-      if ((window as any).PDFLib?.PDFDocument) {
-        return resolve((window as any).PDFLib.PDFDocument);
-      }
-      script.addEventListener('load', () => {
-        if ((window as any).PDFLib?.PDFDocument) resolve((window as any).PDFLib.PDFDocument);
-        else reject(new Error('PDFLib introuvable après chargement'));
-      });
-      script.addEventListener('error', () => reject(new Error('Échec chargement pdf-lib')));
-      return;
-    }
-
-    const injectCdnFallback = () => {
-      if (typeof document === 'undefined') return reject(new Error('Document introuvable'));
-      const cdnScript = document.createElement('script');
-      cdnScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.9/pdf-lib.min.js';
-      cdnScript.onload = () => {
-        if ((window as any).PDFLib?.PDFDocument) {
-          resolve((window as any).PDFLib.PDFDocument);
-        } else {
-          reject(new Error('PDFLib introuvable via CDN'));
-        }
-      };
-      cdnScript.onerror = () => reject(new Error('Échec de chargement CDN de pdf-lib'));
-      document.head.appendChild(cdnScript);
-    };
-
-    script = document.createElement('script');
-    script.id = scriptId;
-    script.src = '/pdf-lib.min.js';
-    script.onload = () => {
-      if ((window as any).PDFLib?.PDFDocument) {
-        resolve((window as any).PDFLib.PDFDocument);
-      } else {
-        injectCdnFallback();
-      }
-    };
-    script.onerror = () => {
-      injectCdnFallback();
-    };
-    document.head.appendChild(script);
-  });
-}
+import { chargerPdfJs, extrairePdfBytes } from './PdfViewer/pdfjsLoader';
 
 interface ErrorBoundaryProps {
   estSombre?: boolean;
@@ -136,7 +79,13 @@ export class LecteurPdfErrorBoundary extends React.Component<ErrorBoundaryProps,
 }
 
 /**
- * LecteurPdfDesktop (Moteur Vectoriel Haute Fidélité avec Synchronisation Pagination Réelle)
+ * LecteurPdfDesktop (Moteur Paginé Dynamique PDF.js avec Synchronisation Scroll Temps Réel)
+ *
+ * 1. Rendu paginé dynamique & haute fidélité Retina (PDF.js Canvas avec viewport ajusté au devicePixelRatio).
+ * 2. Synchronisation en direct du compteur de page au scroll (IntersectionObserver).
+ * 3. Navigation bidirectionnelle fluide (◀, ▶, scrollIntoView).
+ * 4. Barre bordeaux cauZon fixe en haut (sticky, indépendante du scroll).
+ * 5. Bouclier de sécurité anti-fuite : interception Ctrl+P / Ctrl+S, clic droit désactivé, paywall DRM.
  */
 const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -157,7 +106,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   onError,
   onReessayer,
 }) => {
-  // 1. Extraction prioritaire du total de pages réel depuis les métadonnées
+  // Total initial d'après les métadonnées si disponible
   const totalMeta = Number(
     nombrePages ||
     docProp?.nombre_pages ||
@@ -168,36 +117,27 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
 
   const [chargement, setChargement] = useState<boolean>(true);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [urlAffichee, setUrlAffichee] = useState<string | null>(null);
-  const [pagesApercuAutorisees, setPagesApercuAutorisees] = useState<number>(1);
   const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(totalMeta > 1 ? totalMeta : 1);
+  const [pagesApercuAutorisees, setPagesApercuAutorisees] = useState<number>(1);
   const [pageCourante, setPageCourante] = useState<number>(1);
   const [estPleinEcran, setEstPleinEcran] = useState<boolean>(false);
   const [messageNotification, setMessageNotification] = useState<string | null>(null);
 
+  // Dimensions de base de la première page pour réserver l'espace vertical (zéro layout shift)
+  const [aspectRatioPage1, setAspectRatioPage1] = useState<number>(1.414);
+  const [largeurAffichagePage, setLargeurAffichagePage] = useState<number>(820);
+
   const rootRef = useRef<HTMLDivElement>(null);
-  const blobUrlCreeRef = useRef<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const pdfDocRef = useRef<any>(null);
+  const pageContainerRefs = useRef<{ [pageNumber: number]: HTMLDivElement | null }>({});
+  const canvasRefs = useRef<{ [pageNumber: number]: HTMLCanvasElement | null }>({});
+  const pagesRenduesRef = useRef<Set<number>>(new Set());
+  const tachesRenduRef = useRef<{ [pageNumber: number]: any }>({});
   const timerNotificationRef = useRef<any>(null);
+  const isProgrammaticScrollRef = useRef<boolean>(false);
 
-  // Synchronisation dynamique si la prop métadonnée change
-  useEffect(() => {
-    if (totalMeta > 1 && totalMeta !== nombrePagesTotal) {
-      setNombrePagesTotal(totalMeta);
-    }
-  }, [totalMeta]);
-
-  // Nettoyage systématique des URL Blob mémoire lors du démontage
-  useEffect(() => {
-    return () => {
-      if (blobUrlCreeRef.current) {
-        URL.revokeObjectURL(blobUrlCreeRef.current);
-        blobUrlCreeRef.current = null;
-      }
-      if (timerNotificationRef.current) {
-        clearTimeout(timerNotificationRef.current);
-      }
-    };
-  }, []);
+  const sourceBrute = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
   const afficherNotification = useCallback((message: string) => {
     setMessageNotification(message);
@@ -207,7 +147,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }, 2800);
   }, []);
 
-  // Protection Anti-Fuite & Anti-Impression : Interception stricte des raccourcis Ctrl+P / Ctrl+S
+  // 1. Protection Anti-Fuite & Anti-Impression : Interception stricte des raccourcis Ctrl+P / Ctrl+S
   useEffect(() => {
     const intercepterRaccourcis = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
@@ -227,21 +167,94 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     };
   }, [afficherNotification]);
 
-  const sourceBrute = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
+  // Total effectif de pages accessibles
+  const totalEffectifPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
 
-  // Préparation du document, lecture dynamique du total de pages & Sécurisation Paywall DRM
+  // 2. Rastérisation Haute Fidélité Retina d'une page individuelle sur Canvas
+  const rasteriserPage = useCallback(async (pageNum: number) => {
+    const pdfDoc = pdfDocRef.current;
+    if (!pdfDoc || pagesRenduesRef.current.has(pageNum)) return;
+
+    // Annuler une tâche précédente si déjà active sur cette page
+    if (tachesRenduRef.current[pageNum]) {
+      try {
+        tachesRenduRef.current[pageNum].cancel();
+      } catch (_) {}
+      delete tachesRenduRef.current[pageNum];
+    }
+
+    const canvas = canvasRefs.current[pageNum];
+    const wrapper = pageContainerRefs.current[pageNum];
+    if (!canvas || !wrapper) return;
+
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+
+      // Plafond DPR optimal pour netteté vectorielle cristalline sans saturation mémoire
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2.2) : 1.5;
+
+      // Calcul de l'échelle d'affichage pour une lecture confortable
+      const containerWidth = scrollContainerRef.current?.clientWidth || 900;
+      const targetWidth = Math.min(Math.max(containerWidth - 64, 480), 920);
+      const scaleBase = targetWidth / unscaledViewport.width;
+      const viewport = page.getViewport({ scale: scaleBase });
+
+      const cssWidth = Math.floor(viewport.width);
+      const cssHeight = Math.floor(viewport.height);
+
+      // Résolution physique haute définition Retina
+      canvas.width = Math.floor(viewport.width * dpr);
+      canvas.height = Math.floor(viewport.height * dpr);
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
+      canvas.style.display = 'block';
+
+      // Ajuster le conteneur parent
+      wrapper.style.width = `${cssWidth}px`;
+      wrapper.style.height = `${cssHeight}px`;
+
+      const placeholder = wrapper.querySelector('.cauzon-page-placeholder');
+      if (placeholder) {
+        (placeholder as HTMLElement).style.display = 'none';
+      }
+
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      const renderTask = page.render({
+        canvasContext: ctx,
+        viewport: page.getViewport({ scale: scaleBase * dpr }),
+      });
+      tachesRenduRef.current[pageNum] = renderTask;
+      await renderTask.promise;
+
+      pagesRenduesRef.current.add(pageNum);
+    } catch (err: any) {
+      if (err?.name !== 'RenderingCancelledException') {
+        console.warn(`[LecteurPdfDesktop] Note rendu page ${pageNum} :`, err);
+      }
+    } finally {
+      delete tachesRenduRef.current[pageNum];
+    }
+  }, []);
+
+  // 3. Chargement initial du document via PDF.js
   useEffect(() => {
     let estActif = true;
 
-    async function preparerDocumentDesktop() {
+    async function initialiserPdfJs() {
       try {
         setChargement(true);
         setErreur(null);
+        pagesRenduesRef.current.clear();
 
-        // Document totalement verrouillé (0 page autorisée)
+        // Document totalement verrouillé
         if (estVerrouille && limiteApercuValeur === 0) {
           if (estActif) {
-            setUrlAffichee(null);
+            setPagesApercuAutorisees(0);
             setChargement(false);
           }
           return;
@@ -251,186 +264,183 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           throw new Error('Aucune source PDF disponible pour le document.');
         }
 
-        let arrayBuffer: ArrayBuffer | null = null;
-        let urlDirecte: string | null = null;
+        const pdfjsLib = await chargerPdfJs();
+        if (!estActif) return;
 
-        // Résolution de la source : String HTTP/Blob, Base64 ou Uint8Array
-        if (typeof sourceBrute === 'string') {
-          if (sourceBrute.startsWith('http://') || sourceBrute.startsWith('https://') || sourceBrute.startsWith('blob:')) {
-            urlDirecte = sourceBrute;
-          } else if (sourceBrute.startsWith('data:application/pdf;base64,')) {
-            const b64 = sourceBrute.replace('data:application/pdf;base64,', '');
-            const binStr = atob(b64);
-            const len = binStr.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-              bytes[i] = binStr.charCodeAt(i);
-            }
-            arrayBuffer = bytes.buffer;
-          } else {
-            try {
-              const binStr = atob(sourceBrute);
-              const len = binStr.length;
-              const bytes = new Uint8Array(len);
-              for (let i = 0; i < len; i++) {
-                bytes[i] = binStr.charCodeAt(i);
-              }
-              arrayBuffer = bytes.buffer as ArrayBuffer;
-            } catch (_) {
-              urlDirecte = sourceBrute;
-            }
-          }
-        } else if (urlFichier instanceof Uint8Array) {
-          arrayBuffer = urlFichier.buffer as ArrayBuffer;
-        }
+        const bytes = await extrairePdfBytes(sourceBrute, urlFichier);
+        if (!estActif) return;
 
-        // Si le total de pages n'est pas encore connu avec certitude (> 1) ou si le document est verrouillé :
-        // Téléchargement du buffer pour inspection du nombre de pages et/ou découpage DRM
-        if ((totalMeta <= 1 || estVerrouille) && !arrayBuffer && urlDirecte) {
-          try {
-            const resp = await fetch(urlDirecte);
-            if (resp.ok) {
-              arrayBuffer = await resp.arrayBuffer();
-            }
-          } catch (fetchErr) {
-            console.warn('[LecteurPdfDesktop] Note récupération buffer pour comptage pages :', fetchErr);
-          }
-        }
+        const loadingTask = pdfjsLib.getDocument({
+          data: bytes,
+          cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/cmaps/',
+          cMapPacked: true,
+        });
 
-        let totalCalcule = totalMeta > 1 ? totalMeta : 1;
+        const pdfDoc = await loadingTask.promise;
+        if (!estActif) return;
 
-        // Lecture dynamique du nombre réel de pages via pdf-lib si arrayBuffer disponible
-        if (arrayBuffer) {
-          try {
-            const PDFDocument = await getPDFDocumentClass();
-            if (PDFDocument) {
-              const probeDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-              const pageCount = probeDoc.getPageCount();
-              if (pageCount && pageCount > 0) {
-                totalCalcule = pageCount;
-                if (estActif) {
-                  setNombrePagesTotal(pageCount);
-                  onDocumentLoad?.(pageCount);
-                }
-              }
-            }
-          } catch (countErr) {
-            console.warn('[LecteurPdfDesktop] Erreur lecture pageCount via pdf-lib :', countErr);
-          }
-        }
-
-        // 1. CAS DÉBLOQUÉ (Document acquis ou Pass VIP actif)
-        // -> Rendu direct du flux haute netteté avec total de pages réel synchronisé
-        if (!estVerrouille) {
-          if (urlDirecte) {
-            if (estActif) {
-              setUrlAffichee(urlDirecte);
-              setChargement(false);
-              onDocumentLoad?.(totalCalcule);
-            }
-            return;
-          }
-
-          if (arrayBuffer) {
-            const blob = new Blob([arrayBuffer as BlobPart], { type: 'application/pdf' });
-            const blobUrl = URL.createObjectURL(blob);
-            if (blobUrlCreeRef.current) URL.revokeObjectURL(blobUrlCreeRef.current);
-            blobUrlCreeRef.current = blobUrl;
-
-            if (estActif) {
-              setUrlAffichee(blobUrl);
-              setChargement(false);
-              onDocumentLoad?.(totalCalcule);
-            }
-            return;
-          }
-        }
-
-        // 2. CAS VERROUILLÉ (Aperçu limité / DRM sécurisé)
-        // -> Découpage strict des seules pages autorisées avec pdf-lib
-        if (!arrayBuffer) {
-          throw new Error('Données du document introuvables.');
-        }
-
-        const PDFDocument = await getPDFDocumentClass();
-        if (!PDFDocument) {
-          throw new Error('Moteur de sécurisation PDF indisponible.');
-        }
-
-        const sourceDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
-        const total = sourceDoc.getPageCount();
+        pdfDocRef.current = pdfDoc;
+        const total = pdfDoc.numPages;
         setNombrePagesTotal(total);
+        onDocumentLoad?.(total);
 
-        let allowedCount = 1;
-        if (limiteApercuType === 'page') {
-          allowedCount = Math.min(Number(limiteApercuValeur) || 1, total);
-        } else {
-          const pct = Number(limiteApercuValeur) || 30;
-          allowedCount = Math.min(Math.ceil((total * pct) / 100), total);
-        }
-        allowedCount = Math.max(1, allowedCount);
-        setPagesApercuAutorisees(allowedCount);
-
-        // Si la limite autorise tout le document
-        if (allowedCount >= total) {
-          const blob = new Blob([arrayBuffer as BlobPart], { type: 'application/pdf' });
-          const blobUrl = URL.createObjectURL(blob);
-          if (blobUrlCreeRef.current) URL.revokeObjectURL(blobUrlCreeRef.current);
-          blobUrlCreeRef.current = blobUrl;
-
-          if (estActif) {
-            setUrlAffichee(blobUrl);
-            setChargement(false);
-            onDocumentLoad?.(total);
+        // Calcul des pages autorisées en cas de verrouillage
+        let allowed = total;
+        if (estVerrouille) {
+          if (limiteApercuType === 'page') {
+            const limiteP = Number(limiteApercuValeur) || Number(limiteApercuPages) || 1;
+            allowed = Math.min(Math.max(1, limiteP), total);
+          } else {
+            const pct = Number(limiteApercuValeur) || 30;
+            allowed = Math.min(Math.max(1, Math.ceil((total * pct) / 100)), total);
           }
-          return;
         }
+        setPagesApercuAutorisees(allowed);
 
-        // Création de l'extrait sécurisé contenant EXCLUSIVEMENT les pages autorisées
-        const subDoc = await PDFDocument.create();
-        const pageIndices = Array.from({ length: allowedCount }, (_, i) => i);
-        const copiedPages = await subDoc.copyPages(sourceDoc, pageIndices);
-        copiedPages.forEach((page: any) => subDoc.addPage(page));
+        // Calibrer la taille de la page 1
+        const page1 = await pdfDoc.getPage(1);
+        const vp1 = page1.getViewport({ scale: 1.0 });
+        const ratio = vp1.height / vp1.width;
+        setAspectRatioPage1(ratio);
 
-        const subPdfBytes = await subDoc.save();
-        const subBlob = new Blob([subPdfBytes as any], { type: 'application/pdf' });
-        const subBlobUrl = URL.createObjectURL(subBlob);
-
-        if (blobUrlCreeRef.current) URL.revokeObjectURL(blobUrlCreeRef.current);
-        blobUrlCreeRef.current = subBlobUrl;
+        const containerWidth = scrollContainerRef.current?.clientWidth || 900;
+        const targetW = Math.min(Math.max(containerWidth - 64, 480), 920);
+        setLargeurAffichagePage(targetW);
 
         if (estActif) {
-          setUrlAffichee(subBlobUrl);
           setChargement(false);
-          onDocumentLoad?.(allowedCount);
-          onPageChange?.(1, allowedCount);
         }
       } catch (err: any) {
-        console.error('[LecteurPdfDesktop] Erreur préparation du lecteur natif :', err);
+        console.error('[LecteurPdfDesktop] Erreur chargement document PDF.js :', err);
         if (estActif) {
-          setErreur(err?.message || 'Impossible de préparer le visualiseur natif.');
+          setErreur(err?.message || 'Impossible d\'afficher le document.');
           setChargement(false);
           onError?.(err);
         }
       }
     }
 
-    preparerDocumentDesktop();
+    initialiserPdfJs();
 
     return () => {
       estActif = false;
+      Object.keys(tachesRenduRef.current).forEach(k => {
+        try { tachesRenduRef.current[Number(k)]?.cancel(); } catch (_) {}
+      });
+      tachesRenduRef.current = {};
+      pagesRenduesRef.current.clear();
     };
-  }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, totalMeta]);
+  }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur]);
 
-  // Total effectif de navigation selon le verrouillage DRM
-  const totalEffectifPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
+  // 4. Rendu prioritaire de la Page 1 dès que le conteneur DOM est prêt
+  useEffect(() => {
+    if (!chargement && !erreur && pdfDocRef.current) {
+      rasteriserPage(1);
+    }
+  }, [chargement, erreur, rasteriserPage]);
 
-  // Navigation dynamique vers une page cible
-  const allerPage = (p: number) => {
-    const nouvelle = Math.min(Math.max(1, p), totalEffectifPages);
-    setPageCourante(nouvelle);
-    onPageChange?.(nouvelle, totalEffectifPages);
-  };
+  // 5. Lazy-Rendering des pages à l'approche du viewport (rootMargin: '600px')
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || chargement || erreur || !pdfDocRef.current) return;
+
+    const lazyObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const pageNum = Number(entry.target.getAttribute('data-page'));
+            if (pageNum && !pagesRenduesRef.current.has(pageNum)) {
+              rasteriserPage(pageNum);
+            }
+          }
+        });
+      },
+      {
+        root: scrollContainer,
+        rootMargin: '600px 0px 600px 0px',
+      }
+    );
+
+    for (let p = 1; p <= totalEffectifPages; p++) {
+      const el = pageContainerRefs.current[p];
+      if (el) lazyObserver.observe(el);
+    }
+
+    return () => lazyObserver.disconnect();
+  }, [chargement, erreur, totalEffectifPages, rasteriserPage]);
+
+  // 6. SYNCHRONISATION EN DIRECT DU COMPTEUR DE PAGES AU SCROLL (IntersectionObserver)
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || chargement || erreur || !pdfDocRef.current) return;
+
+    const ratiosMap = new Map<number, number>();
+
+    const scrollSyncObserver = new IntersectionObserver(
+      (entries) => {
+        // Ignorer temporairement la synchronisation si un scroll programmatique est en cours
+        if (isProgrammaticScrollRef.current) return;
+
+        entries.forEach((entry) => {
+          const pageNum = Number(entry.target.getAttribute('data-page'));
+          if (pageNum) {
+            if (entry.isIntersecting) {
+              ratiosMap.set(pageNum, entry.intersectionRatio);
+            } else {
+              ratiosMap.delete(pageNum);
+            }
+          }
+        });
+
+        // Identifier la page ayant la plus grande surface visible à l'écran
+        let pageLaPlusVisible = pageCourante;
+        let maxRatio = -1;
+
+        ratiosMap.forEach((ratio, pageNum) => {
+          if (ratio > maxRatio) {
+            maxRatio = ratio;
+            pageLaPlusVisible = pageNum;
+          }
+        });
+
+        if (pageLaPlusVisible && pageLaPlusVisible !== pageCourante && maxRatio > 0.15) {
+          setPageCourante(pageLaPlusVisible);
+          onPageChange?.(pageLaPlusVisible, totalEffectifPages);
+        }
+      },
+      {
+        root: scrollContainer,
+        threshold: [0.15, 0.35, 0.55, 0.75, 0.95],
+      }
+    );
+
+    for (let p = 1; p <= totalEffectifPages; p++) {
+      const el = pageContainerRefs.current[p];
+      if (el) scrollSyncObserver.observe(el);
+    }
+
+    return () => scrollSyncObserver.disconnect();
+  }, [chargement, erreur, totalEffectifPages, pageCourante, onPageChange]);
+
+  // 7. Navigation bidirectionnelle programmatique (◀, ▶ ou sélection directe)
+  const allerPage = useCallback((p: number) => {
+    const cible = Math.min(Math.max(1, p), totalEffectifPages);
+    setPageCourante(cible);
+    onPageChange?.(cible, totalEffectifPages);
+
+    const el = pageContainerRefs.current[cible];
+    if (el) {
+      isProgrammaticScrollRef.current = true;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      // Rendre immédiatement la page cible si pas encore rendue
+      rasteriserPage(cible);
+
+      setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 700);
+    }
+  }, [totalEffectifPages, onPageChange, rasteriserPage]);
 
   // Bascule mode plein écran
   const basculerPleinEcran = () => {
@@ -538,11 +548,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     );
   }
 
-  // URL enrichie avec les paramètres standards pour synchroniser la page et masquer la toolbar native
-  // #page=${pageCourante}&toolbar=0&navpanes=0&view=FitH
-  const urlSecurisee = urlAffichee
-    ? `${urlAffichee}#page=${pageCourante}&toolbar=0&navpanes=0&view=FitH`
-    : null;
+  const hauteurEstimeePage = Math.floor(largeurAffichagePage * aspectRatioPage1);
 
   return (
     <div
@@ -555,7 +561,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        backgroundColor: estSombre ? '#0F172A' : '#F1F5F9',
+        backgroundColor: estSombre ? '#0F172A' : '#525659',
         overflow: 'hidden',
         userSelect: 'none',
         WebkitUserSelect: 'none',
@@ -564,7 +570,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* ─────────────────────────────────────────────────────────────────────────── */}
-      {/* 1. BARRE D'OUTILS CAUZON FIXE (TOTALEMENT ISOLÉE DU CONTENEUR DE ZOOM)       */}
+      {/* 1. BARRE D'OUTILS CAUZON FIXE (STICKY / TOTALE INDÉPENDANCE DU SCROLL)       */}
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       <div
         style={{
@@ -614,7 +620,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           </div>
         </div>
 
-        {/* Section Centre : Navigation par Page & Compteur dynamique */}
+        {/* Section Centre : Navigation & Synchronisation en Direct au Scroll */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
             style={{
@@ -761,21 +767,24 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────── */}
-      {/* 2. CONTENEUR SCROLLABLE DU DOCUMENT AVEC MOTEUR VECTORIEL NATIF               */}
+      {/* 2. CONTENEUR SCROLLABLE VERTICAL DES PAGES AVEC RENDU CANVA HAUTE NETTETÉ    */}
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       <div
+        ref={scrollContainerRef}
         style={{
           width: '100%',
           height: 'calc(100% - 52px)',
           flex: 1,
           position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           backgroundColor: estSombre ? '#0F172A' : '#525659',
+          padding: '24px 16px 80px 16px',
+          boxSizing: 'border-box',
+          scrollBehavior: 'smooth',
         }}
       >
-        {/* Écran de chargement */}
+        {/* Écran de chargement initial */}
         {chargement && (
           <div
             style={{
@@ -812,7 +821,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                 color: estSombre ? '#E2E8F0' : '#334155',
               }}
             >
-              Rendu vectoriel haute netteté en cours...
+              Préparation de la liseuse haute netteté...
             </p>
           </div>
         )}
@@ -857,108 +866,185 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           </div>
         )}
 
-        {/* Moteur de Rendu Vectoriel Natif (Haute Netteté 60/120 FPS sans pixelisation) */}
-        {/* Navigation dynamique par page via #page=${pageCourante}&toolbar=0&navpanes=0&view=FitH */}
-        {urlSecurisee && !erreur && (
-          <object
-            key={`${urlAffichee}_page_${pageCourante}`}
-            data={urlSecurisee}
-            type="application/pdf"
-            width="100%"
-            height="100%"
-            style={{
-              width: '100%',
-              height: '100%',
-              flex: 1,
-              border: 'none',
-              display: 'block',
-            }}
-          >
-            <iframe
-              src={urlSecurisee}
-              title="Lecteur PDF cauZon"
-              width="100%"
-              height="100%"
-              style={{
-                width: '100%',
-                height: '100%',
-                border: 'none',
-                display: 'block',
-              }}
-            />
-          </object>
-        )}
-
-        {/* Bannière Paywall Flottante pour Extrait Gratuit */}
-        {estVerrouille && pagesApercuAutorisees > 0 && !chargement && !erreur && (
+        {/* Flux vertical des pages haute netteté */}
+        {!chargement && !erreur && (
           <div
             style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              backgroundColor: estSombre ? 'rgba(15, 23, 42, 0.96)' : 'rgba(255, 255, 255, 0.96)',
-              borderTop: `1px solid ${estSombre ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-              padding: '12px 24px',
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 -4px 16px rgba(0, 0, 0, 0.15)',
-              zIndex: 40,
-              backdropFilter: 'blur(8px)',
+              gap: '24px',
+              margin: '0 auto',
+              width: '100%',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: '22px' }}>🔒</span>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '13.5px', color: estSombre ? '#FFFFFF' : '#0F172A' }}>
-                  Aperçu limité à {pagesApercuAutorisees} page{pagesApercuAutorisees > 1 ? 's' : ''} sur {nombrePagesTotal}
+            {Array.from({ length: totalEffectifPages }, (_, idx) => {
+              const pageNum = idx + 1;
+              return (
+                <div
+                  key={`cauzon-page-${pageNum}`}
+                  ref={(el) => {
+                    pageContainerRefs.current[pageNum] = el;
+                  }}
+                  className="pdf-page-container"
+                  data-page={pageNum}
+                  id={`cauzon-desktop-page-${pageNum}`}
+                  style={{
+                    width: `${largeurAffichagePage}px`,
+                    minHeight: `${hauteurEstimeePage}px`,
+                    position: 'relative',
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '4px',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.28)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {/* Placeholder élégant pendant le lazy-rendering */}
+                  <div
+                    className="cauzon-page-placeholder"
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#FFFFFF',
+                      color: '#94A3B8',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span>Chargement de la page {pageNum}...</span>
+                  </div>
+
+                  {/* Canvas de rendu vectoriel Retina HD */}
+                  <canvas
+                    ref={(el) => {
+                      canvasRefs.current[pageNum] = el;
+                    }}
+                    style={{
+                      display: 'none',
+                      margin: '0 auto',
+                    }}
+                  />
+
+                  {/* Numéro de page discret */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '8px',
+                      right: '12px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: 'rgba(0, 0, 0, 0.25)',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    Page {pageNum}
+                  </div>
                 </div>
-                <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: 2 }}>
-                  Débloquez le cours complet pour accéder à l'intégralité du document.
+              );
+            })}
+
+            {/* Bannière Paywall à la fin de l'extrait gratuit */}
+            {estVerrouille && pagesApercuAutorisees > 0 && (
+              <div
+                style={{
+                  width: '100%',
+                  maxWidth: `${largeurAffichagePage}px`,
+                  backgroundColor: estSombre ? '#1E293B' : '#FFFFFF',
+                  borderRadius: '16px',
+                  padding: '32px 24px',
+                  textAlign: 'center',
+                  boxShadow: '0 8px 30px rgba(0, 0, 0, 0.15)',
+                  border: estSombre ? '1px solid #334155' : '1px solid #E2E8F0',
+                  marginTop: '12px',
+                  marginBottom: '40px',
+                }}
+              >
+                <div
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(127, 1, 31, 0.12)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 14px auto',
+                    fontSize: '28px',
+                  }}
+                >
+                  🔒
+                </div>
+                <h3
+                  style={{
+                    margin: '0 0 8px 0',
+                    fontSize: '18px',
+                    fontWeight: 800,
+                    color: estSombre ? '#FFFFFF' : '#0F172A',
+                  }}
+                >
+                  Fin de l'Aperçu Gratuit ({pagesApercuAutorisees} sur {nombrePagesTotal} pages)
+                </h3>
+                <p
+                  style={{
+                    margin: '0 0 22px 0',
+                    fontSize: '13.5px',
+                    lineHeight: '21px',
+                    color: estSombre ? '#94A3B8' : '#64748B',
+                    maxWidth: '520px',
+                    marginLeft: 'auto',
+                    marginRight: 'auto',
+                  }}
+                >
+                  Vous avez atteint la limite de consultation gratuite de ce cours. Débloquez la totalité du document pour poursuivre vos révisions sans interruption.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                  {onAcheter && (
+                    <button
+                      onClick={onAcheter}
+                      style={{
+                        padding: '12px 24px',
+                        backgroundColor: '#7F011F',
+                        color: '#FFFFFF',
+                        borderRadius: '10px',
+                        border: 'none',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(127, 1, 31, 0.3)',
+                      }}
+                    >
+                      🛒 Débloquer le cours ({prix} FCFA)
+                    </button>
+                  )}
+                  {onVip && (
+                    <button
+                      onClick={onVip}
+                      style={{
+                        padding: '12px 24px',
+                        backgroundColor: '#F59E0B',
+                        color: '#1E1B4B',
+                        borderRadius: '10px',
+                        border: 'none',
+                        fontWeight: 800,
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(245, 158, 11, 0.3)',
+                      }}
+                    >
+                      👑 Activer le Pass VIP (500 F)
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              {onAcheter && (
-                <button
-                  onClick={onAcheter}
-                  style={{
-                    padding: '8px 16px',
-                    backgroundColor: '#7F011F',
-                    color: '#FFFFFF',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontWeight: 700,
-                    fontSize: '12.5px',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(127, 1, 31, 0.25)',
-                  }}
-                >
-                  🛒 Débloquer ({prix} FCFA)
-                </button>
-              )}
-
-              {onVip && (
-                <button
-                  onClick={onVip}
-                  style={{
-                    padding: '8px 16px',
-                    backgroundColor: '#F59E0B',
-                    color: '#1E1B4B',
-                    borderRadius: '8px',
-                    border: 'none',
-                    fontWeight: 800,
-                    fontSize: '12.5px',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.25)',
-                  }}
-                >
-                  👑 Pass VIP (500 F)
-                </button>
-              )}
-            </div>
+            )}
           </div>
         )}
       </div>
