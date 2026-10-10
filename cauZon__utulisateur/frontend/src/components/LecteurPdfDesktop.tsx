@@ -81,13 +81,12 @@ export class LecteurPdfErrorBoundary extends React.Component<ErrorBoundaryProps,
 /**
  * LecteurPdfDesktop (Moteur Vectoriel Ultra-Net PDF.js avec Barre d'Outils Fixe Isolée)
  *
- * 1. Isolation totale de la barre cauZon : position: fixed, z-index: 1000, 52px invariable,
- *    totalement immune au zoom et au scroll du document.
- * 2. Rendu vectoriel ultra-net au zoom : calcul dynamique PDF.js avec viewport à l'échelle
- *    multipliée par le devicePixelRatio (Retina HD). Zéro flou, zéro étirement d'image.
- * 3. Synchronisation en direct au scroll via IntersectionObserver (Page X / Y).
- * 4. Navigation bidirectionnelle fluide (◀, ▶, scrollIntoView).
- * 5. Bouclier de sécurité anti-fuite : interception Ctrl+P / Ctrl+S, clic droit désactivé, paywall DRM.
+ * 1. Verrouillage absolu de la barre supérieure cauZon (position: fixed, z-index: 1000, 52px invariable).
+ * 2. Neutralisation du zoom global navigateur sur la page : touch-action: pan-x pan-y et e.preventDefault() sur Ctrl+Wheel.
+ * 3. Captage direct du zoom pavé tactile (trackpad pinch) et tactile (pinch 2 doigts) branché sur le zoom vectoriel.
+ * 4. Fluidité 60 FPS immédiate pendant le geste + re-rendu vectoriel Retina HD à l'arrêt du geste (zéro flou d'étirement).
+ * 5. Synchronisation en direct de l'indicateur de page au scroll (IntersectionObserver).
+ * 6. Bouclier de sécurité anti-fuite : interception Ctrl+P / Ctrl+S, clic droit bloqué, paywall DRM.
  */
 const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
@@ -141,6 +140,17 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   const tachesRenduRef = useRef<{ [pageNumber: number]: any }>({});
   const timerNotificationRef = useRef<any>(null);
   const isProgrammaticScrollRef = useRef<boolean>(false);
+
+  // Références techniques pour le zoom tactile & trackpad fluide
+  const zoomScaleRef = useRef<number>(zoomScale);
+  const zoomDebounceTimerRef = useRef<any>(null);
+  const isPinchingRef = useRef<boolean>(false);
+  const initialPinchDistRef = useRef<number>(0);
+  const initialZoomOnPinchRef = useRef<number>(1.0);
+
+  useEffect(() => {
+    zoomScaleRef.current = zoomScale;
+  }, [zoomScale]);
 
   const sourceBrute = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
@@ -201,7 +211,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     try {
       const page = await pdfDoc.getPage(pageNum);
 
-      // 🎯 Formule vectorielle Retina HD exacte prescrite :
+      // 🎯 Formule vectorielle Retina HD exacte :
       const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
       const viewport = page.getViewport({ scale: currentScale * dpr });
 
@@ -335,10 +345,11 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       });
       tachesRenduRef.current = {};
       pagesRenduesRef.current.clear();
+      if (zoomDebounceTimerRef.current) clearTimeout(zoomDebounceTimerRef.current);
     };
   }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur]);
 
-  // 4. Re-rastérisation vectorielle HD des pages visibles à chaque changement de zoom
+  // 4. Re-rastérisation vectorielle HD des pages visibles à chaque changement de zoom stabilisé
   useEffect(() => {
     if (chargement || erreur || !pdfDocRef.current) return;
 
@@ -348,11 +359,10 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     // Rendre immédiatement la page courante en cours de lecture
     rasteriserPage(pageCourante, zoomScale);
 
-    // Mettre à jour immédiatement la géométrie réservée de toutes les pages pour éviter tout décalage
+    // Mettre à jour immédiatement la géométrie réservée de toutes les pages pour un scroll impeccable
     for (let p = 1; p <= totalEffectifPages; p++) {
       const wrapper = pageContainerRefs.current[p];
       if (wrapper) {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
         const approxW = Math.floor(baseWidthPage1 * zoomScale);
         const approxH = Math.floor(approxW * aspectRatioPage1);
         wrapper.style.width = `${approxW}px`;
@@ -361,7 +371,102 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }
   }, [zoomScale, chargement, erreur, pageCourante, totalEffectifPages, baseWidthPage1, aspectRatioPage1, rasteriserPage]);
 
-  // 5. Lazy-Rendering haute fidélité des pages visibles via IntersectionObserver
+  // 5. Moteur de zoom interactif fluide (Touchscreen & Trackpad) avec debounce vectoriel HD
+  const appliquerZoomInteractif = useCallback((targetZoom: number) => {
+    const clamped = Math.min(Math.max(Number(targetZoom.toFixed(2)), 0.6), 2.8);
+    zoomScaleRef.current = clamped;
+
+    // Fluidité visuelle immédiate 60 FPS sur les dimensions CSS pendant le mouvement
+    for (let p = 1; p <= totalEffectifPages; p++) {
+      const wrapper = pageContainerRefs.current[p];
+      const canvas = canvasRefs.current[p];
+      if (wrapper) {
+        const w = Math.floor(baseWidthPage1 * clamped);
+        const h = Math.floor(w * aspectRatioPage1);
+        wrapper.style.width = `${w}px`;
+        wrapper.style.height = `${h}px`;
+        if (canvas && canvas.style.display !== 'none') {
+          canvas.style.width = `${w}px`;
+          canvas.style.height = `${h}px`;
+        }
+      }
+    }
+
+    // Debounce de 160ms à l'arrêt du geste pour déclencher le re-calcul vectoriel HD complet
+    if (zoomDebounceTimerRef.current) {
+      clearTimeout(zoomDebounceTimerRef.current);
+    }
+    zoomDebounceTimerRef.current = setTimeout(() => {
+      setZoomScale(clamped);
+    }, 160);
+  }, [totalEffectifPages, baseWidthPage1, aspectRatioPage1]);
+
+  // 6. Neutralisation du zoom global navigateur & Captage du geste pavé tactile / écran tactile
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // Interception de Ctrl + Molette ou Pincement de pavé tactile (Wheel avec ctrlKey)
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        // 🛡️ EMPÊCHE STRICTEMENT LE NAVIGATEUR DE ZOONER LA PAGE ENTIÈRE OU LA BARRE D'OUTILS
+        e.preventDefault();
+        e.stopPropagation();
+
+        const current = zoomScaleRef.current;
+        const delta = -e.deltaY * 0.005;
+        const next = current + delta;
+        appliquerZoomInteractif(next);
+      }
+    };
+
+    // Interception de l'écran tactile (Pinch-to-zoom 2 doigts)
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        isPinchingRef.current = true;
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        initialPinchDistRef.current = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        initialZoomOnPinchRef.current = zoomScaleRef.current;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && isPinchingRef.current && initialPinchDistRef.current > 0) {
+        // 🛡️ EMPÊCHE LE ZOOM GLOBAL DE LA FENÊTRE SUR SMARTPHONE / TABLETTE
+        e.preventDefault();
+        e.stopPropagation();
+
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const factor = dist / initialPinchDistRef.current;
+        const next = initialZoomOnPinchRef.current * factor;
+        appliquerZoomInteractif(next);
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (isPinchingRef.current && e.touches.length < 2) {
+        isPinchingRef.current = false;
+        initialPinchDistRef.current = 0;
+      }
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [appliquerZoomInteractif]);
+
+  // 7. Lazy-Rendering haute fidélité des pages visibles via IntersectionObserver
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || chargement || erreur || !pdfDocRef.current) return;
@@ -391,7 +496,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     return () => lazyObserver.disconnect();
   }, [chargement, erreur, totalEffectifPages, zoomScale, rasteriserPage]);
 
-  // 6. SYNCHRONISATION EN DIRECT DU COMPTEUR DE PAGES AU SCROLL (IntersectionObserver)
+  // 8. SYNCHRONISATION EN DIRECT DU COMPTEUR DE PAGES AU SCROLL (IntersectionObserver)
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer || chargement || erreur || !pdfDocRef.current) return;
@@ -442,7 +547,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     return () => scrollSyncObserver.disconnect();
   }, [chargement, erreur, totalEffectifPages, pageCourante, onPageChange]);
 
-  // 7. Navigation bidirectionnelle fluide
+  // 9. Navigation bidirectionnelle fluide
   const allerPage = useCallback((p: number) => {
     const cible = Math.min(Math.max(1, p), totalEffectifPages);
     setPageCourante(cible);
@@ -462,7 +567,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }
   }, [totalEffectifPages, onPageChange, zoomScale, rasteriserPage]);
 
-  // 8. Contrôles de zoom vectoriel
+  // 10. Contrôles de zoom vectoriel manuels
   const zoomer = () => {
     setZoomScale(prev => Number(Math.min(prev + 0.2, 2.8).toFixed(2)));
   };
@@ -632,6 +737,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           borderBottom: '1px solid rgba(0, 0, 0, 0.15)',
           boxSizing: 'border-box',
           transform: 'none',
+          touchAction: 'none',
         }}
       >
         {/* Section Gauche : Retour, Titre & Statut */}
@@ -913,7 +1019,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────── */}
-      {/* 2. CONTENEUR DU DOCUMENT (PARFAITEMENT DÉCOUPLÉ ET CALÉ SOUS LA BARRE FIXE)   */}
+      {/* 2. CONTENEUR DU DOCUMENT (AVEC TOUCH-ACTION DÉDIÉE ET CAPTAGE DU PINCH)       */}
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       <div
         ref={scrollContainerRef}
@@ -932,6 +1038,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           padding: '28px 16px 80px 16px',
           boxSizing: 'border-box',
           scrollBehavior: 'smooth',
+          touchAction: 'pan-x pan-y', // 🛡️ BLOQUE LE PINCH-ZOOM GLOBAL DU NAVIGATEUR
         }}
       >
         {/* Écran de chargement */}
