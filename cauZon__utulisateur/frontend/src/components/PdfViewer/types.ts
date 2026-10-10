@@ -3,6 +3,8 @@ export interface LecteurPdfProps {
   urlFichier?: string | Uint8Array | null;
   pdfUrl?: string | null;
   titre?: string;
+  nombrePages?: number;
+  document?: any;
   estVerrouille?: boolean;
   limiteApercuPages?: number;
   limiteApercuType?: string;

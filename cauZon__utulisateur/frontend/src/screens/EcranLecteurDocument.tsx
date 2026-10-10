@@ -450,6 +450,9 @@ export default function EcranLecteurDocument() {
           <View style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
             <LecteurPdf
               documentId={document.id || docParams.id}
+              titre={document.titre || docParams.titre}
+              nombrePages={document.nombrePages || (document as any).nombre_pages || nombrePagesReel || 1}
+              document={document}
               urlFichier={sourcePdfData}
               estVerrouille={estVerrouille}
               limiteApercuPages={limiteApercuPages}

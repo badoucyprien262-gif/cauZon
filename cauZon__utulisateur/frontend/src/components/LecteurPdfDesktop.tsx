@@ -3,7 +3,7 @@ import type { LecteurPdfProps } from './PdfViewer/types';
 
 /**
  * Charge dynamiquement PDFLib sans inclusion statique dans le bundle Metro
- * Utilisé pour le découpage DRM sécurisé des pages autorisées en cas de document verrouillé
+ * Utilisé pour le calcul du nombre réel de pages et le découpage DRM sécurisé
  */
 async function getPDFDocumentClass(): Promise<any> {
   if (typeof window === 'undefined') return null;
@@ -136,18 +136,14 @@ export class LecteurPdfErrorBoundary extends React.Component<ErrorBoundaryProps,
 }
 
 /**
- * LecteurPdfDesktop (Moteur Vectoriel Haute Fidélité avec Toolbar cauZon Fixe)
- *
- * 1. Netteté vectorielle native maximale (moteur vectoriel du navigateur à 60/120 FPS).
- * 2. Masquage strict de la barre d'outils native (boutons Print / Save sauvages neutralisés via #toolbar=0&navpanes=0&view=FitH).
- * 3. Barre d'outils cauZon fixe en haut (sticky/flex-shrink: 0, z-index: 50) indépendante du zoom du document.
- * 4. Blocage clavier inviolable : Ctrl+P, Ctrl+S, Cmd+P, Cmd+S et clic droit désactivé.
- * 5. Découpage DRM sécurisé : extraction physique des seules pages autorisées si le document est verrouillé.
+ * LecteurPdfDesktop (Moteur Vectoriel Haute Fidélité avec Synchronisation Pagination Réelle)
  */
 const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   urlFichier,
   pdfUrl,
   titre,
+  nombrePages,
+  document: docProp,
   estVerrouille = false,
   limiteApercuPages = 1,
   limiteApercuType = 'pourcentage',
@@ -161,11 +157,20 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   onError,
   onReessayer,
 }) => {
+  // 1. Extraction prioritaire du total de pages réel depuis les métadonnées
+  const totalMeta = Number(
+    nombrePages ||
+    docProp?.nombre_pages ||
+    docProp?.nombrePages ||
+    (docProp as any)?.pageCount ||
+    0
+  );
+
   const [chargement, setChargement] = useState<boolean>(true);
   const [erreur, setErreur] = useState<string | null>(null);
   const [urlAffichee, setUrlAffichee] = useState<string | null>(null);
   const [pagesApercuAutorisees, setPagesApercuAutorisees] = useState<number>(1);
-  const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(1);
+  const [nombrePagesTotal, setNombrePagesTotal] = useState<number>(totalMeta > 1 ? totalMeta : 1);
   const [pageCourante, setPageCourante] = useState<number>(1);
   const [estPleinEcran, setEstPleinEcran] = useState<boolean>(false);
   const [messageNotification, setMessageNotification] = useState<string | null>(null);
@@ -173,6 +178,13 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const blobUrlCreeRef = useRef<string | null>(null);
   const timerNotificationRef = useRef<any>(null);
+
+  // Synchronisation dynamique si la prop métadonnée change
+  useEffect(() => {
+    if (totalMeta > 1 && totalMeta !== nombrePagesTotal) {
+      setNombrePagesTotal(totalMeta);
+    }
+  }, [totalMeta]);
 
   // Nettoyage systématique des URL Blob mémoire lors du démontage
   useEffect(() => {
@@ -195,7 +207,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     }, 2800);
   }, []);
 
-  // 1. Protection Anti-Fuite & Anti-Impression : Interception stricte des raccourcis Ctrl+P / Ctrl+S
+  // Protection Anti-Fuite & Anti-Impression : Interception stricte des raccourcis Ctrl+P / Ctrl+S
   useEffect(() => {
     const intercepterRaccourcis = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
@@ -217,7 +229,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
 
   const sourceBrute = pdfUrl || (typeof urlFichier === 'string' ? urlFichier : null);
 
-  // 2. Préparation du document & Sécurisation Paywall DRM
+  // Préparation du document, lecture dynamique du total de pages & Sécurisation Paywall DRM
   useEffect(() => {
     let estActif = true;
 
@@ -272,14 +284,49 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
           arrayBuffer = urlFichier.buffer as ArrayBuffer;
         }
 
-        // CAS DÉBLOQUÉ (Document acquis ou Pass VIP actif)
-        // -> Rendu direct du flux sans altération
+        // Si le total de pages n'est pas encore connu avec certitude (> 1) ou si le document est verrouillé :
+        // Téléchargement du buffer pour inspection du nombre de pages et/ou découpage DRM
+        if ((totalMeta <= 1 || estVerrouille) && !arrayBuffer && urlDirecte) {
+          try {
+            const resp = await fetch(urlDirecte);
+            if (resp.ok) {
+              arrayBuffer = await resp.arrayBuffer();
+            }
+          } catch (fetchErr) {
+            console.warn('[LecteurPdfDesktop] Note récupération buffer pour comptage pages :', fetchErr);
+          }
+        }
+
+        let totalCalcule = totalMeta > 1 ? totalMeta : 1;
+
+        // Lecture dynamique du nombre réel de pages via pdf-lib si arrayBuffer disponible
+        if (arrayBuffer) {
+          try {
+            const PDFDocument = await getPDFDocumentClass();
+            if (PDFDocument) {
+              const probeDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+              const pageCount = probeDoc.getPageCount();
+              if (pageCount && pageCount > 0) {
+                totalCalcule = pageCount;
+                if (estActif) {
+                  setNombrePagesTotal(pageCount);
+                  onDocumentLoad?.(pageCount);
+                }
+              }
+            }
+          } catch (countErr) {
+            console.warn('[LecteurPdfDesktop] Erreur lecture pageCount via pdf-lib :', countErr);
+          }
+        }
+
+        // 1. CAS DÉBLOQUÉ (Document acquis ou Pass VIP actif)
+        // -> Rendu direct du flux haute netteté avec total de pages réel synchronisé
         if (!estVerrouille) {
           if (urlDirecte) {
             if (estActif) {
               setUrlAffichee(urlDirecte);
               setChargement(false);
-              onDocumentLoad?.(nombrePagesTotal || 1);
+              onDocumentLoad?.(totalCalcule);
             }
             return;
           }
@@ -293,20 +340,14 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             if (estActif) {
               setUrlAffichee(blobUrl);
               setChargement(false);
-              onDocumentLoad?.(nombrePagesTotal || 1);
+              onDocumentLoad?.(totalCalcule);
             }
             return;
           }
         }
 
-        // CAS VERROUILLÉ (Aperçu limité / DRM sécurisé)
+        // 2. CAS VERROUILLÉ (Aperçu limité / DRM sécurisé)
         // -> Découpage strict des seules pages autorisées avec pdf-lib
-        if (!arrayBuffer && urlDirecte) {
-          const resp = await fetch(urlDirecte);
-          if (!resp.ok) throw new Error(`Échec de récupération du document (${resp.status})`);
-          arrayBuffer = await resp.arrayBuffer();
-        }
-
         if (!arrayBuffer) {
           throw new Error('Données du document introuvables.');
         }
@@ -379,14 +420,16 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     return () => {
       estActif = false;
     };
-  }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur]);
+  }, [sourceBrute, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, totalMeta]);
 
-  // Navigation vers une page
+  // Total effectif de navigation selon le verrouillage DRM
+  const totalEffectifPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
+
+  // Navigation dynamique vers une page cible
   const allerPage = (p: number) => {
-    const maxPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
-    const nouvelle = Math.min(Math.max(1, p), maxPages);
+    const nouvelle = Math.min(Math.max(1, p), totalEffectifPages);
     setPageCourante(nouvelle);
-    onPageChange?.(nouvelle, maxPages);
+    onPageChange?.(nouvelle, totalEffectifPages);
   };
 
   // Bascule mode plein écran
@@ -495,10 +538,10 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     );
   }
 
-  // URL enrichie avec les paramètres standards pour masquer la toolbar native du navigateur
-  // #toolbar=0&navpanes=0&view=FitH neutralise la barre noire et élimine les boutons Print / Save
+  // URL enrichie avec les paramètres standards pour synchroniser la page et masquer la toolbar native
+  // #page=${pageCourante}&toolbar=0&navpanes=0&view=FitH
   const urlSecurisee = urlAffichee
-    ? `${urlAffichee}#toolbar=0&navpanes=0&view=FitH&page=${pageCourante}`
+    ? `${urlAffichee}#page=${pageCourante}&toolbar=0&navpanes=0&view=FitH`
     : null;
 
   return (
@@ -566,12 +609,12 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.8)' }}>
               {estVerrouille
                 ? `🔒 Aperçu limité (${pagesApercuAutorisees}/${nombrePagesTotal} page${pagesApercuAutorisees > 1 ? 's' : ''})`
-                : '✅ Rendu vectoriel haute fidélité'}
+                : `✅ Document complet (${nombrePagesTotal} page${nombrePagesTotal > 1 ? 's' : ''})`}
             </span>
           </div>
         </div>
 
-        {/* Section Centre : Navigation par Page & Raccourcis de lecture */}
+        {/* Section Centre : Navigation par Page & Compteur dynamique */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
             style={{
@@ -602,19 +645,19 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             </button>
 
             <span style={{ fontSize: '12px', fontWeight: 600 }}>
-              Page {pageCourante} / {estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1)}
+              Page {pageCourante} / {totalEffectifPages}
             </span>
 
             <button
               onClick={() => allerPage(pageCourante + 1)}
-              disabled={pageCourante >= (estVerrouille ? pagesApercuAutorisees : nombrePagesTotal)}
+              disabled={pageCourante >= totalEffectifPages}
               style={{
                 background: 'none',
                 border: 'none',
-                color: pageCourante >= (estVerrouille ? pagesApercuAutorisees : nombrePagesTotal)
+                color: pageCourante >= totalEffectifPages
                   ? 'rgba(255,255,255,0.3)'
                   : '#FFFFFF',
-                cursor: pageCourante >= (estVerrouille ? pagesApercuAutorisees : nombrePagesTotal)
+                cursor: pageCourante >= totalEffectifPages
                   ? 'default'
                   : 'pointer',
                 fontSize: '13px',
@@ -815,9 +858,10 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         )}
 
         {/* Moteur de Rendu Vectoriel Natif (Haute Netteté 60/120 FPS sans pixelisation) */}
-        {/* #toolbar=0&navpanes=0&view=FitH masque strictement la barre d'outils et ses icônes de fuite */}
+        {/* Navigation dynamique par page via #page=${pageCourante}&toolbar=0&navpanes=0&view=FitH */}
         {urlSecurisee && !erreur && (
           <object
+            key={`${urlAffichee}_page_${pageCourante}`}
             data={urlSecurisee}
             type="application/pdf"
             width="100%"
