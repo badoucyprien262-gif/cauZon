@@ -94,7 +94,12 @@ self.addEventListener('fetch', (event) => {
 
         // Clé normalisée (sans les paramètres temporaires de signature d'URL pour matching hors-ligne)
         const cleanPathKey = new Request(url.origin + url.pathname, { method: 'GET' });
-        const cachedResponse = (await docsCache.match(request)) || (await docsCache.match(cleanPathKey));
+        // 🎯 Ignorer les paramètres dynamiques (?token=..., ?t=...) pour matching immédiat hors-ligne
+        const cachedResponse =
+          (await docsCache.match(cleanPathKey, { ignoreSearch: true })) ||
+          (await docsCache.match(request, { ignoreSearch: true })) ||
+          (await caches.match(cleanPathKey, { ignoreSearch: true })) ||
+          (await caches.match(request, { ignoreSearch: true }));
 
         if (cachedResponse) {
           console.log('⚡ [SW] PDF servi instantanément depuis le cache hors-ligne :', url.pathname);
@@ -125,7 +130,11 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         } catch (error) {
           console.warn('⚠️ [SW] Réseau indisponible pour le PDF, tentative fallback cache direct...');
-          const fallback = (await docsCache.match(request)) || (await docsCache.match(cleanPathKey));
+          const fallback =
+            (await docsCache.match(cleanPathKey, { ignoreSearch: true })) ||
+            (await docsCache.match(request, { ignoreSearch: true })) ||
+            (await caches.match(cleanPathKey, { ignoreSearch: true })) ||
+            (await caches.match(request, { ignoreSearch: true }));
           if (fallback) return fallback;
           throw error;
         }

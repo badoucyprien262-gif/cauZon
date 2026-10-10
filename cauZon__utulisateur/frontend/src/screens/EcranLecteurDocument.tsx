@@ -21,6 +21,7 @@ import { useApp } from '../store/ContexteApp';
 
 import { RootStackParamList } from '../navigation/NavigateurApp';
 import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox, resoudreSourcePdf, sourceCacheMemoire } from '../services/serviceDocument';
+import { recupererUrlBlobPdf, telechargerEtMettreEnCachePdf } from '../services/gestionnaireCachePdf';
 
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
@@ -34,7 +35,7 @@ export default function EcranLecteurDocument() {
   const navigation = useNavigation();
   const route = useRoute<DocumentViewerRouteProp>();
   const { document, onUnlock } = route.params;
-  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions, utilisateur, estConnecteGoogle } = useApp();
+  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions, utilisateur, estConnecteGoogle, estEnLigne } = useApp();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
@@ -98,14 +99,28 @@ export default function EcranLecteurDocument() {
     acqDoc?.is_vip_consultation
   );
 
+  // 📶 Détection stricte de l'état réseau (Web & Mobile)
+  const estHorsLigne = !estEnLigne || (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.onLine);
+
+  // Détection si le document a été transmis comme déjà débloqué (ex: depuis la Bibliothèque locale)
+  const estMarqueDebloque = Boolean(
+    (docParams as any).estVerrouille === false ||
+    (route.params as any)?.estVerrouille === false ||
+    (docParams as any)?.depuisBibliotheque ||
+    (route.params as any)?.depuisBibliotheque
+  );
+
   // Règle d'étanchéité stricte :
-  // 1. Documents personnels importés : toujours 100% débloqués (ne nécessitent aucun calcul de paywall).
-  // 2. Document au titre du VIP : l'accès est strictement refusé et basculé sur le paywall si estAbonneVIP est faux.
-  // 3. Document acheté à l'unité (is_vip_consultation !== true) : débloqué définitivement à vie si présent dans docsDebloquesIds.
-  // 4. Utilisateur VIP actif : accès direct à tous les documents du catalogue.
+  // 1. Documents personnels importés ou transmis débloqués : toujours 100% débloqués.
+  // 2. Mode Hors-Ligne : Si l'appareil est hors-ligne, tout document présent dans la bibliothèque ou déjà débloqué est considéré comme autorisé (aucun appel distant Supabase).
+  // 3. Document au titre du VIP : l'accès est subordonné au statut VIP actif.
+  // 4. Document acheté à l'unité : débloqué définitivement à vie si présent dans docsDebloquesIds.
   let estDebloqueGlobalement = false;
-  if (estDocumentImporte) {
+  if (estDocumentImporte || estMarqueDebloque) {
     estDebloqueGlobalement = true;
+  } else if (estHorsLigne) {
+    const estDansBibliotheque = acquisitions?.some((a: any) => a.id === document.id || a.document_id === document.id);
+    estDebloqueGlobalement = estDansBibliotheque || docsDebloquesIds.includes(document.id) || estMarqueDebloque;
   } else if (estAuTitreVip) {
     estDebloqueGlobalement = estAbonneVIP;
   } else {
@@ -113,7 +128,7 @@ export default function EcranLecteurDocument() {
     estDebloqueGlobalement = estAcheteDefinitivement || estAbonneVIP;
   }
 
-  const estVerrouille = !estDocumentImporte && document.prix > 0 && !estDebloqueGlobalement;
+  const estVerrouille = !estDocumentImporte && (estHorsLigne ? !estDebloqueGlobalement : (document.prix > 0 && !estDebloqueGlobalement));
 
   // ⚡ Détection synchrone ultra-rapide (< 1 ms) si la source est déjà en mémoire RAM (Cache L1)
   const idDocumentCourant = document.id || docParams.id || cloudPathNettoye || cheminBrut;
@@ -190,7 +205,7 @@ export default function EcranLecteurDocument() {
   const limiteApercuValeur = document.limiteApercuValeur ?? 30;
   const limiteApercuPages = limiteApercuType === 'page' ? limiteApercuValeur : 1;
 
-  // Préparation de la source PDF (Conversion Base64 sécurisée sur Mobile pour contourner les restrictions CORS WebView)
+  // Préparation de la source PDF (Court-circuit hors-ligne & Cache persistant IndexedDB / Vault)
   useEffect(() => {
     let estMonte = true;
     async function preparerSource() {
@@ -202,7 +217,32 @@ export default function EcranLecteurDocument() {
         setFichierIntrouvable(false);
         setMessageErreurPersonnalise('');
 
-        // 🎯 Résolution unifiée résiliente (Local Vault / Docs Persistants vs URLs signées Supabase)
+        const idDoc = document.id || docParams.id || '';
+
+        // ⚡ 1. COURT-CIRCUIT HORS-LIGNE & WEB PWA PRIORITAIRE :
+        // Recherche immédiate dans le stockage binaire persistant local (IndexedDB / Cache API)
+        if (Platform.OS === 'web' && idDoc) {
+          const blobUrlLocal = await recupererUrlBlobPdf(idDoc);
+          if (blobUrlLocal) {
+            if (estMonte) {
+              setSourcePdfData(blobUrlLocal);
+              setChargementLocal(false);
+            }
+            return;
+          }
+
+          // Si on est hors-ligne sur Web et qu'aucun blob local n'a été trouvé
+          if (estHorsLigne) {
+            if (estMonte) {
+              setMessageErreurPersonnalise("Ce document n'a pas encore été synchronisé pour la lecture hors-ligne sur cet appareil.");
+              setFichierIntrouvable(true);
+              setChargementLocal(false);
+            }
+            return;
+          }
+        }
+
+        // 🎯 2. Résolution unifiée résiliente (Local Vault / Docs Persistants vs URLs signées Supabase)
         const resolution = await resoudreSourcePdf({
           id: document.id || docParams.id,
           titre: document.titre || docParams.titre,
@@ -232,6 +272,13 @@ export default function EcranLecteurDocument() {
             : resolution.uri;
           setSourcePdfData(uriFinale);
           setChargementLocal(false);
+
+          // 💾 3. Mise en cache persistant en arrière-plan (Web PWA) pour les futures lectures hors-ligne
+          if (Platform.OS === 'web' && idDoc && uriFinale && !uriFinale.startsWith('blob:')) {
+            telechargerEtMettreEnCachePdf(idDoc, uriFinale, document.titre || docParams.titre).catch((err) => {
+              if (__DEV__) console.warn('Mise en cache IndexedDB différée échouée :', err);
+            });
+          }
         }
       } catch (err) {
         if (__DEV__) console.error('Erreur chargement source PDF :', err);
@@ -244,7 +291,7 @@ export default function EcranLecteurDocument() {
 
     preparerSource();
     return () => { estMonte = false; };
-  }, [cheminBrut, estDocumentImporte, cleRechargement]);
+  }, [cheminBrut, estDocumentImporte, cleRechargement, estHorsLigne]);
 
   // Synchronisation du nombre réel de pages et réceptions des messages sur Web
   useEffect(() => {

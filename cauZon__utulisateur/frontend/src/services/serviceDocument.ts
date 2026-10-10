@@ -5,6 +5,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import {
+  recupererUrlBlobPdf,
+  telechargerEtMettreEnCachePdf,
+  enregistrerPdfLocal,
+  estPdfEnCacheLocal,
+} from './gestionnaireCachePdf';
 
 
 export interface DocumentCourse {
@@ -1524,6 +1530,19 @@ export const televerserDocumentCloud = async (params: {
       } as any ),
     };
 
+    // 💾 Persistance binaire locale dans IndexedDB sur Web (Offline-First)
+    if (Platform.OS === 'web' && params.fileUri) {
+      try {
+        const respBlob = await fetch(params.fileUri);
+        if (respBlob.ok) {
+          const b = await respBlob.blob();
+          await enregistrerPdfLocal(idUnique, b, params.customTitle);
+        }
+      } catch (errBlob) {
+        console.warn('⚠️ [televerserDocumentCloud] Enregistrement IndexedDB échoué :', errBlob);
+      }
+    }
+
     // Sauvegarder dans le cache des documents importés
     const existants = await chargerDocumentsImportes();
     const updatedImportes = [nouveauDoc, ...existants.filter((d: any) => d.id !== idUnique)];
@@ -1638,6 +1657,19 @@ export const importerDocumentLocal = async (params: {
         tailleMo: tailleMoCalculee,
       } as any )
     };
+
+    // 💾 Persistance binaire immédiate dans IndexedDB sur Web (Offline-First)
+    if (Platform.OS === 'web' && params.file_path) {
+      try {
+        const respBlob = await fetch(params.file_path);
+        if (respBlob.ok) {
+          const b = await respBlob.blob();
+          await enregistrerPdfLocal(idUnique, b, params.titre);
+        }
+      } catch (errBlob) {
+        console.warn('⚠️ [importerDocumentLocal] Enregistrement IndexedDB échoué :', errBlob);
+      }
+    }
 
     // 1. Sauvegarde dans le cache dédié des documents importés
     const existants = await chargerDocumentsImportes();
@@ -2030,6 +2062,16 @@ export const resoudreSourcePdf = async (document: {
 
   // 2️⃣ Mode Web (Platform.OS === 'web') : On ignore totalement les chemins physiques locaux mobiles
   if (Platform.OS === 'web') {
+    // ⚡ A. Vérification prioritaire dans le stockage persistant IndexedDB (0 requête réseau)
+    try {
+      const urlBlobLocal = await recupererUrlBlobPdf(docId);
+      if (urlBlobLocal) {
+        console.log(`⚡ [CachePdf] Document ${docId} résolu instantanément depuis IndexedDB (0 réseau)`);
+        sourceCacheMemoire.set(docId, { source: urlBlobLocal, isLocal: true, timestamp: Date.now() });
+        return { uri: urlBlobLocal, isLocal: true, estPret: true };
+      }
+    } catch (_) {}
+
     // Si c'est un blob: ou data: issu directement du navigateur Web courant
     if (document.cheminLocal?.startsWith('blob:') || document.cheminLocal?.startsWith('data:')) {
       sourceCacheMemoire.set(docId, { source: document.cheminLocal, isLocal: true, timestamp: Date.now() });
@@ -2038,6 +2080,23 @@ export const resoudreSourcePdf = async (document: {
     if (document.file_path?.startsWith('blob:') || document.file_path?.startsWith('data:')) {
       sourceCacheMemoire.set(docId, { source: document.file_path, isLocal: true, timestamp: Date.now() });
       return { uri: document.file_path, isLocal: true, estPret: true };
+    }
+
+    // ⚡ B. Si l'appareil est hors-ligne sur PWA Web : ne PAS faire d'appels Supabase ou signature d'URL
+    const estHorsLigne = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (estHorsLigne) {
+      // Tenter une dernière récupération via le Service Worker Cache Storage
+      const urlBlobFallback = await recupererUrlBlobPdf(docId);
+      if (urlBlobFallback) {
+        sourceCacheMemoire.set(docId, { source: urlBlobFallback, isLocal: true, timestamp: Date.now() });
+        return { uri: urlBlobFallback, isLocal: true, estPret: true };
+      }
+      return {
+        uri: '',
+        isLocal: false,
+        estPret: false,
+        messageErreur: 'Ce document n\'a pas encore été synchronisé pour la lecture hors-ligne sur cet appareil.',
+      };
     }
 
     // SUR WEB : Collecte de toutes les sources candidates
@@ -2053,6 +2112,7 @@ export const resoudreSourcePdf = async (document: {
     for (const candidate of webCandidates) {
       if (candidate.startsWith('http://') || candidate.startsWith('https://') || candidate.startsWith('blob:') || candidate.startsWith('data:')) {
         sourceCacheMemoire.set(docId, { source: candidate, isLocal: candidate.startsWith('blob:') || candidate.startsWith('data:'), timestamp: Date.now() });
+        telechargerEtMettreEnCachePdf(docId, candidate, document.titre).catch(() => {});
         return { uri: candidate, isLocal: candidate.startsWith('blob:') || candidate.startsWith('data:'), estPret: true };
       }
     }
@@ -2095,6 +2155,7 @@ export const resoudreSourcePdf = async (document: {
       const urlSignee = await obtenirUrlSigneeDocument(cleanPath, 7200);
       if (urlSignee) {
         sourceCacheMemoire.set(docId, { source: urlSignee, isLocal: false, timestamp: Date.now() });
+        telechargerEtMettreEnCachePdf(docId, urlSignee, document.titre).catch(() => {});
         return { uri: urlSignee, isLocal: false, estPret: true };
       }
 
@@ -2102,6 +2163,7 @@ export const resoudreSourcePdf = async (document: {
       const publicUrl = getDocumentPdfUrl(cleanPath);
       if (publicUrl) {
         sourceCacheMemoire.set(docId, { source: publicUrl, isLocal: false, timestamp: Date.now() });
+        telechargerEtMettreEnCachePdf(docId, publicUrl, document.titre).catch(() => {});
         return { uri: publicUrl, isLocal: false, estPret: true };
       }
 
@@ -2117,12 +2179,14 @@ export const resoudreSourcePdf = async (document: {
     // Document public (cours-documents)
     if (rawCloud.startsWith('http://') || rawCloud.startsWith('https://')) {
       sourceCacheMemoire.set(docId, { source: rawCloud, isLocal: false, timestamp: Date.now() });
+      telechargerEtMettreEnCachePdf(docId, rawCloud, document.titre).catch(() => {});
       return { uri: rawCloud, isLocal: false, estPret: true };
     }
 
     const publicUrl = getDocumentPdfUrl(cleanPath);
     if (publicUrl) {
       sourceCacheMemoire.set(docId, { source: publicUrl, isLocal: false, timestamp: Date.now() });
+      telechargerEtMettreEnCachePdf(docId, publicUrl, document.titre).catch(() => {});
     }
     const fallbackPublic = publicUrl || 'https://wdipnxewpmhdksrlisix.supabase.co/storage/v1/object/public/cours-documents/SUJET_BEPC_2024_PHYSIQUE_CHIMIE_Zone_1.pdf';
     return {
@@ -2227,6 +2291,16 @@ export const sauvegarderBibliothequeLocale = async (documents: DocumentCourse[])
     await AsyncStorage.setItem(LOCAL_LIBRARY_CACHE_KEY, json);
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem(LOCAL_LIBRARY_CACHE_KEY, json);
+    }
+    // ⚡ Pré-mise en cache silencieuse des PDFs acquis dans IndexedDB / Cache API pour le Web
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.onLine) {
+      documents.forEach(doc => {
+        const id = doc.id;
+        const candidateUrl = (doc as any).pdf_url || (doc as any).url || doc.file_path || doc.cloud_path;
+        if (id && candidateUrl && (candidateUrl.startsWith('http://') || candidateUrl.startsWith('https://'))) {
+          telechargerEtMettreEnCachePdf(id, candidateUrl, doc.titre).catch(() => {});
+        }
+      });
     }
   } catch (error) {
     console.error('Erreur lors de la sauvegarde de la bibliothèque locale :', error);

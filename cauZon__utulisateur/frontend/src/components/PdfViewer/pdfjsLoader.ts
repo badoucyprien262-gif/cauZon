@@ -82,25 +82,33 @@ export async function extrairePdfBytes(
   try {
     const res = await fetch(source);
     if (!res.ok) {
-      if (source !== URL_DOCUMENT_SECOURS) {
-        console.warn(`[PDF Loader] HTTP ${res.status} sur ${source} -> Repli sur document de secours.`);
-        const resSecours = await fetch(URL_DOCUMENT_SECOURS);
-        if (resSecours.ok) {
-          const buf = await resSecours.arrayBuffer();
-          return new Uint8Array(buf);
-        }
-      }
       throw new Error(`HTTP ${res.status}`);
     }
     const buf = await res.arrayBuffer();
     return new Uint8Array(buf);
   } catch (err) {
-    console.warn('[PDF Loader] Fetch direct échoué, repli document modèle :', err);
-    const resSecours = await fetch(URL_DOCUMENT_SECOURS);
-    if (resSecours.ok) {
-      const buf = await resSecours.arrayBuffer();
-      return new Uint8Array(buf);
+    // 🛡️ Repli hors-ligne immédiat : vérifier dans Cache Storage avec ignoreSearch: true
+    if (typeof caches !== 'undefined') {
+      try {
+        const cleanUrl = source.split('?')[0];
+        const matchRes =
+          (await caches.match(cleanUrl, { ignoreSearch: true })) ||
+          (await caches.match(source, { ignoreSearch: true }));
+        if (matchRes && matchRes.ok) {
+          const buf = await matchRes.arrayBuffer();
+          return new Uint8Array(buf);
+        }
+      } catch (_) {}
     }
+
+    console.warn('[PDF Loader] Fetch direct échoué, repli document modèle :', err);
+    try {
+      const resSecours = await fetch(URL_DOCUMENT_SECOURS);
+      if (resSecours.ok) {
+        const buf = await resSecours.arrayBuffer();
+        return new Uint8Array(buf);
+      }
+    } catch (_) {}
     throw err;
   }
 }
