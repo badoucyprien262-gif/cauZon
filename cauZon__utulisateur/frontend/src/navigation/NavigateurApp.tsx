@@ -34,6 +34,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 import { verifierConnexionReseauRapide } from '../services/serviceReseau';
+import { ANIMATIONS } from '../theme/animations';
 
 function NavigateurTabsPrincipales({ navigation }: any) {
   const { couleurs, estEnLigne } = useApp();
@@ -127,9 +128,11 @@ function NavigateurTabsPrincipales({ navigation }: any) {
 
       <Tab.Navigator
         initialRouteName={estConnecte ? 'Accueil' : 'Bibliothèque'}
+        detachInactiveScreens={false}
         screenOptions={({ route }) => ({
           tabBarPosition: 'bottom',
           animation: 'fade',
+          tabBarHideOnKeyboard: false,
           tabBarIcon: ({ focused, color }) => {
             let iconName: string;
 
@@ -148,6 +151,10 @@ function NavigateurTabsPrincipales({ navigation }: any) {
                       ? 'rgba(249, 168, 184, 0.15)'
                       : 'rgba(127, 1, 31, 0.08)',
                   },
+                  Platform.OS === 'web' && ({
+                    touchAction: 'manipulation',
+                    WebkitTapHighlightColor: 'transparent',
+                  } as any),
                 ]}
               >
                 <Ionicons name={iconName} size={22} color={color} />
@@ -163,11 +170,11 @@ function NavigateurTabsPrincipales({ navigation }: any) {
             marginTop: -4,
           },
           tabBarStyle: {
-            position: 'absolute',
+            position: Platform.OS === 'web' ? ('fixed' as const) : 'absolute',
             bottom: 0,
             left: 0,
             right: 0,
-            zIndex: 100,
+            zIndex: 9999,
             backgroundColor: couleurs.fondCarte,
             borderTopColor: couleurs.bordure,
             borderTopWidth: 1,
@@ -179,6 +186,16 @@ function NavigateurTabsPrincipales({ navigation }: any) {
             shadowOpacity: couleurs.estSombre ? 0.3 : 0.05,
             shadowRadius: 12,
             elevation: 8,
+            ...(Platform.OS === 'web'
+              ? ({
+                  position: 'fixed',
+                  transform: 'translateZ(0)',
+                  willChange: 'transform',
+                  backfaceVisibility: 'hidden',
+                  WebkitBackfaceVisibility: 'hidden',
+                  contain: 'layout paint',
+                } as any)
+              : {}),
           },
           sceneStyle: {
             paddingBottom: Platform.OS === 'ios' ? 82 : 68,
@@ -198,7 +215,8 @@ export default function NavigateurApp() {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        animation: 'slide_from_right',
+        animation: 'fade_from_bottom',
+        animationDuration: ANIMATIONS.duration.page, // 280ms
       }}
     >
       <Stack.Screen name="MainTabs" component={NavigateurTabsPrincipales} />

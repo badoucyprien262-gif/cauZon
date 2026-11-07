@@ -13,6 +13,7 @@ import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
 import { Document } from '../types';
 import { getCouleurCategorie, TOKENS } from '../theme/couleurs';
+import { ANIMATIONS } from '../theme/animations';
 
 const { width } = Dimensions.get('window');
 const LARGEUR_CARTE = (width - 40) / 2;
@@ -32,6 +33,7 @@ export default function CarteDocument({
 }: CarteDocumentProps) {
   const { couleurs, estVip, estAbonneVIP, docsDebloquesIds } = useApp();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const isReduced = ANIMATIONS.isReducedMotion();
 
   // L'utilisateur est-il VIP ?
   const isVipUser = estVip || estAbonneVIP;
@@ -39,22 +41,24 @@ export default function CarteDocument({
   // Vérifier si le cours est déjà dans la bibliothèque
   const estAcquis = docsDebloquesIds.includes(document.id);
 
-  // Animation Uiverse tactile Micro-interaction (Spring scale)
+  // ⚡ Micro-interaction tactile 60 FPS (200ms, scale-98, courbe naturelle)
   const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.96,
+    if (isReduced) return;
+    Animated.timing(scaleAnim, {
+      toValue: ANIMATIONS.scale.carteActive, // 0.98
+      duration: ANIMATIONS.duration.carte, // 200ms
+      easing: ANIMATIONS.easing.naturel, // cubic-bezier(0.22, 1, 0.36, 1)
       useNativeDriver: true,
-      speed: 40,
-      bounciness: 4,
     }).start();
   };
 
   const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
+    if (isReduced) return;
+    Animated.timing(scaleAnim, {
       toValue: 1,
+      duration: ANIMATIONS.duration.carte, // 200ms
+      easing: ANIMATIONS.easing.naturel, // cubic-bezier(0.22, 1, 0.36, 1)
       useNativeDriver: true,
-      speed: 30,
-      bounciness: 8,
     }).start();
   };
 
@@ -78,11 +82,22 @@ export default function CarteDocument({
         styles.carteContainer,
         largeur ? { width: largeur } : null,
         { transform: [{ scale: scaleAnim }] },
+        Platform.OS === 'web' && ({
+          willChange: 'transform, opacity',
+        } as any),
       ]}
     >
       <TouchableOpacity
-        style={styles.carteInner}
+        style={[
+          styles.carteInner,
+          Platform.OS === 'web' && ({
+            touchAction: 'manipulation',
+            cursor: 'pointer',
+            WebkitTapHighlightColor: 'transparent',
+          } as any),
+        ]}
         activeOpacity={1}
+        delayPressIn={0}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         onPress={onPress}
@@ -208,23 +223,40 @@ export default function CarteDocument({
             </View>
           ) : isVipUser ? (
             <TouchableOpacity
-              style={[styles.boutonAction, styles.boutonActionVip]}
+              style={[
+                styles.boutonAction,
+                styles.boutonActionVip,
+                Platform.OS === 'web' && ({
+                  touchAction: 'manipulation',
+                  cursor: 'pointer',
+                  WebkitTapHighlightColor: 'transparent',
+                } as any),
+              ]}
+              delayPressIn={0}
               onPress={(e) => {
                 e.stopPropagation();
                 if (onUnlockPress) onUnlockPress();
               }}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
             >
               <Ionicons name="download-outline" size={14} color="#FAF6EB" />
             </TouchableOpacity>
           ) : onUnlockPress ? (
             <TouchableOpacity
-              style={styles.boutonAction}
+              style={[
+                styles.boutonAction,
+                Platform.OS === 'web' && ({
+                  touchAction: 'manipulation',
+                  cursor: 'pointer',
+                  WebkitTapHighlightColor: 'transparent',
+                } as any),
+              ]}
+              delayPressIn={0}
               onPress={(e) => {
                 e.stopPropagation();
                 onUnlockPress();
               }}
-              activeOpacity={0.8}
+              activeOpacity={0.7}
             >
               <Ionicons name="key-outline" size={13} color="#FFFFFF" />
             </TouchableOpacity>

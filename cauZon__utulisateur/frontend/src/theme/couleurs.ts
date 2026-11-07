@@ -95,6 +95,9 @@ export const couleursSombre = {
   estSombre:        true,
 };
 
+import { ANIMATIONS } from './animations';
+export { ANIMATIONS };
+
 // ─── Design Tokens Partagés ───────────────────────────────────────────────────
 export const TOKENS = {
   // Typographie
@@ -105,8 +108,17 @@ export const TOKENS = {
   radius: { xs: 4, sm: 8, md: 12, lg: 16, xl: 22, full: 999 },
   // Espacement
   spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 },
-  // Animation
-  duration: { fast: 160, normal: 280, slow: 420, verySlow: 640 },
+  // Système d'Animation cauZon 60 FPS
+  duration: {
+    bouton: ANIMATIONS.duration.bouton,
+    carte: ANIMATIONS.duration.carte,
+    page: ANIMATIONS.duration.page,
+    fast: ANIMATIONS.duration.bouton,
+    normal: ANIMATIONS.duration.carte,
+    slow: 420,
+    verySlow: 640,
+  },
+  animation: ANIMATIONS,
 };
 
 // ─── Couleurs Sémantiques par Catégorie ───────────────────────────────────────

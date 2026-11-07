@@ -26,6 +26,7 @@ import { recupererUrlBlobPdf, telechargerEtMettreEnCachePdf } from '../services/
 import ModaleAchat from '../components/ModaleAchat';
 import ModaleVip from '../components/ModaleVip';
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
+import TransitionPage from '../components/TransitionPage';
 import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { LecteurPdf } from '../components/PdfViewer';
 
@@ -436,8 +437,8 @@ export default function EcranLecteurDocument() {
   };
 
   return (
-
-    <SafeAreaView style={styles.container}>
+    <TransitionPage style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
       <StatusBar 
         barStyle="light-content" 
         backgroundColor={couleurs.fondEntete} 
@@ -742,7 +743,8 @@ export default function EcranLecteurDocument() {
         onClose={() => setModaleConnexionVisible(false)}
         motif={motifConnexion}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </TransitionPage>
   );
 }
 

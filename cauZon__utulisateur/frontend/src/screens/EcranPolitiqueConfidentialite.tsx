@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '../components/AppIcon';
 import { useApp } from '../store/ContexteApp';
+import TransitionPage from '../components/TransitionPage';
 import { RootStackParamList } from '../navigation/NavigateurApp';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -46,7 +47,8 @@ export default function EcranPolitiqueConfidentialite() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: couleurs.fond }]} edges={['top', 'left', 'right']}>
+    <TransitionPage style={{ flex: 1 }}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: couleurs.fond }]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={couleurs.estSombre ? 'light-content' : 'dark-content'} />
 
       {/* ─── Barre de Navigation Supérieure ──────────────────────────────── */}
@@ -403,7 +405,8 @@ export default function EcranPolitiqueConfidentialite() {
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </TransitionPage>
   );
 }
 

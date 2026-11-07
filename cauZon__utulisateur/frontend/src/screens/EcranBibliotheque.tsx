@@ -18,6 +18,7 @@ import { Ionicons } from '../components/AppIcon';
 import { Document, DocumentCourse } from '../types';
 import { RootStackParamList } from '../navigation/NavigateurApp';
 import { useApp } from '../store/ContexteApp';
+import TransitionPage from '../components/TransitionPage';
 import ListeDossiers from '../components/ListeDossiers';
 import JaugeStockage from '../components/JaugeStockage';
 import ModaleVip from '../components/ModaleVip';
@@ -487,7 +488,8 @@ export default function EcranBibliotheque() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <TransitionPage style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
       {/* 1. Entête avec Switch Double Dossier & Bouton Importer */}
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
@@ -996,7 +998,8 @@ export default function EcranBibliotheque() {
           setDocASupprimer(null);
         }}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </TransitionPage>
   );
 }
 

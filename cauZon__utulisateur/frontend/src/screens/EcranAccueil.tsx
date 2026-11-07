@@ -38,6 +38,8 @@ import { Document } from '../types';
 import { RootStackParamList } from '../navigation/NavigateurApp';
 import { useApp } from '../store/ContexteApp';
 import CarteDocument from '../components/CarteDocument';
+import TransitionPage from '../components/TransitionPage';
+import { ANIMATIONS } from '../theme/animations';
 import SkeletonCarte from '../components/SkeletonCarte';
 import AvatarDynamique from '../components/AvatarDynamique';
 import ModaleParametres from '../components/ModaleParametres';
@@ -681,11 +683,12 @@ export default function EcranAccueil() {
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor={couleurs.fondEntete} 
-      />
+    <TransitionPage style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <StatusBar 
+          barStyle="light-content" 
+          backgroundColor={couleurs.fondEntete} 
+        />
       {/* 1. Entête supérieur fixe (cauZon + profil) */}
       <View style={[styles.header, { zIndex: 30 }]}>
         <Text style={styles.appName}>cauZon</Text>
@@ -772,9 +775,15 @@ export default function EcranAccueil() {
                     style={[
                       styles.categoryBtn,
                       selectedCategory === cat && styles.categoryBtnActive,
+                      Platform.OS === 'web' && ({
+                        touchAction: 'manipulation',
+                        cursor: 'pointer',
+                        WebkitTapHighlightColor: 'transparent',
+                      } as any),
                     ]}
                     onPress={() => setSelectedCategory(cat)}
-                    activeOpacity={0.7}
+                    activeOpacity={0.75}
+                    delayPressIn={0}
                   >
                     <Text
                       style={[
@@ -1302,7 +1311,8 @@ export default function EcranAccueil() {
           setModaleGatingVisible(true);
         }}
       />
-    </View>
+      </View>
+    </TransitionPage>
   );
 }
 

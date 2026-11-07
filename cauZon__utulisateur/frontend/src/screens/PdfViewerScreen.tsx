@@ -9,6 +9,7 @@ import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDo
 
 import { useApp } from '../store/ContexteApp';
 import { LecteurPdf } from '../components/PdfViewer';
+import TransitionPage from '../components/TransitionPage';
 
 interface PdfViewerProps {
   route?: {
@@ -333,7 +334,8 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
   }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <TransitionPage style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
       <StatusBar 
         barStyle="light-content" 
         backgroundColor={couleurs.fondEntete} 
@@ -507,7 +509,8 @@ export default function PdfViewerScreen({ route, navigation }: PdfViewerProps) {
           </Text>
         </View>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </TransitionPage>
   );
 }
 

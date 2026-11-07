@@ -93,6 +93,13 @@
     <!-- Moteur de Rendu Vectoriel PDF.js pour Consultation Web Directe -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
+      :root {
+        --cauzon-duree-btn: 140ms;
+        --cauzon-duree-carte: 200ms;
+        --cauzon-duree-page: 280ms;
+        --cauzon-courbe-naturelle: cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
       /* Empêche tout écran noir ou blanc pendant le chargement initial et verrouille la sélection de l'interface */
       html, body {
         width: 100%;
@@ -119,6 +126,92 @@
         position: relative;
         overflow-y: auto;
       }
+
+      /* 🚀 Micro-interactions tactiles : suppression du délai de 300ms au tap */
+      button,
+      [role="button"],
+      .cauzon-btn,
+      .cauzon-card,
+      a,
+      [tabindex="0"] {
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
+      }
+
+      /* ⚡ Boutons : compression active:scale-96, durée 140ms, courbe naturelle */
+      button:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      .cauzon-btn {
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
+        will-change: transform, opacity;
+        transition: transform var(--cauzon-duree-btn) var(--cauzon-courbe-naturelle),
+                    opacity var(--cauzon-duree-btn) var(--cauzon-courbe-naturelle) !important;
+      }
+      button:not(:disabled):active,
+      [role="button"]:not([aria-disabled="true"]):active,
+      .cauzon-btn:active {
+        transform: scale(0.96) !important;
+      }
+
+      /* 📑 Cartes documentaires : compression active:scale-98, durée 200ms, courbe naturelle */
+      .cauzon-card {
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
+        will-change: transform, opacity;
+        transition: transform var(--cauzon-duree-carte) var(--cauzon-courbe-naturelle),
+                    opacity var(--cauzon-duree-carte) var(--cauzon-courbe-naturelle) !important;
+      }
+      .cauzon-card:active {
+        transform: scale(0.98) !important;
+      }
+
+      /* 🎬 Transition de page fluide : fondu + léger glissement vertical 280ms */
+      @keyframes cauzonPageTransition {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .cauzon-page-transition {
+        animation: cauzonPageTransition var(--cauzon-duree-page) var(--cauzon-courbe-naturelle) forwards !important;
+        will-change: transform, opacity !important;
+      }
+
+      /* ⚓ Stabilité absolue de la barre de navigation inférieure (zéro saut / clignotement) */
+      div[style*="borderTopWidth"][style*="bottom: 0"],
+      div[style*="border-top-width"][style*="bottom: 0px"],
+      nav[role="navigation"] {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important;
+        transform: translateZ(0) !important;
+        -webkit-transform: translateZ(0) !important;
+        will-change: transform !important;
+        backface-visibility: hidden !important;
+        -webkit-backface-visibility: hidden !important;
+        contain: layout paint !important;
+      }
+
+      /* ♿ Accessibilité & Performance : Respect strict de prefers-reduced-motion (Zéro transition: all) */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
+          transform: none !important;
+        }
+      }
+
       /* Défilement vertical strict & respect du ratio A4 sans compression */
       .cauzon-pdf-scroll-container {
         display: block !important;
