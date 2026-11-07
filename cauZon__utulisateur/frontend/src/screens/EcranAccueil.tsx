@@ -46,6 +46,7 @@ import ModaleParametres from '../components/ModaleParametres';
 import ModaleDemandeNotification from '../components/ModaleDemandeNotification';
 import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexionRequise';
 import ModaleVip from '../components/ModaleVip';
+import ModaleAchat from '../components/ModaleAchat';
 import BandeauAlerteVip from '../components/BandeauAlerteVip';
 import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { 
@@ -91,6 +92,8 @@ export default function EcranAccueil() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [notifInviteVisible, setNotifInviteVisible] = useState(false);
   const [vipModalVisible, setVipModalVisible] = useState(false);
+  const [modaleAchatVisible, setModaleAchatVisible] = useState(false);
+  const [documentPourAchat, setDocumentPourAchat] = useState<Document | null>(null);
 
   // 🚀 Initialisation instantanée depuis le cache de préchargement
   const cacheInitial = getCacheAccueilInstantane();
@@ -596,6 +599,9 @@ export default function EcranAccueil() {
       consommerOffreBienvenueLocal();
       debloquerDocument(docId);
       afficherToast(result.message || 'Document débloqué avec succès !', 'Déblocage Réussi 🎉', 'succes');
+    } else if (result.paywallRequired || !estEligibleOffreBienvenue) {
+      setDocumentPourAchat(docCible || null);
+      setModaleAchatVisible(true);
     } else {
       afficherToast(result.message || 'Échec du déblocage.', 'Erreur ❌', 'erreur');
     }
@@ -1302,6 +1308,24 @@ export default function EcranAccueil() {
         onClose={() => setVipModalVisible(false)}
         onSuccess={() => {}}
       />
+
+      {/* Modale d'achat à l'acte (100 FCFA) */}
+      {documentPourAchat && (
+        <ModaleAchat
+          visible={modaleAchatVisible}
+          onClose={() => {
+            setModaleAchatVisible(false);
+            setDocumentPourAchat(null);
+          }}
+          onSuccess={() => {
+            setModaleAchatVisible(false);
+            setDocumentPourAchat(null);
+          }}
+          documentTitle={documentPourAchat.titre}
+          documentId={documentPourAchat.id}
+          documentPrix={documentPourAchat.prix ?? 100}
+        />
+      )}
       </View>
     </TransitionPage>
   );

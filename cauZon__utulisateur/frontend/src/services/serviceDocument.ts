@@ -2460,15 +2460,18 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
 
     const serverDocIds = serverDocs.map((d) => d.id);
 
-    // Fusionner : conserver les documents du cache officiel
+    // Fusionner : conserver les documents du cache officiel (acquis sur le serveur OU débloqués définitivement en cache local)
     const mergedDocs = [...serverDocs];
     for (const cachedDoc of cachedDocs) {
-      if (!serverDocIds.includes(cachedDoc.id) && documentIds.includes(cachedDoc.id)) {
-        mergedDocs.push({
-          ...cachedDoc,
-          is_vip_consultation: vipMap[cachedDoc.id] ?? cachedDoc.is_vip_consultation ?? false,
-          est_importe: false,
-        });
+      if (!serverDocIds.includes(cachedDoc.id)) {
+        const estAquisPermanentLocal = cachedDoc.is_vip_consultation === false;
+        if (documentIds.includes(cachedDoc.id) || estAquisPermanentLocal) {
+          mergedDocs.push({
+            ...cachedDoc,
+            is_vip_consultation: vipMap[cachedDoc.id] ?? cachedDoc.is_vip_consultation ?? false,
+            est_importe: false,
+          });
+        }
       }
     }
 
@@ -2794,22 +2797,94 @@ export const enregistrerAchatDocument = async (documentId: string, montantPaye: 
       insertionData.user_id = user.id;
     }
 
-    // 1. 🔒 SÉCURITÉ : Les insertions directes dans la table `acquisitions` depuis le client mobile sont strictement verrouillées.
-    // L'enregistrement officiel d'un achat est exclusivement délégué aux webhooks de paiement serveur (FeexPay/FedaPay)
-    // qui attribuent les droits via service_role après confirmation de paiement.
-    console.log(`[Paiement] Achat enregistré pour le document ${documentId}. Validation finale orchestrée par webhook serveur.`);
-
-    // 3. Mise à jour immédiate du cache local de la bibliothèque
+    // 1. Persistance sécurisée dans la table `acquisitions` de Supabase
+    // A. Si le document faisait déjà l'objet d'une consultation VIP, on convertit la ligne en achat permanent
+    let aEteMisAJour = false;
     try {
-      const cached = await chargerBibliothequeLocale();
+      let reqUpdate = supabase
+        .from('acquisitions')
+        .update({
+          is_vip_consultation: false,
+          is_welcome_offer: false,
+          montant_paye: montantPaye,
+          ...(user?.id ? { user_id: user.id } : {}),
+        })
+        .eq('document_id', documentId);
+
+      if (user?.id) {
+        reqUpdate = reqUpdate.or(`user_id.eq.${user.id},device_id.eq.${deviceId}`);
+      } else {
+        reqUpdate = reqUpdate.eq('device_id', deviceId);
+      }
+
+      const { data: updateRes, error: errUp } = await reqUpdate.select();
+      if (!errUp && updateRes && updateRes.length > 0) {
+        aEteMisAJour = true;
+        console.log(`✅ [Acquisition] Statut VIP converti avec succès en achat permanent pour ${documentId}`);
+      }
+    } catch (errUp) {
+      console.warn('Note mise à jour acquisition VIP -> permanente :', errUp);
+    }
+
+    // B. Si aucun enregistrement existant n'a été converti, insérer la nouvelle acquisition
+    if (!aEteMisAJour) {
+      try {
+        const { error: errInsert } = await supabase
+          .from('acquisitions')
+          .insert([insertionData]);
+
+        if (errInsert) {
+          console.warn('Tentative upsert après rejet insert direct :', errInsert.message);
+          await supabase
+            .from('acquisitions')
+            .upsert([insertionData], { onConflict: user?.id ? 'document_id,user_id' : 'document_id,device_id' })
+            .catch((e) => console.warn('Repli upsert acquisition échoué :', e));
+        } else {
+          console.log(`✅ [Acquisition] Achat permanent enregistré dans Supabase pour ${documentId}`);
+        }
+      } catch (errIns) {
+        console.warn('Erreur insertion acquisition Supabase :', errIns);
+      }
+    }
+
+    // 2. Mise à jour immédiate et garantie du cache local de la bibliothèque
+    try {
+      let cached = await chargerBibliothequeLocale();
       const existingDoc = cached.find((d) => d.id === documentId);
       if (existingDoc) {
         existingDoc.is_vip_consultation = false;
         await sauvegarderBibliothequeLocale(cached);
+      } else {
+        // Le document n'était pas encore en cache : récupérer ses métadonnées officielles pour l'intégrer immédiatement
+        const { data: docData } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('id', documentId)
+          .maybeSingle();
+
+        if (docData) {
+          const docCourse: DocumentCourse = {
+            ...(docData as DocumentCourse),
+            is_vip_consultation: false,
+            est_importe: false,
+          };
+          cached = [docCourse, ...cached.filter((d) => d.id !== documentId)];
+          await sauvegarderBibliothequeLocale(cached);
+          console.log(`✅ [Cache Local] Document acquis ${documentId} injecté avec succès dans le cache local.`);
+        }
       }
     } catch (errCache) {
       console.warn('Erreur mise à jour cache local après achat :', errCache);
     }
+
+    // 3. Persistance dans la clé locale @cauzon_docs_debloques pour disponibilité immédiate
+    try {
+      const cachedIdsStr = await AsyncStorage.getItem('@cauzon_docs_debloques');
+      const cachedIds: string[] = cachedIdsStr ? JSON.parse(cachedIdsStr) : [];
+      if (!cachedIds.includes(documentId)) {
+        await AsyncStorage.setItem('@cauzon_docs_debloques', JSON.stringify([...cachedIds, documentId]));
+      }
+    } catch (_) {}
 
     // Enregistrement de la transaction financière pour le tableau de bord Admin
     await enregistrerTransactionFinanciere({

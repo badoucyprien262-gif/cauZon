@@ -232,10 +232,9 @@ export default function EcranBibliotheque() {
       );
 
       // Filtrer les cours officiels du cache par les IDs débloqués
-      // FIX HORS-LIGNE : si docsDebloquesIds est encore vide lors de l'ouverture hors-ligne,
-      // conserver l'intégralité du cache officiel (ces documents ont déjà été acquis lors des sessions précédentes)
+      // RÈGLE PERMANENTE : Un document acheté à l'acte (!is_vip_consultation) reste TOUJOURS dans le dossier permanent
       const officielsValides = (docsDebloquesIds && docsDebloquesIds.length > 0)
-        ? cachedOfficiels.filter((d: any) => docsDebloquesIds.includes(d.id))
+        ? cachedOfficiels.filter((d: any) => docsDebloquesIds.includes(d.id) || !d.is_vip_consultation)
         : cachedOfficiels;
 
       // Fusion locale : Documents importés locaux + cours officiels débloqués
@@ -287,12 +286,14 @@ export default function EcranBibliotheque() {
         });
         const tousImports = Array.from(mapImports.values());
 
-        // Cours officiels du catalogue (débloqués à l'unité OU rattachés au Pass VIP)
+        // Cours officiels du catalogue :
+        // - Achat à l'acte / Offre permanente (!is_vip_consultation) : toujours validé et présent à vie
+        // - Consultation VIP : validé si Pass VIP actif ou identifiant débloqué
         const serverOfficiels = data.filter(
           (d: any) => !d.id?.startsWith('imported_') && !d.est_importe && !d.estImporte
         );
         const serverValides = serverOfficiels.filter(
-          (d: any) => (docsDebloquesIds && docsDebloquesIds.includes(d.id)) || d.is_vip_consultation
+          (d: any) => !d.is_vip_consultation || (docsDebloquesIds && docsDebloquesIds.includes(d.id)) || isVipActive
         );
 
         const fusionFinale = [...tousImports, ...serverValides];

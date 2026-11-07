@@ -753,6 +753,17 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         } catch (_) {}
       }
+
+      // ⚡ Hydratation instantanée des documents débloqués depuis le stockage local
+      try {
+        const cachedIdsStr = await AsyncStorage.getItem('@cauzon_docs_debloques');
+        if (cachedIdsStr) {
+          const cachedIds = JSON.parse(cachedIdsStr);
+          if (Array.isArray(cachedIds) && cachedIds.length > 0) {
+            setDocsDebloquesIds((prev) => Array.from(new Set([...prev, ...cachedIds])));
+          }
+        }
+      } catch (_) {}
     } catch (err) {
       console.warn('⚠️ Erreur lecture cache profil local :', err);
       setThemeCharge(true);
@@ -961,8 +972,12 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   const debloquerDocument = (id: string) => {
     setDocsDebloquesIds((prev) => {
       if (prev.includes(id)) return prev;
-      return [...prev, id];
+      const next = [...prev, id];
+      AsyncStorage.setItem('@cauzon_docs_debloques', JSON.stringify(next)).catch(() => {});
+      return next;
     });
+    // Rafraîchir les acquisitions réelles du contexte en tâche de fond
+    chargerAcquisitionsReelles().catch(() => {});
     // ⚡ Persistance binaire immédiate dans le cache hors-ligne
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       import('../services/serviceSynchronisationHorsLigne')
