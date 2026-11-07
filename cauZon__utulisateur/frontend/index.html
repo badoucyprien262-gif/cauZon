@@ -241,6 +241,18 @@
         flex-shrink: 0 !important;
       }
     </style>
+    <!-- 📲 Capture Précoce de l'Événement PWA beforeinstallprompt -->
+    <script>
+      window.__cauzonDeferredPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__cauzonDeferredPrompt = e;
+        window.dispatchEvent(new CustomEvent('cauzon-pwa-installable'));
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__cauzonDeferredPrompt = null;
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

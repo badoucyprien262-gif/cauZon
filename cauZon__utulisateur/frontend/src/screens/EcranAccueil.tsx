@@ -47,7 +47,6 @@ import ModaleDemandeNotification from '../components/ModaleDemandeNotification';
 import ModaleConnexionRequise, { MotifGating } from '../components/ModaleConnexionRequise';
 import ModaleVip from '../components/ModaleVip';
 import BandeauAlerteVip from '../components/BandeauAlerteVip';
-import BanniereIncitationPwa from '../components/BanniereIncitationPwa';
 import { verifierEligibiliteAchat } from '../services/servicePaiement';
 import { 
   fetchCatalogueDocuments, 
@@ -1302,14 +1301,6 @@ export default function EcranAccueil() {
         visible={vipModalVisible}
         onClose={() => setVipModalVisible(false)}
         onSuccess={() => {}}
-      />
-
-      {/* 🚀 Bannière flottante périodique d'incitation PWA / Inscription (Web) */}
-      <BanniereIncitationPwa
-        onSInscrire={() => {
-          setMotifGating('bienvenue');
-          setModaleGatingVisible(true);
-        }}
       />
       </View>
     </TransitionPage>

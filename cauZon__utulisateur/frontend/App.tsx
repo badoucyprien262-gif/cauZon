@@ -15,6 +15,7 @@ import { FournisseurApp, useApp } from './src/store/ContexteApp';
 import SplashScreenCauzon from './src/components/SplashScreenCauzon';
 import EcranChargementAuth from './src/components/EcranChargementAuth';
 import SasDesktopGatekeeper from './src/components/SasDesktopGatekeeper';
+import BanniereInstallationPwaTop from './src/components/BanniereInstallationPwaTop';
 import { initialiserGestionnaireNotifications, synchroniserNotificationsManquees } from './src/services/serviceNotifications';
 import { prechargerDonneesAccueil } from './src/services/serviceDocument';
 import { chargerScriptGoogleGsi } from './src/services/serviceGoogleOneTap';
@@ -308,6 +309,7 @@ export default function App() {
       ]}
     >
       <FournisseurApp>
+        <BanniereInstallationPwaTop />
         <NavigationContainer
           ref={navigationRef}
           linking={linkingConfig}

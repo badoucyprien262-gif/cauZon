@@ -302,7 +302,19 @@ if (fs.existsSync(htmlFile)) {
     `    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.9/pdf-lib.min.js"></script>\n`;
 
   // Injection dans le <head>
-  let headInjections = fullSeoAndPwaBlock + scrollFixStyle;
+  const earlyPwaPromptScript = `<script id="cauzon-pwa-early-capture">` +
+    `window.__cauzonDeferredPrompt=null;` +
+    `window.addEventListener('beforeinstallprompt',function(e){` +
+    `e.preventDefault();` +
+    `window.__cauzonDeferredPrompt=e;` +
+    `window.dispatchEvent(new CustomEvent('cauzon-pwa-installable'));` +
+    `});` +
+    `window.addEventListener('appinstalled',function(){` +
+    `window.__cauzonDeferredPrompt=null;` +
+    `});` +
+    `</script>`;
+
+  let headInjections = fullSeoAndPwaBlock + scrollFixStyle + earlyPwaPromptScript;
   if (fontFaceStyle) {
     headInjections += fontFaceStyle;
     console.log('✅ Police Ionicons injectée en Base64 dans dist/index.html.');
