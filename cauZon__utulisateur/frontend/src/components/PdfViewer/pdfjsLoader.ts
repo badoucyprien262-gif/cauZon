@@ -54,6 +54,20 @@ export function chargerPdfJs(): Promise<any> {
 }
 
 /**
+ * Normalise et sécurise une URL de document PDF
+ * Évite les doubles encodages tout en s'assurant que l'URL est valide pour fetch
+ */
+export function normaliserUrlSecurisee(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  if (rawUrl.startsWith('data:') || rawUrl.startsWith('blob:')) return rawUrl;
+  try {
+    return encodeURI(decodeURI(rawUrl.trim()));
+  } catch {
+    return rawUrl.trim();
+  }
+}
+
+/**
  * Extrait et normalise les octets PDF depuis une source url, dataURI ou buffer
  */
 export async function extrairePdfBytes(
@@ -64,7 +78,8 @@ export async function extrairePdfBytes(
     return urlFichier;
   }
 
-  const source = sourceCible || (typeof urlFichier === 'string' ? urlFichier : null) || URL_DOCUMENT_SECOURS;
+  const rawSource = sourceCible || (typeof urlFichier === 'string' ? urlFichier : null) || URL_DOCUMENT_SECOURS;
+  const source = normaliserUrlSecurisee(rawSource);
 
   if (
     source.startsWith('data:application/pdf') ||
@@ -80,13 +95,23 @@ export async function extrairePdfBytes(
   }
 
   try {
-    const res = await fetch(source);
+    // Timeout de sécurité de 25 secondes avec AbortController
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 25000) : null;
+
+    const res = await fetch(source, controller ? { signal: controller.signal } : undefined);
+    if (timeoutId) clearTimeout(timeoutId);
+
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      throw new Error(`HTTP ${res.status} : Impossible de télécharger le fichier`);
     }
     const buf = await res.arrayBuffer();
     return new Uint8Array(buf);
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      console.warn('[PDF Loader] Délai d\'attente dépassé (timeout) pour le téléchargement du PDF.');
+    }
+
     // 🛡️ Repli hors-ligne immédiat : vérifier dans Cache Storage avec ignoreSearch: true
     if (typeof caches !== 'undefined') {
       try {
@@ -109,6 +134,6 @@ export async function extrairePdfBytes(
         return new Uint8Array(buf);
       }
     } catch (_) {}
-    throw err;
+    throw new Error('Le document PDF n\'a pas pu être chargé (connexion réseau instable ou fichier inaccessible).');
   }
 }

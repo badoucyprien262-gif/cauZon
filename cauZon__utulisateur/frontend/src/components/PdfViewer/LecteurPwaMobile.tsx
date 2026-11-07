@@ -548,12 +548,11 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
             overlay.appendChild(card);
             wrapper.appendChild(overlay);
 
-            setTimeout(() => {
-              const bAchat = document.getElementById('cauzon-btn-achat-mobile');
-              const bVip = document.getElementById('cauzon-btn-vip-mobile');
-              if (bAchat && onAcheter) bAchat.onclick = onAcheter;
-              if (bVip && onVip) bVip.onclick = onVip;
-            }, 50);
+            // Liaison directe et infaillible des boutons d'achat / VIP
+            const bAchat = card.querySelector('#cauzon-btn-achat-mobile') as HTMLButtonElement | null;
+            const bVip = card.querySelector('#cauzon-btn-vip-mobile') as HTMLButtonElement | null;
+            if (bAchat && onAcheter) bAchat.onclick = onAcheter;
+            if (bVip && onVip) bVip.onclick = onVip;
           }
 
           pagesLayer.appendChild(wrapper);

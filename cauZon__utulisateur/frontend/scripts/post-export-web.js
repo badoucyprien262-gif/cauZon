@@ -193,6 +193,21 @@ if (fs.existsSync(htmlFile)) {
     ` height: auto !important;` +
     ` flex-shrink: 0 !important;` +
     `}` +
+    `/* 🛡️ Sécurité DRM cauZon : Blocage absolu de la copie et du téléchargement */` +
+    `.cauzon-mobile-scroll-container, .cauzon-pdf-scroll-container, .cauzon-page-wrapper, canvas {` +
+    ` -webkit-touch-callout: none !important;` +
+    ` -webkit-user-select: none !important;` +
+    ` -moz-user-select: none !important;` +
+    ` -ms-user-select: none !important;` +
+    ` user-select: none !important;` +
+    ` -webkit-user-drag: none !important;` +
+    `}` +
+    `@media print {` +
+    ` html, body, #root {` +
+    `  display: none !important;` +
+    `  visibility: hidden !important;` +
+    ` }` +
+    `}` +
     `</style>`;
 
   // ────────────────────────────────────────────────────────────────────────────
