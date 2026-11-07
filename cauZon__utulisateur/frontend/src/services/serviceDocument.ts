@@ -2204,10 +2204,11 @@ export const resoudreSourcePdf = async (document: {
 };
 
 /**
- * 📲 Exporte ou restaure un document vers le stockage personnel de l'appareil (Téléchargements, Partage)
- * Fonctionne sur Mobile (via expo-sharing) et Web (via téléchargement Blob)
+ * 🔒 PROTECTION STRICTE DES DROITS D'AUTEUR :
+ * L'exportation, le téléchargement et le partage hors application sont neutralisés.
+ * Les documents sont séquestrés et consultables uniquement au sein de cauZon.
  */
-export const exporterDocumentVersTelephone = async (document: {
+export const exporterDocumentVersTelephone = async (_document: {
   id: string;
   titre: string;
   file_path?: string;
@@ -2216,65 +2217,10 @@ export const exporterDocumentVersTelephone = async (document: {
   cloud_path?: string;
   bucket?: string;
 }): Promise<{ success: boolean; message: string }> => {
-  try {
-    const { uri: sourceUri } = await resoudreSourcePdf(document);
-    if (!sourceUri) {
-      return { success: false, message: 'Impossible de localiser la source du document.' };
-    }
-
-    const { mimeType, uti, extension } = obtenirMimeTypeEtExtension(document.file_path || document.cheminLocal || document.titre);
-    const nomFichierNettoye = `${document.titre.replace(/[^a-zA-Z0-9_\-]/g, '_')}${extension.toLowerCase().endsWith('.pdf') ? '' : '.pdf'}`;
-
-    // 🌐 Mode PC / Navigateur Web
-    if (Platform.OS === 'web') {
-      try {
-        const response = await fetch(sourceUri);
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        const link = window.document.createElement('a');
-        link.href = blobUrl;
-        link.download = nomFichierNettoye;
-        window.document.body.appendChild(link);
-        link.click();
-        window.document.body.removeChild(link);
-        window.URL.revokeObjectURL(blobUrl);
-        return { success: true, message: `"${document.titre}" a été téléchargé sur votre ordinateur 💾` };
-      } catch (webErr) {
-        if (typeof window !== 'undefined') {
-          window.open(sourceUri, '_blank');
-          return { success: true, message: 'Ouverture du document pour enregistrement...' };
-        }
-      }
-    }
-
-    // 📱 Mode Mobile (Android & iOS)
-    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-    const tempShareUri = `${baseDir}${nomFichierNettoye}`;
-
-    if (sourceUri.startsWith('http')) {
-      const dl = await FileSystem.downloadAsync(sourceUri, tempShareUri);
-      if (dl.status !== 200) {
-        throw new Error('Échec du téléchargement pour le partage.');
-      }
-    } else if (sourceUri.startsWith('file:') && sourceUri !== tempShareUri) {
-      await FileSystem.copyAsync({ from: sourceUri, to: tempShareUri });
-    }
-
-    const isAvailable = await Sharing.isAvailableAsync();
-    if (isAvailable) {
-      await Sharing.shareAsync(tempShareUri, {
-        mimeType: mimeType || 'application/pdf',
-        dialogTitle: `Exporter "${document.titre}"`,
-        UTI: uti || 'com.adobe.pdf',
-      });
-      return { success: true, message: 'Document prêt et partagé avec succès ! 📲' };
-    }
-
-    return { success: true, message: `Document enregistré dans votre espace local :\n${tempShareUri}` };
-  } catch (err: any) {
-    console.error("Erreur lors de l'exportation vers le téléphone :", err);
-    return { success: false, message: err.message || "Impossible d'exporter ce document." };
-  }
+  return {
+    success: false,
+    message: "L'exportation et le téléchargement des documents hors de l'application sont strictement interdits afin de protéger les droits d'auteur des auteurs et établissements partenaires.",
+  };
 };
 
 /**

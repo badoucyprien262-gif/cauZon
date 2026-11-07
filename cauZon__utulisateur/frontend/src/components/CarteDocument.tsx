@@ -239,7 +239,7 @@ export default function CarteDocument({
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="download-outline" size={14} color="#FAF6EB" />
+              <Ionicons name="sparkles-outline" size={14} color="#FAF6EB" />
             </TouchableOpacity>
           ) : onUnlockPress ? (
             <TouchableOpacity

@@ -209,7 +209,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
     {
       icon: 'library-outline',
       title: 'Accès Intégral au Catalogue',
-      description: 'Consultez et téléchargez l\'ensemble des annales, corrigés et cours universitaires.',
+      description: 'Consultez en illimité l\'ensemble des annales, corrigés et cours universitaires.',
     },
     {
       icon: 'cloud-upload-outline',

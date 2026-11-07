@@ -29,7 +29,7 @@ import ModaleImportDocument, { FichierImporte } from '../components/ModaleImport
 import ModaleConnexionRequise from '../components/ModaleConnexionRequise';
 import ModaleConfirmationCauzon from '../components/ModaleConfirmationCauzon';
 import { verifierEligibiliteAchat } from '../services/servicePaiement';
-import { fetchMesDocuments, exporterDocumentVersTelephone, exporterDocumentVersAppareil, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal, preparerSourceEnArrierePlan } from '../services/serviceDocument';
+import { fetchMesDocuments, chargerBibliothequeLocale, chargerDocumentsImportes, copierFichierVersDossierPersistant, stockerDansCoffreFortLocal, preparerSourceEnArrierePlan } from '../services/serviceDocument';
 import { useSynchronisationHorsLigne } from '../services/serviceSynchronisationHorsLigne';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -380,8 +380,9 @@ export default function EcranBibliotheque() {
   }
 
   const ouvrirDocument = (doc: Document) => {
-    // Si document VIP et pass expiré -> bloquer et proposer l'achat sécurisé
-    if (doc.is_vip_consultation && !isVipActive) {
+    const estAchetePermanent = docsDebloquesIds.includes(doc.id);
+    // Si document VIP et pass expiré (et non acheté définitivement) -> proposer l'achat sécurisé
+    if (doc.is_vip_consultation && !isVipActive && !estAchetePermanent) {
       handleOuvrirAchatPermanent(doc);
       return;
     }
@@ -411,15 +412,6 @@ export default function EcranBibliotheque() {
 
 
 
-
-  const exporterDocument = async (doc: Document) => {
-    const res = await exporterDocumentVersTelephone(doc);
-    afficherToast(
-      res.message,
-      "Exportation 💾",
-      res.success ? "succes" : "erreur"
-    );
-  };
 
   const ouvrirDossier = (categorie: string) => {
     setSelectedCategory(categorie);
@@ -627,7 +619,7 @@ export default function EcranBibliotheque() {
           <View style={styles.infoBannerPermanent}>
             <Ionicons name="shield-checkmark-outline" size={16} color="#15803D" />
             <Text style={styles.infoBannerPermanentText}>
-              Accès permanent illimité à vie • Stockage hors-ligne & Exportation autorisée
+              Accès permanent illimité à vie • Lecture sécurisée hors-ligne dans l'application
             </Text>
           </View>
         ) : (
@@ -769,7 +761,8 @@ export default function EcranBibliotheque() {
                 </View>
               ) : (
                 docsFiltresCategorie.map((doc) => {
-                  const estVerrouilleVip = doc.is_vip_consultation && !isVipActive;
+                  const estAchetePermanent = docsDebloquesIds.includes(doc.id);
+                  const estVerrouilleVip = doc.is_vip_consultation && !isVipActive && !estAchetePermanent;
                   const estEnCoursSync = idsEnCours.has(doc.id);
                   const estPretHorsLigne = idsEnCache.has(doc.id);
 
@@ -799,7 +792,7 @@ export default function EcranBibliotheque() {
                             {estEnCoursSync ? (
                               <View style={styles.badgeTelechargementHorsLigne}>
                                 <ActivityIndicator size={10} color="#2563EB" style={{ marginRight: 3 }} />
-                                <Text style={styles.texteBadgeTelechargement}>Téléchargement...</Text>
+                                <Text style={styles.texteBadgeTelechargement}>Synchronisation...</Text>
                               </View>
                             ) : estPretHorsLigne ? (
                               <View style={styles.badgeHorsLignePret}>
@@ -813,7 +806,7 @@ export default function EcranBibliotheque() {
                                 activeOpacity={0.7}
                               >
                                 <Ionicons name="cloud-download-outline" size={12} color="#B45309" />
-                                <Text style={styles.texteBadgeNonSynchronise}>Télécharger</Text>
+                                <Text style={styles.texteBadgeNonSynchronise}>Mettre hors-ligne</Text>
                               </TouchableOpacity>
                             )}
                           </View>
@@ -843,17 +836,6 @@ export default function EcranBibliotheque() {
                               <Ionicons name="eye-outline" size={14} color={couleurs.accent} style={{ marginRight: 4 }} />
                               <Text style={styles.readBtnText}>Lire</Text>
                             </TouchableOpacity>
-
-                            {/* Exportation vers stockage local (PC ou Téléphone) */}
-                            {dossierActif === 'permanent' && (
-                              <TouchableOpacity 
-                                style={[styles.actionBtn, styles.exportBtn]}
-                                onPress={() => exporterDocument(doc)}
-                              >
-                                <Ionicons name="share-outline" size={14} color={couleurs.primaire} style={{ marginRight: 4 }} />
-                                <Text style={styles.exportBtnText}>Exporter</Text>
-                              </TouchableOpacity>
-                            )}
 
                             {/* Option d'achat direct pour transférer un doc VIP en Permanent */}
                             {dossierActif === 'vip' && (

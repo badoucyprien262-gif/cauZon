@@ -162,7 +162,6 @@ if (fs.existsSync(htmlFile)) {
     `  animation-iteration-count: 1 !important;` +
     `  transition-duration: 0.001ms !important;` +
     `  scroll-behavior: auto !important;` +
-    `  transform: none !important;` +
     ` }` +
     `}` +
     `/* Défilement vertical strict & respect du ratio A4 sans compression */` +

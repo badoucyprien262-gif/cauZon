@@ -20,7 +20,7 @@ import { Accelerometer } from 'expo-sensors';
 import { useApp } from '../store/ContexteApp';
 
 import { RootStackParamList } from '../navigation/NavigateurApp';
-import { getDocumentPdfUrl, exporterDocumentVersTelephone, exporterDocumentVersAppareil, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox, resoudreSourcePdf, sourceCacheMemoire } from '../services/serviceDocument';
+import { getDocumentPdfUrl, verifierFichierLocalExiste, telechargerFichierVersDossierPersistant, DOSSIER_DOCS_PERSISTANTS, normaliserCheminFichier, retrouverFichierDansSandbox, resoudreSourcePdf, sourceCacheMemoire } from '../services/serviceDocument';
 import { recupererUrlBlobPdf, telechargerEtMettreEnCachePdf } from '../services/gestionnaireCachePdf';
 
 import ModaleAchat from '../components/ModaleAchat';
@@ -112,21 +112,22 @@ export default function EcranLecteurDocument() {
   );
 
   // Règle d'étanchéité stricte :
-  // 1. Documents personnels importés ou transmis débloqués : toujours 100% débloqués.
-  // 2. Mode Hors-Ligne : Si l'appareil est hors-ligne, tout document présent dans la bibliothèque ou déjà débloqué est considéré comme autorisé (aucun appel distant Supabase).
-  // 3. Document au titre du VIP : l'accès est subordonné au statut VIP actif.
-  // 4. Document acheté à l'unité : débloqué définitivement à vie si présent dans docsDebloquesIds.
+  // 1. Achat définitif (100 FCFA ou offre bienvenue) ou document importé : TOUJOURS 100% débloqué à vie (abonné VIP ou non).
+  // 2. Mode Hors-Ligne : Si présent dans la bibliothèque ou déjà débloqué, accès direct sans appel réseau.
+  // 3. Document au titre du VIP : l'accès est subordonné au statut VIP actif (revérrouillé si expiré).
+  // 4. Document non acheté : débloqué si le Pass VIP est actif, sinon verrouillé.
+  const estAcheteDefinitivement = docsDebloquesIds.includes(document.id) || docsDebloquesIds.includes(docParams.id);
+
   let estDebloqueGlobalement = false;
-  if (estDocumentImporte || estMarqueDebloque) {
+  if (estDocumentImporte || estMarqueDebloque || estAcheteDefinitivement) {
     estDebloqueGlobalement = true;
   } else if (estHorsLigne) {
     const estDansBibliotheque = acquisitions?.some((a: any) => a.id === document.id || a.document_id === document.id);
-    estDebloqueGlobalement = estDansBibliotheque || docsDebloquesIds.includes(document.id) || estMarqueDebloque;
+    estDebloqueGlobalement = estDansBibliotheque || estMarqueDebloque;
   } else if (estAuTitreVip) {
     estDebloqueGlobalement = estAbonneVIP;
   } else {
-    const estAcheteDefinitivement = docsDebloquesIds.includes(document.id);
-    estDebloqueGlobalement = estAcheteDefinitivement || estAbonneVIP;
+    estDebloqueGlobalement = estAbonneVIP;
   }
 
   const estVerrouille = !estDocumentImporte && (estHorsLigne ? !estDebloqueGlobalement : (document.prix > 0 && !estDebloqueGlobalement));
@@ -465,39 +466,21 @@ export default function EcranLecteurDocument() {
             </View>
           )}
 
-          {/* Boutons d'Action (uniquement si débloqué et hors Web pour éviter toute fuite du fichier brut) */}
-          {!estVerrouille && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <TouchableOpacity
-                style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]}
-                onPress={async () => {
-                  const res = await exporterDocumentVersAppareil(document);
-                  afficherToast(
-                    res.message,
-                    "Exportation 💾",
-                    res.success ? "succes" : "erreur"
-                  );
-                }}
-              >
-                <Ionicons name="download-outline" size={estPaysage ? 15 : 18} color="#FFFFFF" />
-                <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>Exporter</Text>
-              </TouchableOpacity>
-
-              {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
-              <TouchableOpacity 
-                style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
-                onPress={basculerOrientationManuelle}
-              >
-                <Ionicons 
-                  name={estPaysage ? "phone-portrait" : "phone-landscape"} 
-                  size={estPaysage ? 15 : 18} 
-                  color="#FFFFFF" 
-                />
-                <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
-                  {estPaysage ? "Portrait" : "Paysage"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+          {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
+          {Platform.OS !== 'web' && (
+            <TouchableOpacity 
+              style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
+              onPress={basculerOrientationManuelle}
+            >
+              <Ionicons 
+                name={estPaysage ? "phone-portrait" : "phone-landscape"} 
+                size={estPaysage ? 15 : 18} 
+                color="#FFFFFF" 
+              />
+              <Text style={[styles.rotateBtnText, estPaysage && styles.rotateBtnTextPaysage]}>
+                {estPaysage ? "Portrait" : "Paysage"}
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
