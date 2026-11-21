@@ -60,7 +60,7 @@ export const publishDocument = async (
     description: wizardData.description,
     categorie: wizardData.categorie,
     tags: wizardData.tags?.trim() || null,
-    prix: parseInt(wizardData.prix) || 100,
+    prix: parseInt(wizardData.prix) || 200,
     est_certifie: wizardData.estCertifie,
     est_verrouille: true,
     nombre_pages: pagesCount,

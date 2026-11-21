@@ -56,7 +56,7 @@ function RevenueBreakdownCard({ icon, title, amount, count, badgeColor, darkMode
           {amount.toLocaleString('fr-FR')} FCFA
         </div>
         <div style={{ fontSize: '11px', color: subText, marginTop: '2px' }}>
-          {title.includes('Location') || title.includes('VIP') ? '500 FCFA / location' : title.includes('Stockage') ? '1000 FCFA / +75 docs' : '100 FCFA / document'}
+          {title.includes('Location') || title.includes('VIP') ? '1 000 FCFA / abonnement (10 docs)' : title.includes('Stockage') ? '1 500 FCFA / +21 docs' : '200 FCFA / document'}
         </div>
       </div>
     </div>
@@ -81,10 +81,10 @@ export function DashboardView({
 }: DashboardViewProps) {
   const published = documents.filter(d => d.status === 'published').length;
   const certifies = documents.filter(d => d.est_certifie).length;
-  
+
   // Calcul précis des VIP / Locations actives (has_vip_pass = true et non expirés ou transactions VIP)
   const now = new Date();
-  const vipProfilsActifs = profiles.filter(p => 
+  const vipProfilsActifs = profiles.filter(p =>
     p.has_vip_pass && (!p.vip_expiration_date || new Date(p.vip_expiration_date) > now)
   ).length;
   const vipUsers = Math.max(vipProfilsActifs, countVip);
@@ -139,7 +139,7 @@ export function DashboardView({
           <RevenueBreakdownCard
             darkMode={darkMode}
             icon={<Sparkles size={22} color="#6B1124" />}
-            title="Locations Catalogue (500F)"
+            title="Abonnements Mensuels (1 000F)"
             amount={revenueVip}
             count={countVip}
             badgeColor="#6B1124"

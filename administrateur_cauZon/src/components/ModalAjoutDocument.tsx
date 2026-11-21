@@ -67,7 +67,7 @@ export function ModalAjoutDocument({
   const [niveau, setNiveau] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
-  const [prix, setPrix] = useState('100');
+  const [prix, setPrix] = useState('200');
   const [storageKey, setStorageKey] = useState('');
   const [limiteApercuType, setLimiteApercuType] = useState<'pourcentage' | 'page'>('pourcentage');
   const [limiteApercuValeur, setLimiteApercuValeur] = useState(30);
@@ -232,45 +232,22 @@ export function ModalAjoutDocument({
     }
 
     setIsUploading(true);
-    setUploadProgress(12);
-    setProgressLabel('🗜️ Optimisation et compression du PDF via pdf-lib…');
+    setUploadProgress(10);
+    setProgressLabel('⚡ Démarrage du téléversement turbo…');
     setErrorMessage('');
     setUploadResult(null);
 
-    // Progression visuelle animée
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev < 40) {
-          setProgressLabel('🗜️ Compression et suppression des métadonnées…');
-          return prev + 7;
-        } else if (prev < 75) {
-          setProgressLabel('📤 Transfert chiffré vers Cloudflare R2 (0 FCFA d\'egress)…');
-          return prev + 6;
-        } else if (prev < 90) {
-          setProgressLabel('⚡ Synchronisation de la table Supabase…');
-          return prev + 3;
-        }
-        return prev;
-      });
-    }, 450);
-
     try {
-      // 1. Téléversement de l'image de couverture si présente (manuelle ou extraite Page 1)
-      let finalCoverUrl: string | null = null;
+      // 1. Téléversement ultra-rapide de l'image de couverture (asynchrone)
       const coverToUpload = coverFile || autoCoverBlob;
+      const coverUploadPromise = coverToUpload
+        ? uploaderImageCouverture(coverToUpload, titre.trim() || selectedFile.name).catch((coverErr) => {
+            console.warn('Avertissement téléversement couverture :', coverErr);
+            return null;
+          })
+        : Promise.resolve(null);
 
-      if (coverToUpload) {
-        setProgressLabel('🖼️ Téléversement de la miniature / couverture…');
-        try {
-          finalCoverUrl = await uploaderImageCouverture(
-            coverToUpload,
-            titre.trim() || selectedFile.name
-          );
-        } catch (coverErr) {
-          console.warn('Avertissement téléversement couverture :', coverErr);
-        }
-      }
-
+      // 2. Préparation instantanée du FormData
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('titre', titre.trim());
@@ -297,27 +274,29 @@ export function ModalAjoutDocument({
         formData.append('storageKey', storageKey.trim());
       }
 
-      // Persistance de l'URL finale de la couverture dans Supabase
+      // Attente du téléversement de la couverture (exécuté en parallèle en ~300ms)
+      const finalCoverUrl = await coverUploadPromise;
       if (finalCoverUrl) {
         formData.append('cover_url', finalCoverUrl);
       }
 
-      const res = await uploaderDocumentViaBackend(formData);
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-      setProgressLabel('✅ Document uploadé et synchronisé !');
+      // 3. Traitement direct et téléversement turbo avec retours de progression réels
+      const res = await uploaderDocumentViaBackend(formData, (progress, label) => {
+        setUploadProgress(progress);
+        setProgressLabel(label);
+      });
 
       if (res.success) {
+        setUploadProgress(100);
+        setProgressLabel('✅ Document publié avec succès !');
         setUploadResult(res);
-        onSuccess(); // Actualisation du catalogue de cours
+        onSuccess(); // Actualisation immédiate du catalogue de cours
       } else {
         setErrorMessage(res.error || "Erreur lors de l'upload.");
       }
     } catch (err: unknown) {
-      clearInterval(progressInterval);
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMessage(`Erreur réseau : ${msg}`);
+      setErrorMessage(`Erreur : ${msg}`);
     } finally {
       setIsUploading(false);
     }
@@ -338,7 +317,7 @@ export function ModalAjoutDocument({
     setNiveau('');
     setDescription('');
     setTags('');
-    setPrix('100');
+    setPrix('200');
     setStorageKey('');
     setUploadResult(null);
     setErrorMessage('');
@@ -419,7 +398,7 @@ export function ModalAjoutDocument({
                   fontFamily: 'Outfit, sans-serif',
                 }}
               >
-                Upload &amp; Compression R2 — cauZon
+                Upload &amp; Compression Directe — cauZon
               </h2>
               <p
                 style={{
@@ -428,16 +407,16 @@ export function ModalAjoutDocument({
                   fontSize: '12px',
                 }}
               >
-                Stockage Cloudflare R2 (0 FCFA d'egress) &bull; Optimisation automatique
+                Stockage Cloud Direct &bull; Compression automatique pdf-lib
               </p>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Statut R2 */}
+            {/* Statut Stockage Cloud */}
             <div
               onClick={testerConnexionR2}
-              title="Cliquer pour re-tester la connexion R2"
+              title="Cliquer pour re-tester la connexion au stockage Cloud"
               style={{
                 padding: '4px 10px',
                 borderRadius: '20px',
@@ -460,7 +439,7 @@ export function ModalAjoutDocument({
                   backgroundColor: r2Status?.success ? '#22C55E' : '#EF4444',
                 }}
               />
-              {testingR2 ? 'Test R2…' : r2Status?.success ? 'R2 Connecté' : 'R2 Hors-ligne'}
+              {testingR2 ? 'Test Cloud…' : r2Status?.success ? 'Cloud Connecté' : 'Stockage Hors-ligne'}
               <RefreshCw size={11} className={testingR2 ? 'spin' : ''} />
             </div>
 
@@ -520,7 +499,7 @@ export function ModalAjoutDocument({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#22C55E', fontWeight: 800, fontSize: '15px' }}>
                 <CheckCircle size={22} />
-                <span>Document compressé, stocké sur R2 et synchronisé dans Supabase !</span>
+                <span>Document compressé, stocké et publié avec succès dans Supabase !</span>
               </div>
 
               {uploadResult.compression && (
@@ -586,7 +565,7 @@ export function ModalAjoutDocument({
               )}
 
               <div style={{ fontSize: '12px', color: textSub, wordBreak: 'break-all', marginTop: '4px' }}>
-                <strong>Clé R2 :</strong> <code>{uploadResult.fileKey}</code>
+                <strong>Chemin Cloud :</strong> <code>{uploadResult.fileKey}</code>
                 {uploadResult.supabaseId && (
                   <span style={{ marginLeft: '12px' }}>
                     <strong>ID Supabase :</strong> <code>{uploadResult.supabaseId}</code>
@@ -1386,10 +1365,10 @@ export function ModalAjoutDocument({
               }}
             >
               {isUploading ? (
-                <>⏳ Upload &amp; Compression…</>
+                <>⏳ Upload &amp; Compression Directe…</>
               ) : (
                 <>
-                  <Zap size={16} /> Compresser &amp; Uploader vers R2
+                  <Zap size={16} /> Compresser &amp; Publier le Document
                 </>
               )}
             </button>

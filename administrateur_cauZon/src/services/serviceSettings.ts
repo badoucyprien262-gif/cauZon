@@ -167,7 +167,7 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
           userEmail: buyer.email,
           userPhone: buyer.phone,
           doc: docDesignation,
-          price: `${montant > 0 ? montant : 100} FCFA`,
+          price: `${montant > 0 ? montant : 200} FCFA`,
           method: formatPaymentMethod(t.operateur as string, t.mode_paiement as string),
           status: isApproved ? 'Complété' : (t.statut as string) || 'En attente',
         });
@@ -247,8 +247,8 @@ export const fetchFinancialData = async (): Promise<FinancialStats> => {
               date: p.created_at ? new Date(p.created_at as string).toLocaleString('fr-FR') : 'Actif',
               id: vipTxId,
               userName: nomUser,
-              doc: `👑 Location Catalogue 30j (${nomUser})`,
-              price: '500 FCFA',
+              doc: `👑 Abonnement Mensuel 10 docs (${nomUser})`,
+              price: '1 000 FCFA',
               method: 'FeexPay',
               status: 'Complété',
             });

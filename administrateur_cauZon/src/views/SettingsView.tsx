@@ -28,9 +28,9 @@ interface SettingsViewProps {
 
 const DEFAULT_CONFIG: GlobalConfig = {
   welcomeOfferActive: true,
-  defaultPrice: 100,
+  defaultPrice: 200,
   vipPrice: 1000,
-  storageExtensionPrice: 500,
+  storageExtensionPrice: 1500,
   alertBannerText: '',
   bannerImageUrl: '',
   bannerRedirectUrl: '',
@@ -621,7 +621,7 @@ export function SettingsView({
             <div style={{ backgroundColor: cardBg, border: `1px solid ${border}`, borderRadius: '12px', padding: '18px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                 <span style={{ fontSize: '16px' }}>👑</span>
-                <span style={{ fontSize: '11px', fontWeight: 700, color: subText, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Location Catalogue (500F)</span>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: subText, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Abonnement Mensuel (1 000F)</span>
               </div>
               <p style={{ fontSize: '22px', fontWeight: 800, color: '#6B1124', margin: 0 }}>{(propRevenueVip ?? 0).toLocaleString('fr-FR')} FCFA</p>
               <span style={{ fontSize: '11px', color: subText }}>{propCountVip ?? 0} location(s)</span>
