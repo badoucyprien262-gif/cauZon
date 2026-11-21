@@ -119,18 +119,24 @@ export default function EcranLecteurDocument() {
   const estAcheteDefinitivement = docsDebloquesIds.includes(document.id) || docsDebloquesIds.includes(docParams.id);
 
   let estDebloqueGlobalement = false;
-  if (estDocumentImporte || estMarqueDebloque || estAcheteDefinitivement) {
+  if (estDocumentImporte || estAcheteDefinitivement) {
     estDebloqueGlobalement = true;
-  } else if (estHorsLigne) {
-    const estDansBibliotheque = acquisitions?.some((a: any) => a.id === document.id || a.document_id === document.id);
-    estDebloqueGlobalement = estDansBibliotheque || estMarqueDebloque;
   } else if (estAuTitreVip) {
+    // Si acquis via abonnement mensuel (10 documents), débloqué tant que l'abonnement est actif
     estDebloqueGlobalement = estAbonneVIP;
+  } else if (estHorsLigne) {
+    const docAcquis = acquisitions?.find((a: any) => a.id === document.id || a.document_id === document.id);
+    if (docAcquis) {
+      estDebloqueGlobalement = docAcquis.is_vip_consultation ? estAbonneVIP : true;
+    } else {
+      estDebloqueGlobalement = false;
+    }
   } else {
-    estDebloqueGlobalement = estAbonneVIP;
+    // Dans le catalogue : cours non acquis = VERROUILLÉ (seules les pages gratuites sont visibles)
+    estDebloqueGlobalement = false;
   }
 
-  const estVerrouille = !estDocumentImporte && (estHorsLigne ? !estDebloqueGlobalement : (document.prix > 0 && !estDebloqueGlobalement));
+  const estVerrouille = !estDocumentImporte && (document.prix > 0 && !estDebloqueGlobalement);
 
   // ⚡ Détection synchrone ultra-rapide (< 1 ms) si la source est déjà en mémoire RAM (Cache L1)
   const idDocumentCourant = document.id || docParams.id || cloudPathNettoye || cheminBrut;
@@ -202,10 +208,17 @@ export default function EcranLecteurDocument() {
   // Détection dynamique et fluide du mode Paysage (asservie au bouton)
   const estPaysage = Platform.OS === 'web' ? (modePaysageActif || screenWidth > screenHeight) : modePaysageActif;
 
-  // Paramètres de coupure dynamiques
-  const limiteApercuType = document.limiteApercuType ?? 'pourcentage';
-  const limiteApercuValeur = document.limiteApercuValeur ?? 30;
-  const limiteApercuPages = limiteApercuType === 'page' ? limiteApercuValeur : 1;
+  // Paramètres de coupure dynamiques & Nombre de pages gratuites
+  const limiteApercuType = document.limiteApercuType || 'page';
+  const nbPagesBrutes = Number((document as any).pages_gratuites) ||
+    Number(document.limiteApercuPages) ||
+    Number((document as any).limite_apercu_pages) ||
+    (limiteApercuType === 'page' ? Number(document.limiteApercuValeur) : 0) ||
+    (limiteApercuType === 'pourcentage'
+      ? Math.max(1, Math.round((Number(document.nombrePages) || 10) * ((Number(document.limiteApercuValeur) || 30) / 100)))
+      : 2);
+  const limiteApercuPages = Math.max(1, nbPagesBrutes || 2);
+  const limiteApercuValeur = limiteApercuPages;
 
   // Préparation de la source PDF (Court-circuit hors-ligne & Cache persistant IndexedDB / Vault)
   useEffect(() => {

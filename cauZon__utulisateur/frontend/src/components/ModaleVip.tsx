@@ -37,6 +37,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
     couleurs,
     estAbonneVIP,
     dateExpirationAbonnement,
+    actualiserAbonnement,
     sAbonnerVIPCinetPay,
     nomUtilisateur,
     telephoneFacturation,
@@ -171,16 +172,15 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
 
     if (isSuccess) {
       setChargementEnCours(true);
-      // Persister le VIP dans Supabase (profiles.has_vip_pass + vip_expiration_date)
-      const vipResult = await activerPassVIP(30);
+      // Persister l'abonnement dans Supabase (abonnements_etudiants + profiles + ledger via RPC)
+      const vipResult = await activerPassVIP(30, transId, operateurSelectionne);
+      // Actualiser immédiatement l'état global du contexte (abonnements_etudiants, profil et droits)
+      await actualiserAbonnement();
       setChargementEnCours(false);
 
-      // Mettre à jour l'état global du contexte (affichage immédiat)
-      sAbonnerVIPCinetPay(vipResult.dateAffichage);
-
       afficherToast(
-        `Félicitations ! Votre formule de location est active jusqu'au ${vipResult.dateAffichage}. Accès illimité à tous les cours et import personnel débloqués.`,
-        'Formule Location Activée 👑',
+        `Félicitations ! Votre abonnement est actif jusqu'au ${vipResult.dateAffichage}. Vous disposez de 10 crédits de cours pour ce mois.`,
+        'Abonnement Activé 🎓',
         'succes'
       );
       onSuccess();

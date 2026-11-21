@@ -73,6 +73,10 @@ interface AppContextType {
   setEstAbonneVIP: React.Dispatch<React.SetStateAction<boolean>>;
   dateExpirationAbonnement: string | null;
   vipExpireAt: string | null;
+  creditsAbonnementRestants: number;
+  setCreditsAbonnementRestants: React.Dispatch<React.SetStateAction<number>>;
+  abonnementActif: any | null;
+  actualiserAbonnement: () => Promise<void>;
   chargementVip: boolean;
   sAbonnerVIPFeexPay: (expirationDate: string) => void;
   sAbonnerVIPCinetPay: (expirationDate: string) => void;
@@ -197,6 +201,8 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   const [estAbonneVIP, setEstAbonneVIP] = useState<boolean>(false);
   const [dateExpirationAbonnement, setDateExpirationAbonnement] = useState<string | null>(null);
   const [vipExpireAt, setVipExpireAt] = useState<string | null>(null);
+  const [creditsAbonnementRestants, setCreditsAbonnementRestants] = useState<number>(0);
+  const [abonnementActif, setAbonnementActif] = useState<any | null>(null);
   const [chargementVip, setChargementVip] = useState<boolean>(true);
   const [chargementStockage, setChargementStockage] = useState<boolean>(true);
   
@@ -614,6 +620,14 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
           setAReponseNonLue(true);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'abonnements_etudiants' },
+        () => {
+          console.log('⚡ Changement abonnement étudiant détecté via Realtime -> Actualisation');
+          chargerStatutVIP().then(() => chargerAcquisitionsReelles()).catch(() => {});
+        }
+      )
       } catch (errInitGlobal) {
         console.warn('⚠️ Erreur globale non fatale lors de initialiserApplication :', errInitGlobal);
       } finally {
@@ -858,17 +872,51 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         setDateFinSuspension(bannedUntilISO ? new Date(bannedUntilISO).toLocaleDateString('fr-FR') + ' à ' + new Date(bannedUntilISO).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Définitif');
         setMotifSuspension(profil.ban_reason || 'Non respect des règles de la plateforme');
 
-        // ── VIP ──────────────────────────────────────────────
-        const hasVip: boolean = profil.has_vip_pass ?? false;
-        const expireAtISO: string | null = profil.vip_expiration_date ?? null;
-        let vipActif = false;
+        // ── Abonnement Étudiant (Table abonnements_etudiants : 10 cours / 30j) ──
+        let aboActifRow: any = null;
+        if (user) {
+          try {
+            const { data: abos } = await supabase
+              .from('abonnements_etudiants')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('statut', 'actif')
+              .gt('date_fin', new Date().toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1);
 
-        if (hasVip && expireAtISO) {
-          const maintenant = new Date();
-          const dateExpiration = new Date(expireAtISO);
-          vipActif = maintenant <= dateExpiration;
-        } else if (hasVip && !expireAtISO) {
+            if (abos && abos.length > 0) {
+              aboActifRow = abos[0];
+            }
+          } catch (errAbo) {
+            console.warn('Note lecture abonnements_etudiants :', errAbo);
+          }
+        }
+
+        let vipActif = false;
+        let expireAtISO: string | null = null;
+
+        if (aboActifRow) {
           vipActif = true;
+          expireAtISO = aboActifRow.date_fin;
+          const debloques = Array.isArray(aboActifRow.documents_debloques_ids)
+            ? aboActifRow.documents_debloques_ids.length
+            : 0;
+          const quotaMax = aboActifRow.quota_documents_autorises || 10;
+          setCreditsAbonnementRestants(Math.max(0, quotaMax - debloques));
+          setAbonnementActif(aboActifRow);
+        } else {
+          // Fallback sur profil (profiles.has_vip_pass)
+          const hasVip: boolean = profil.has_vip_pass ?? false;
+          const profExpireAt: string | null = profil.vip_expiration_date ?? null;
+          if (hasVip && profExpireAt) {
+            vipActif = new Date() <= new Date(profExpireAt);
+            expireAtISO = profExpireAt;
+          } else if (hasVip) {
+            vipActif = true;
+          }
+          setCreditsAbonnementRestants(vipActif ? 10 : 0);
+          setAbonnementActif(null);
         }
 
         setEstVip(vipActif);
@@ -1279,6 +1327,10 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
         setEstAbonneVIP,
         dateExpirationAbonnement,
         vipExpireAt,
+        creditsAbonnementRestants,
+        setCreditsAbonnementRestants,
+        abonnementActif,
+        actualiserAbonnement: chargerStatutVIP,
         chargementVip,
         sAbonnerVIPFeexPay: sAbonnerVIPCinetPay,
         sAbonnerVIPCinetPay: sAbonnerVIPCinetPay,

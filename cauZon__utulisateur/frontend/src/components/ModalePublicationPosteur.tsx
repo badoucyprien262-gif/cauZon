@@ -74,6 +74,8 @@ export default function ModalePublicationPosteur({
   const [description, setDescription] = useState('');
 
   const [coverUri, setCoverUri] = useState<string | null>(null);
+  const [pagesGratuites, setPagesGratuites] = useState<number>(2);
+  const [totalDetectedPages, setTotalDetectedPages] = useState<number>(0);
 
   // ── États d'upload & progression ────────────────────────────────────
   const [enCours, setEnCours] = useState(false);
@@ -92,6 +94,8 @@ export default function ModalePublicationPosteur({
       setTags('');
       setDescription('');
       setCoverUri(null);
+      setPagesGratuites(2);
+      setTotalDetectedPages(0);
       setEnCours(false);
       setProgression(0);
       setLibelleProgression('');
@@ -209,6 +213,7 @@ export default function ModalePublicationPosteur({
       tags: tags.trim(),
       description: description.trim(),
       coverImageUri: coverUri,
+      pagesGratuites: pagesGratuites,
       quotaActuelMo,
       espaceUtiliseMo,
       onProgress: (p, label) => {
@@ -377,6 +382,42 @@ export default function ModalePublicationPosteur({
             />
             <Text style={styles.compteurTxt}>{description.length} / 1000 caractères</Text>
 
+            {/* 5. PAGES GRATUITES EN APERÇU (DÉCISION DU POSTEUR) */}
+            <Text style={styles.labelSection}>5. Pages gratuites en aperçu</Text>
+            <Text style={styles.aideSection}>
+              Choisissez le nombre de pages accessibles gratuitement pour donner envie aux étudiants avant de bloquer la lecture (achat à 200 FCFA ou abonnement).
+            </Text>
+            <View style={styles.cartePagesGratuites}>
+              <View style={styles.stepperLigne}>
+                <TouchableOpacity
+                  style={[styles.stepperBouton, pagesGratuites <= 1 && styles.stepperBoutonDesactive]}
+                  onPress={() => setPagesGratuites((p) => Math.max(1, p - 1))}
+                  disabled={pagesGratuites <= 1 || enCours}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="remove" size={20} color={pagesGratuites <= 1 ? couleurs.texteSecondaire : couleurs.texte} />
+                </TouchableOpacity>
+
+                <View style={styles.stepperValeurWrap}>
+                  <Text style={styles.stepperValeurTxt}>
+                    {pagesGratuites} {pagesGratuites > 1 ? 'pages' : 'page'}
+                  </Text>
+                  <Text style={styles.stepperSousTxt}>
+                    {pagesGratuites === 1 ? '1ère page en aperçu libre' : `${pagesGratuites} premières pages gratuites`}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.stepperBouton, pagesGratuites >= 50 && styles.stepperBoutonDesactive]}
+                  onPress={() => setPagesGratuites((p) => Math.min(50, p + 1))}
+                  disabled={pagesGratuites >= 50 || enCours}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add" size={20} color={pagesGratuites >= 50 ? couleurs.texteSecondaire : couleurs.texte} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {/* 6. IDENTITÉ DU POSTEUR SUR LA CARTE & COUVERTURE */}
             <Text style={styles.labelSection}>6. Identité créateur & Visuel de la carte</Text>
             <View style={styles.carteApercuIdentite}>
@@ -483,6 +524,7 @@ const getStyles = (c: any) =>
     boutonFermer: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
     scrollContent: { padding: 20, gap: 10 },
     labelSection: { fontSize: 13, fontWeight: '800', color: c.texte, marginTop: 8 },
+    aideSection: { fontSize: 12, color: c.texteSecondaire, marginBottom: 4, lineHeight: 16 },
     zoneDrop: {
       borderWidth: 2,
       borderStyle: 'dashed',
@@ -549,6 +591,47 @@ const getStyles = (c: any) =>
     pillActiveTxt: { color: '#FFFFFF' },
     textArea: { height: 120, lineHeight: 20 },
     compteurTxt: { fontSize: 11, color: c.texteSecondaire, textAlign: 'right', marginTop: -4 },
+    cartePagesGratuites: {
+      backgroundColor: c.fondCarte,
+      borderRadius: 14,
+      padding: 14,
+      borderWidth: 1,
+      borderColor: c.bordure,
+      marginBottom: 10,
+    },
+    stepperLigne: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    stepperBouton: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: c.fond,
+      borderWidth: 1.5,
+      borderColor: c.bordure,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stepperBoutonDesactive: {
+      opacity: 0.35,
+    },
+    stepperValeurWrap: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 16,
+    },
+    stepperValeurTxt: {
+      fontSize: 18,
+      fontWeight: '900',
+      color: c.texte,
+    },
+    stepperSousTxt: {
+      fontSize: 11,
+      color: c.texteSecondaire,
+      marginTop: 2,
+    },
     carteApercuIdentite: {
       backgroundColor: c.fondCarte,
       borderRadius: 14,

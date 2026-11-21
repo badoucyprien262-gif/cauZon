@@ -221,7 +221,7 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
                   onPress={onVip}
                   activeOpacity={0.88}
                 >
-                  <Text style={styles.boutonVipTexte}>🎁 Pass VIP Annuel</Text>
+                  <Text style={styles.boutonVipTexte}>👑 Abonnement (1 000 FCFA / 10 cours)</Text>
                 </TouchableOpacity>
               )}
             </View>

@@ -441,26 +441,12 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
         const defaultAspectRatioStr = `${unscaledViewport1.width} / ${unscaledViewport1.height}`;
 
         let maxPages = totalPages;
-        let targetCutoffPage = -1;
-        let percentOnTargetPage = 100;
-        let overlayTitle = "Aperçu terminé";
 
         if (estVerrouille) {
-          if (limiteApercuType === 'page') {
-            const limiteP = Number(limiteApercuValeur) || Number(limiteApercuPages) || 1;
-            maxPages = Math.min(limiteP, totalPages);
-            targetCutoffPage = maxPages;
-            percentOnTargetPage = 0;
-            overlayTitle = `Aperçu de ${maxPages} page${maxPages > 1 ? 's' : ''} terminé`;
-          } else {
-            const pct = Number(limiteApercuValeur) || 30;
-            const rawAllowed = (totalPages * pct) / 100;
-            maxPages = Math.min(Math.ceil(rawAllowed), totalPages);
-            targetCutoffPage = maxPages;
-            const frac = rawAllowed - Math.floor(rawAllowed);
-            percentOnTargetPage = frac > 0 ? Math.round(frac * 100) : 0;
-            overlayTitle = `Aperçu gratuit (${pct}%) terminé`;
-          }
+          const limitePagesEffectives = Number(limiteApercuPages) ||
+            (limiteApercuType === 'page' ? Number(limiteApercuValeur) : 0) ||
+            (limiteApercuType === 'pourcentage' ? Math.max(1, Math.round(totalPages * ((Number(limiteApercuValeur) || 30) / 100))) : 2);
+          maxPages = Math.min(Math.max(1, limitePagesEffectives), totalPages);
         }
 
         const wrappersElements: HTMLElement[] = [];
@@ -501,63 +487,49 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
           placeholder.innerHTML = `<span>Page ${pageNum}...</span>`;
           wrapper.appendChild(placeholder);
 
-          // Paywall mobile
-          if (estVerrouille && pageNum === targetCutoffPage) {
-            const overlay = document.createElement('div');
-            overlay.style.position = 'absolute';
-            overlay.style.left = '0';
-            overlay.style.right = '0';
-            overlay.style.bottom = '0';
-            overlay.style.top = `${percentOnTargetPage}%`;
-            overlay.style.background = 'linear-gradient(to bottom, rgba(255,255,255,0.75) 0%, rgba(255,255,255,1) 100%)';
-            overlay.style.backdropFilter = 'blur(8px)';
-            overlay.style.display = 'flex';
-            overlay.style.flexDirection = 'column';
-            overlay.style.alignItems = 'center';
-            overlay.style.justifyContent = 'center';
-            overlay.style.padding = '18px 12px';
-            overlay.style.zIndex = '20';
-
-            const card = document.createElement('div');
-            card.style.backgroundColor = '#FFFFFF';
-            card.style.borderRadius = '14px';
-            card.style.padding = '16px 12px';
-            card.style.boxShadow = '0 8px 24px rgba(107, 17, 36, 0.2)';
-            card.style.textAlign = 'center';
-            card.style.width = '100%';
-            card.style.maxWidth = '320px';
-
-            card.innerHTML = `
-              <div style="font-size: 28px; margin-bottom: 6px;">🔒</div>
-              <div style="color: #6B1124; font-size: 15px; font-weight: 800; margin-bottom: 4px;">
-                ${overlayTitle}
-              </div>
-              <div style="color: #64748B; font-size: 12px; line-height: 1.4; margin-bottom: 14px;">
-                Débloquez les <strong>${totalPages} pages</strong> pour continuer vos révisions.
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
-                <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 11px; border-radius: 10px; font-weight: 800; font-size: 13px; cursor: pointer;">
-                  🛒 Débloquer (${prix} FCFA)
-                </button>
-                <button id="cauzon-btn-vip-mobile" style="background-color: #D97706; color: #FFFFFF; border: none; padding: 10px; border-radius: 10px; font-weight: 800; font-size: 13px; cursor: pointer;">
-                  🎁 Pass VIP
-                </button>
-              </div>
-            `;
-
-            overlay.appendChild(card);
-            wrapper.appendChild(overlay);
-
-            // Liaison directe et infaillible des boutons d'achat / VIP
-            const bAchat = card.querySelector('#cauzon-btn-achat-mobile') as HTMLButtonElement | null;
-            const bVip = card.querySelector('#cauzon-btn-vip-mobile') as HTMLButtonElement | null;
-            if (bAchat && onAcheter) bAchat.onclick = onAcheter;
-            if (bVip && onVip) bVip.onclick = onVip;
-          }
-
           pagesLayer.appendChild(wrapper);
           wrappersElements.push(wrapper);
           wrapperRefs.current[pageNum] = wrapper;
+        }
+
+        // 🛡️ Paywall de blocage après la dernière page gratuite autorisée
+        if (estVerrouille && maxPages < totalPages) {
+          const paywallWrapper = document.createElement('div');
+          paywallWrapper.className = 'cauzon-paywall-block';
+          paywallWrapper.style.display = 'block';
+          paywallWrapper.style.width = `${defaultDisplayWidth}px`;
+          paywallWrapper.style.maxWidth = '100%';
+          paywallWrapper.style.margin = '16px auto 36px auto';
+          paywallWrapper.style.backgroundColor = '#FFFFFF';
+          paywallWrapper.style.borderRadius = '16px';
+          paywallWrapper.style.padding = '24px 16px';
+          paywallWrapper.style.boxShadow = '0 8px 30px rgba(107, 17, 36, 0.2)';
+          paywallWrapper.style.textAlign = 'center';
+          paywallWrapper.style.boxSizing = 'border-box';
+
+          paywallWrapper.innerHTML = `
+            <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+            <div style="color: #6B1124; font-size: 16px; font-weight: 800; margin-bottom: 6px;">
+              Aperçu gratuit terminé (${maxPages} sur ${totalPages} pages)
+            </div>
+            <div style="color: #64748B; font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+              Débloquez l'intégralité du cours de <strong>${totalPages} pages</strong> pour poursuivre vos révisions.
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+              <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 13px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(107,17,36,0.25);">
+                🛒 Débloquer le cours (${prix} FCFA)
+              </button>
+              <button id="cauzon-btn-vip-mobile" style="background-color: #D97706; color: #FFFFFF; border: none; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13.5px; cursor: pointer;">
+                👑 Abonnement (1 000 FCFA / 10 cours)
+              </button>
+            </div>
+          `;
+
+          pagesLayer.appendChild(paywallWrapper);
+          const bAchat = paywallWrapper.querySelector('#cauzon-btn-achat-mobile') as HTMLButtonElement | null;
+          const bVip = paywallWrapper.querySelector('#cauzon-btn-vip-mobile') as HTMLButtonElement | null;
+          if (bAchat && onAcheter) bAchat.onclick = onAcheter;
+          if (bVip && onVip) bVip.onclick = onVip;
         }
 
         // 🚀 Rendu prioritaire Page 1 (< 800 ms)

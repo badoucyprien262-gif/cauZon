@@ -207,8 +207,8 @@ function genererCahierDesChargesPdf() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...TEXT_DARK);
-  doc.text('Date de référence : 21 Novembre 2026   |   Statut : Étapes 1 à 4 validées (Audit Git monorepo, publication posteur, Vercel OK)', marginX + 4, currentY + 12);
-  doc.text('Version : 3.10.0 (Audit Monorepo Git racine ; Découplage Vercel app.cauzon.ci / cauzon ; Commandes Git globales ; Cache PWA)', marginX + 4, currentY + 17);
+  doc.text('Date de référence : 21 Novembre 2026   |   Statut : Étapes 1 à 4 validées + Correctifs Critiques (Pages gratuites, Paywall & Abonnement)', marginX + 4, currentY + 12);
+  doc.text('Version : 3.11.0 (Sélecteur pages gratuites créateur ; Fix _extends pdf-lib ; Paywall scroll bloqué PWA/Mobile ; Activation réelle abonnement)', marginX + 4, currentY + 17);
 
   currentY += 30;
 
@@ -241,6 +241,7 @@ function genererCahierDesChargesPdf() {
   drawSubSectionTitle('3.1. Structure Tarifaire Validée');
   drawBulletPoint('Achat à l\'acte (200 FCFA)', 'Débloque définitivement le document ciblé dans la bibliothèque personnelle permanente de l\'étudiant sans expiration temporelle (is_vip_consultation: false). Intégré dans ModaleAchat.');
   drawBulletPoint('Abonnement Étudiant (1 000 FCFA / mois)', 'Donne droit au déblocage de 10 documents au choix sur une période de 30 jours calendaires. Intègre un sélecteur d\'utilisation de crédit direct au catalogue sans ressaisir de paiement.');
+  drawBulletPoint('Activation atomique & RPC sécurisée', 'L\'activation de l\'abonnement s\'exécute via la fonction SQL sécurisée (SECURITY DEFINER) activer_abonnement_etudiant(), synchronisant abonnements_etudiants, profiles.has_vip_pass et le solde temps réel.');
   drawBulletPoint('Règle d\'Expiration Ciblée (Garantie)', 'À la fin des 30 jours, SEULS les documents acquis via le pass abonnement (is_vip_consultation: true) se re-verrouillent automatiquement. Les documents achetés à l\'acte (200 F) restent acquis définitivement.');
   drawBulletPoint('Part Posteur (50 FCFA / acquisition)', 'Créditée au créateur du document à chaque acquisition validée (achat à l\'acte ou sélection via abonnement mensuel). Sur 1 000 FCFA d\'abonnement, jusqu\'à 500 FCFA sont alloués aux créateurs des 10 documents.');
   drawBulletPoint('Seuil de Retrait Créateur (5 000 FCFA)', 'Le créateur peut ordonner un virement Mobile Money dès que son solde retirable atteint 5 000 FCFA (soit 100 acquisitions cumulées). En deçà, le bouton de demande de retrait est désactivé.');
@@ -275,6 +276,8 @@ function genererCahierDesChargesPdf() {
   drawBulletPoint('Affichage financier unique (Gains cumulés)', 'L\'unique mention financière sur le profil créateur est "Gains cumulés", positionnée directement dans le trio de statistiques sous la bio (Documents, Acquisitions, Gains cumulés).');
   drawBulletPoint('Pastille de stockage compacte (+400 Mo)', 'Indicateur discret de stockage en Mo placé à côté du bouton "Modifier le profil" (ex: 12.4 / 400 Mo · +400 Mo), ouvrant en 1 clic la modale d\'extension (+400 Mo pour 1 500 FCFA).');
   drawBulletPoint('Formulaire de publication complet', 'Modale dédiée (ModalePublicationPosteur) : sélection PDF (100 Mo max), titre, domaine/matière, hashtags, description détaillée (5-10 lignes), photo de profil/vignette et publication directe.');
+  drawBulletPoint('Sélecteur de pages gratuites (Aperçu)', 'Le posteur choisit librement le nombre de pages accessibles gratuitement en lecture (par ex. 1, 2 ou plus, borné au total du PDF). Enregistré dans pages_gratuites / limite_apercu_pages.');
+  drawBulletPoint('Robustesse téléversement & Fix _extends', 'Comptage binaire des pages par expression régulière native (/Type /Page) et alias de résolution tslib dans Metro, éliminant tout blocage ou TypeError Cannot destructure _extends.');
   drawBulletPoint('Contrôle de taille & quota en Mo', 'Plafond strict de 100 Mo/PDF et calcul de l\'espace restant en Mo sur le quota créateur (base 400 Mo) avec proposition d\'extension immédiate (+400 Mo pour 1 500 FCFA).');
   drawBulletPoint('Optimisation & Remontée temps réel', 'Compression turbo in-memory via pdf-lib (< 250ms), téléversement chiffré vers Supabase Storage, et remontée instantanée sur l\'accueil et le profil créateur via Supabase Realtime.');
   drawBulletPoint('Provenance Cartes Document', 'Sur les cartes du catalogue : affichage du badge officiel "cauZon Certifié" si publié par la plateforme, ou de la photo de profil personnalisée + pseudo du posteur s\'il s\'agit d\'un cours indépendant.');
@@ -296,6 +299,7 @@ function genererCahierDesChargesPdf() {
   );
 
   drawBulletPoint('Plafond de Téléversement', 'Taille maximale autorisée fixée à 100 Mo par fichier PDF déposé par l\'administrateur ou les posteurs (contrôlé par contrainte SQL `chk_documents_max_taille_100mo`).');
+  drawBulletPoint('Blocage Physique Paywall (Web/PWA & Mobile)', 'Seules les N premières pages configurées par le créateur sont rendues. Dès la page N+1, le défilement et le rendu des pages suivantes sont strictement bloqués avec insertion d\'une carte paywall incitative (achat unitaire à 200 F ou abonnement 1 000 F).');
   drawBulletPoint('Optimisation & Rendus Rasterisés', 'Les PDF sont convertis ou délivrés par tranches de pages optimisées au format WebP léger, maintenant une netteté vectorielle optimale tout en diminuant de 70% le poids de transfert.');
   drawBulletPoint('Absence Totale de Bouton Télécharger', 'Désactivation des barres d\'outils natives du navigateur, neutralisation des iframes non maîtrisées et blocage des raccourcis d\'impression ou d\'enregistrement externe.');
   drawBulletPoint('Streaming Sécurisé & Cache Chiffré', 'L\'affichage se fait page par page avec libération mémoire sur les terminaux à ressources limitées (Safari iOS et Android d\'entrée de gamme).');
@@ -334,6 +338,12 @@ function genererCahierDesChargesPdf() {
     'Étape 4 : Application Client — Espace & Publication Posteur',
     'fait',
     'Profil TikTok, jauge Mo, retraits >= 5 000 F, sélection photo profil galerie, badges cartes, formulaire complet de publication posteur (ModalePublicationPosteur) et remontée temps réel sur l\'accueil.'
+  );
+
+  drawStatusBox(
+    'Correctifs Critiques : Paywall, Pages Gratuites & Abonnement',
+    'fait',
+    'Sélecteur de pages gratuites (1 à N), contournement _extends tslib, paywall bloquant réel post-page N sur PWA/mobile, et activation atomique de l\'abonnement 10 docs via RPC.'
   );
 
   drawStatusBox(

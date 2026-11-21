@@ -24,6 +24,7 @@ export interface ParametresPublicationPosteur {
   tags?: string;
   description: string;
   coverImageUri?: string | null;
+  pagesGratuites?: number;
   quotaActuelMo: number;
   espaceUtiliseMo: number;
   onProgress?: (pourcentage: number, libelle: string) => void;
@@ -50,18 +51,34 @@ function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 /**
- * Optimisation turbo du PDF via pdf-lib :
- * - Calcule le nombre exact de pages
+ * Détection résiliente du nombre de pages par inspection directe des marqueurs PDF.
+ * Fonctionne à 100% sans aucune dépendance externe ni import susceptible d'échouer.
+ */
+function detecterNombrePagesFallback(bytes: Uint8Array): number {
+  try {
+    let str = '';
+    // On inspecte au maximum 2 Mo de flux pour rester ultra-rapide (< 10ms)
+    const limiteScan = Math.min(bytes.length, 2 * 1024 * 1024);
+    for (let i = 0; i < limiteScan; i++) {
+      str += String.fromCharCode(bytes[i]);
+    }
+    const matches = str.match(/\/Type\s*\/Page(?!s)\b/g);
+    return matches && matches.length > 0 ? matches.length : 1;
+  } catch (_) {
+    return 1;
+  }
+}
+
+/**
+ * Optimisation turbo du PDF via pdf-lib avec garde-fou absolu :
+ * - Analyse le nombre exact de pages
  * - Injecte les métadonnées créateur cauZon
- * - Applique une sérialisation rapide (< 250ms)
+ * - Protégé contre tout échec de transpilateur (_extends of undefined, Babel / Metro)
  */
 async function optimiserPdfPosteur(
   fileUri: string,
   titre: string
 ): Promise<{ bytes: Uint8Array | Blob; nombrePages: number; tailleMo: number }> {
-  const pdfLibModule = await import('pdf-lib');
-  const PDFDocumentClass = pdfLibModule.PDFDocument || (pdfLibModule as any).default?.PDFDocument;
-
   let rawBytes: Uint8Array;
 
   if (Platform.OS === 'web') {
@@ -75,17 +92,25 @@ async function optimiserPdfPosteur(
     rawBytes = base64ToUint8Array(base64);
   }
 
-  let nombrePages = 1;
+  // Détection initiale résiliente du nombre de pages
+  let nombrePages = detecterNombrePagesFallback(rawBytes);
   let bytesFinaux: Uint8Array = rawBytes;
 
   try {
+    // Encapsulation totale de l'import dynamique pour éviter tout plantage Babel _extends
+    const pdfLibModule = await import('pdf-lib').catch(() => null);
+    const PDFDocumentClass = pdfLibModule?.PDFDocument || (pdfLibModule as any)?.default?.PDFDocument;
+
     if (PDFDocumentClass && typeof PDFDocumentClass.load === 'function') {
       const pdfDoc = await PDFDocumentClass.load(rawBytes, {
         ignoreEncryption: true,
         updateMetadata: false,
       });
 
-      nombrePages = pdfDoc.getPageCount() || 1;
+      const pagesReelles = pdfDoc.getPageCount();
+      if (pagesReelles && pagesReelles > 0) {
+        nombrePages = pagesReelles;
+      }
 
       try {
         pdfDoc.setTitle(titre);
@@ -105,7 +130,7 @@ async function optimiserPdfPosteur(
       }
     }
   } catch (errOpt) {
-    console.warn('[pdf-lib posteur] Optimisation tolérée (conservation binaire) :', errOpt);
+    console.warn('[pdf-lib posteur] Optimisation contournée en toute sécurité (conservation binaire) :', errOpt);
     bytesFinaux = rawBytes;
   }
 
@@ -239,6 +264,8 @@ export async function publierDocumentPosteur(
     // 8. Étape D : Enregistrement dans la table public.documents
     params.onProgress?.(85, 'Enregistrement dans le catalogue public cauZon…');
 
+    const nbPagesGratuites = Math.min(Math.max(1, Number(params.pagesGratuites) || 2), nombrePages);
+
     const nouveauDoc = {
       id: docId,
       titre: params.titre.trim(),
@@ -249,9 +276,10 @@ export async function publierDocumentPosteur(
       est_certifie: false,
       est_verrouille: true,
       nombre_pages: nombrePages,
-      limite_apercu_type: 'pourcentage',
-      limite_apercu_valeur: 30,
-      limite_apercu_pages: Math.min(nombrePages, 2),
+      limite_apercu_type: 'page',
+      limite_apercu_valeur: nbPagesGratuites,
+      limite_apercu_pages: nbPagesGratuites,
+      pages_gratuites: nbPagesGratuites,
       taille_mo: tailleMo,
       file_path: storagePath,
       cover_url: finalCoverUrl || null,

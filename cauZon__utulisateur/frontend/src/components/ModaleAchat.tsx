@@ -66,6 +66,7 @@ export default function ModaleAchat({
     utilisateur,
     estConnecteGoogle,
     afficherToast,
+    actualiserAbonnement,
   } = useApp();
   const styles = getStyles(couleurs);
 
@@ -294,16 +295,19 @@ export default function ModaleAchat({
           afficherToast(result.message, 'Attention ⚠️', 'erreur');
         }
       } else {
-        // Location Mensuelle (500 FCFA)
-        const vipResult = await activerPassVIP(30);
+        // Formule Abonnement Étudiant (1 000 FCFA / 10 documents)
+        const vipResult = await activerPassVIP(30, transId, operateurSelectionne);
         setChargementEnCours(false);
 
         sAbonnerVIPCinetPay(vipResult.dateAffichage);
         debloquerDocument(documentId);
+        if (actualiserAbonnement) {
+          await actualiserAbonnement();
+        }
 
         afficherToast(
-          `Félicitations ! Votre formule de location est active jusqu'au ${vipResult.dateAffichage}. Accès illimité à tous les cours et import personnel débloqués.`,
-          'Formule Location Activée 👑',
+          `Félicitations ! Votre abonnement est actif jusqu'au ${vipResult.dateAffichage}. 10 documents inclus pour 30 jours.`,
+          'Abonnement Activé 👑',
           'succes'
         );
         onSuccess();
