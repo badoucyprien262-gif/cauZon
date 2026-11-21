@@ -207,8 +207,8 @@ function genererCahierDesChargesPdf() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...TEXT_DARK);
-  doc.text('Date de référence : 21 Novembre 2026   |   Statut : Étapes 1 à 4 validées + Correctifs Critiques (Pages gratuites, Paywall & Abonnement)', marginX + 4, currentY + 12);
-  doc.text('Version : 3.11.0 (Sélecteur pages gratuites créateur ; Fix _extends pdf-lib ; Paywall scroll bloqué PWA/Mobile ; Activation réelle abonnement)', marginX + 4, currentY + 17);
+  doc.text('Date de référence : 22 Novembre 2026   |   Statut : Étapes 1 à 4 validées + Correctif SQL 42P01 Autonome validé', marginX + 4, currentY + 12);
+  doc.text('Version : 3.14.0 (Correction SQL 42P01 abonnements_etudiants ; Migration 100% autonome IF NOT EXISTS ; DDL, RLS, Quotas & RPC)', marginX + 4, currentY + 17);
 
   currentY += 30;
 
@@ -241,7 +241,8 @@ function genererCahierDesChargesPdf() {
   drawSubSectionTitle('3.1. Structure Tarifaire Validée');
   drawBulletPoint('Achat à l\'acte (200 FCFA)', 'Débloque définitivement le document ciblé dans la bibliothèque personnelle permanente de l\'étudiant sans expiration temporelle (is_vip_consultation: false). Intégré dans ModaleAchat.');
   drawBulletPoint('Abonnement Étudiant (1 000 FCFA / mois)', 'Donne droit au déblocage de 10 documents au choix sur une période de 30 jours calendaires. Intègre un sélecteur d\'utilisation de crédit direct au catalogue sans ressaisir de paiement.');
-  drawBulletPoint('Activation atomique & RPC sécurisée', 'L\'activation de l\'abonnement s\'exécute via la fonction SQL sécurisée (SECURITY DEFINER) activer_abonnement_etudiant(), synchronisant abonnements_etudiants, profiles.has_vip_pass et le solde temps réel.');
+  drawBulletPoint('Bouton « Acquérir » & Quota 10 cours', 'Pour tout utilisateur abonné, les cartes de lecture et le paywall affichent instantanément le bouton « Acquérir » et le décompte en temps réel (ex. 1 sur 10 cours acquis, 9 restants). Dès les 10 cours atteints, l\'étudiant est invité à renouveler ou acheter à vie.');
+  drawBulletPoint('Activation atomique & RPC sécurisée', 'L\'activation de l\'abonnement s\'exécute via la fonction SQL sécurisée (SECURITY DEFINER) activer_abonnement_etudiant(), et le déblocage via debloquer_document_via_abonnement(), synchronisant abonnements_etudiants, profiles.has_vip_pass et le solde temps réel.');
   drawBulletPoint('Règle d\'Expiration Ciblée (Garantie)', 'À la fin des 30 jours, SEULS les documents acquis via le pass abonnement (is_vip_consultation: true) se re-verrouillent automatiquement. Les documents achetés à l\'acte (200 F) restent acquis définitivement.');
   drawBulletPoint('Part Posteur (50 FCFA / acquisition)', 'Créditée au créateur du document à chaque acquisition validée (achat à l\'acte ou sélection via abonnement mensuel). Sur 1 000 FCFA d\'abonnement, jusqu\'à 500 FCFA sont alloués aux créateurs des 10 documents.');
   drawBulletPoint('Seuil de Retrait Créateur (5 000 FCFA)', 'Le créateur peut ordonner un virement Mobile Money dès que son solde retirable atteint 5 000 FCFA (soit 100 acquisitions cumulées). En deçà, le bouton de demande de retrait est désactivé.');
@@ -268,6 +269,7 @@ function genererCahierDesChargesPdf() {
   drawBulletPoint('Catalogue & Achat 200 F', 'Parcours du catalogue, achat unitaire à 200 FCFA par FeexPay, ou souscription abonnement 10 cours à 1 000 FCFA.');
   drawBulletPoint('Sélecteur Crédit d\'Abonnement', 'L\'étudiant abonné peut débloquer le cours directement via "Utiliser 1 crédit (Abonnement)" sans paiement externe supplémentaire.');
   drawBulletPoint('Bibliothèque Lambda & Quota 21', 'Jauge calibrée sur le quota initial de 21 documents offerts (remplace les anciens 75 docs). Extension de quota à 1 500 FCFA pour +21 documents supplémentaires cumulables (21 -> 42 -> 63...).');
+  drawBulletPoint('Import Documents Personnels Débloqué', 'Tout utilisateur peut importer ses propres cours et fiches (PDF <= 100 Mo) dans son espace personnel pour les ranger et les consulter hors-ligne sans encombrer son téléphone, dans la limite de son quota de 21 documents (extensible à 42, 63...).');
   drawBulletPoint('Chiffrement & Hors-Ligne', 'Consultation sécurisée hors-ligne isolée dans le bac à sable local (IndexedDB/FileSystem), sans option d\'extraction ni de téléchargement externe.');
 
   drawSubSectionTitle('4.2. Espace Utilisateur Posteur (Profil Créateur Style TikTok) [ÉTAPE 4 : VALIDÉE]');
@@ -344,6 +346,24 @@ function genererCahierDesChargesPdf() {
     'Correctifs Critiques : Paywall, Pages Gratuites & Abonnement',
     'fait',
     'Sélecteur de pages gratuites (1 à N), contournement _extends tslib, paywall bloquant réel post-page N sur PWA/mobile, et activation atomique de l\'abonnement 10 docs via RPC.'
+  );
+
+  drawStatusBox(
+    'Correctif État Abonné (« Acquérir » / 10 docs) & Import Personnel',
+    'fait',
+    'Remplacement des boutons d\'achat par « Acquérir » avec suivi du quota 10 docs, étanchéité de re-verrouillage 30j et import de documents personnels débloqué avec quota 21 docs.'
+  );
+
+  drawStatusBox(
+    'Acquisition Effective Téléphone & PWA (Double Sécurité)',
+    'fait',
+    'Suppression des faux succès : validation stricte RPC serveur + repli direct vérifié dans acquisitions, quota 10 docs effectif et bascule automatique dans le dossier VIP.'
+  );
+
+  drawStatusBox(
+    'Migration SQL Autonome (Résolution 42P01 abonnements_etudiants)',
+    'fait',
+    'Script 20261122_fix_deblocage_abonnement_et_quotas.sql 100% autonome : création IF NOT EXISTS abonnements_etudiants, posteurs_wallets, acquisitions, RLS et RPC atomique.'
   );
 
   drawStatusBox(

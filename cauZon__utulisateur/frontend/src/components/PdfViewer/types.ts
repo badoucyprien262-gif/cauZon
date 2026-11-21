@@ -12,6 +12,9 @@ export interface LecteurPdfProps {
   prix?: number;
   estSombre?: boolean;
   scale?: number;
+  estAbonneVIP?: boolean;
+  creditsAbonnementRestants?: number;
+  onAcquerir?: () => void;
   onAcheter?: () => void;
   onVip?: () => void;
   onFermer?: () => void;

@@ -2470,7 +2470,8 @@ export const fetchMesDocuments = async (): Promise<DocumentCourse[]> => {
     for (const cachedDoc of cachedDocs) {
       if (!serverDocIds.includes(cachedDoc.id)) {
         const estAquisPermanentLocal = cachedDoc.is_vip_consultation === false;
-        if (documentIds.includes(cachedDoc.id) || estAquisPermanentLocal) {
+        const estAquisVipLocal = cachedDoc.is_vip_consultation === true;
+        if (documentIds.includes(cachedDoc.id) || estAquisPermanentLocal || estAquisVipLocal) {
           mergedDocs.push({
             ...cachedDoc,
             is_vip_consultation: vipMap[cachedDoc.id] ?? cachedDoc.is_vip_consultation ?? false,
@@ -2537,26 +2538,133 @@ export const acquerirDocumentVIP = async (
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();
 
-    // 1. Appel RPC sécurisé côté serveur
+    let acquisitionValidee = false;
+    let messageResultat = '';
+    let nbDocsRestants: number | undefined = undefined;
+
+    // 1. Tenter en priorité l'appel RPC sécurisé côté serveur
     try {
       const { data: rpcRes, error: rpcErr } = await supabase.rpc('debloquer_document_via_abonnement', {
         p_document_id: documentId,
-        p_device_id: deviceId,
+        p_device_id: deviceId || 'device_mobile',
       });
 
       if (!rpcErr && rpcRes) {
-        if (!rpcRes.success) {
+        if (rpcRes.success) {
+          acquisitionValidee = true;
+          messageResultat = rpcRes.message || 'Cours débloqué via votre abonnement étudiant et ajouté à votre bibliothèque !';
+          nbDocsRestants = rpcRes.documents_restants;
+        } else {
+          // Rejet explicite du serveur (quota 10 documents atteint, auto-achat, etc.)
           return {
             success: false,
             message: rpcRes.message || 'Impossible de débloquer ce cours avec votre abonnement.',
           };
         }
+      } else if (rpcErr) {
+        console.warn('Erreur RPC debloquer_document_via_abonnement :', rpcErr.message);
       }
-    } catch (rpcCallErr) {
-      console.warn('Note RPC debloquer_document_via_abonnement (fallback local) :', rpcCallErr);
+    } catch (rpcCallErr: any) {
+      console.warn('Exception RPC debloquer_document_via_abonnement :', rpcCallErr?.message);
     }
 
-    // 2. Synchronisation immédiate du cache local de la bibliothèque
+    // 2. Si la RPC a échoué (ex. fonction non encore installée en base), exécuter le repli direct vérifié
+    if (!acquisitionValidee) {
+      if (!user) {
+        return {
+          success: false,
+          message: 'Veuillez vous connecter avec votre compte pour acquérir ce document sous votre abonnement.',
+        };
+      }
+
+      // Vérification de l'abonnement actif dans Supabase
+      const { data: abos, error: errAbo } = await supabase
+        .from('abonnements_etudiants')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('statut', 'actif')
+        .gt('date_fin', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (errAbo || !abos || abos.length === 0) {
+        return {
+          success: false,
+          message: 'Aucun abonnement étudiant actif trouvé. Veuillez souscrire à la formule à 1 000 FCFA (10 documents).',
+        };
+      }
+
+      const abo = abos[0];
+      const debloques = Array.isArray(abo.documents_debloques_ids) ? abo.documents_debloques_ids : [];
+      const quotaMax = abo.quota_documents_autorises || 10;
+
+      if (debloques.length >= quotaMax && !debloques.includes(documentId)) {
+        return {
+          success: false,
+          message: `Quota de ${quotaMax} documents atteint pour ce mois. Renouvelez votre abonnement pour débloquer 10 nouveaux cours ou achetez ce cours à vie (200 FCFA).`,
+        };
+      }
+
+      // Insertion réelle dans public.acquisitions
+      const insertionData: any = {
+        document_id: documentId,
+        user_id: user.id,
+        device_id: deviceId || 'device_mobile',
+        is_vip_consultation: true,
+        is_welcome_offer: false,
+        montant_paye: 0,
+      };
+
+      const { error: errAcq } = await supabase
+        .from('acquisitions')
+        .upsert([insertionData], { onConflict: 'document_id,user_id' });
+
+      if (errAcq) {
+        console.error('Erreur insertion acquisitions Supabase :', errAcq.message);
+        return {
+          success: false,
+          message: `Échec d'enregistrement de l'acquisition : ${errAcq.message}`,
+        };
+      }
+
+      // Mise à jour de l'abonnement
+      if (!debloques.includes(documentId)) {
+        const nextDebloques = [...debloques, documentId];
+        await supabase
+          .from('abonnements_etudiants')
+          .update({
+            documents_debloques_ids: nextDebloques,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', abo.id);
+        nbDocsRestants = Math.max(0, quotaMax - nextDebloques.length);
+      } else {
+        nbDocsRestants = Math.max(0, quotaMax - debloques.length);
+      }
+
+      // Rétribution du créateur (+50 FCFA)
+      try {
+        const { data: docInfo } = await supabase
+          .from('documents')
+          .select('author_id')
+          .eq('id', documentId)
+          .maybeSingle();
+
+        if (docInfo?.author_id) {
+          try {
+            await supabase.rpc('incrementer_solde_posteur', {
+              p_author_id: docInfo.author_id,
+              p_montant: 50,
+            });
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      acquisitionValidee = true;
+      messageResultat = 'Cours débloqué via votre abonnement étudiant et ajouté à votre bibliothèque !';
+    }
+
+    // 3. Synchronisation immédiate et garantie du cache local de la bibliothèque
     try {
       const cached = await chargerBibliothequeLocale();
       const existingDoc = cached.find((d) => d.id === documentId);
@@ -2584,7 +2692,8 @@ export const acquerirDocumentVIP = async (
 
     return {
       success: true,
-      message: 'Cours débloqué via votre abonnement étudiant et ajouté à votre bibliothèque !',
+      message: messageResultat || 'Cours débloqué via votre abonnement étudiant et ajouté à votre bibliothèque !',
+      documentsRestants: nbDocsRestants,
     };
   } catch (error: any) {
     console.error("Erreur lors de l'acquisition sous abonnement :", error.message);

@@ -36,7 +36,7 @@ export default function EcranLecteurDocument() {
   const navigation = useNavigation();
   const route = useRoute<DocumentViewerRouteProp>();
   const { document, onUnlock } = route.params;
-  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, afficherToast, acquisitions, utilisateur, estConnecteGoogle, estEnLigne } = useApp();
+  const { docsDebloquesIds, debloquerDocument, couleurs, estAbonneVIP, creditsAbonnementRestants, actualiserAbonnement, afficherToast, acquisitions, utilisateur, estConnecteGoogle, estEnLigne } = useApp();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const styles = getStyles(couleurs);
 
@@ -147,6 +147,38 @@ export default function EcranLecteurDocument() {
   const [modaleVipVisible, setModaleVipVisible] = useState(false);
   const [modaleConnexionVisible, setModaleConnexionVisible] = useState(false);
   const [motifConnexion, setMotifConnexion] = useState<'achat' | 'vip'>('achat');
+  const [acquisitionEnCours, setAcquisitionEnCours] = useState(false);
+
+  // 🎯 Action d'Acquisition via abonnement étudiant (10 cours / 30 jours)
+  const gererAcquisitionAbonnement = async () => {
+    if (acquisitionEnCours) return;
+    setAcquisitionEnCours(true);
+    try {
+      const { acquerirDocumentVIP } = await import('../services/serviceDocument');
+      const res = await acquerirDocumentVIP(document.id);
+      if (res.success) {
+        debloquerDocument(document.id);
+        (document as any).is_vip_consultation = true;
+        (document as any).estVerrouille = false;
+        setCleRechargement((prev) => prev + 1);
+        if (onUnlock) onUnlock(document.id);
+        if (actualiserAbonnement) {
+          await actualiserAbonnement();
+        }
+        afficherToast(
+          res.message || 'Ce cours a été ajouté avec succès à votre bibliothèque !',
+          'Acquisition Réussie ✨',
+          'succes'
+        );
+      } else {
+        afficherToast(res.message || "Échec de l'acquisition.", 'Attention ⚠️', 'erreur');
+      }
+    } catch (err: any) {
+      afficherToast(err?.message || "Impossible d'acquérir ce cours.", 'Erreur ⚠️', 'erreur');
+    } finally {
+      setAcquisitionEnCours(false);
+    }
+  };
 
   // 🛡️ Gardes universelles d'achat de document et pass VIP
   const ouvrirModaleAchatSecurisee = async () => {
@@ -544,6 +576,9 @@ export default function EcranLecteurDocument() {
               prix={document.prix}
               estSombre={couleurs.estSombre}
               scale={zoomMobileActif}
+              estAbonneVIP={estAbonneVIP}
+              creditsAbonnementRestants={creditsAbonnementRestants}
+              onAcquerir={gererAcquisitionAbonnement}
               onAcheter={ouvrirModaleAchatSecurisee}
               onVip={ouvrirModaleVipSecurisee}
               onFermer={handleBack}
@@ -638,80 +673,94 @@ export default function EcranLecteurDocument() {
           </View>
         )}
 
-        {/* 👑 Barre d'Acquisition VIP Fixe en Bas de Page (Lecture intégrale autorisée) */}
-        {estAbonneVIP && !docsDebloquesIds.includes(document.id) && !estDocumentImporte && (
-          <View style={styles.vipFloatingBar}>
-            <View style={styles.vipFloatingIcon}>
-              <Ionicons name="sparkles" size={18} color="#10B981" />
-            </View>
-            <View style={{ flex: 1, marginRight: 10 }}>
-              <Text style={styles.vipFloatingTitle}>Inclus dans votre Pass VIP</Text>
-              <Text style={styles.vipFloatingSub} numberOfLines={1}>
-                Ajoutez ce cours à votre espace VIP
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.vipFloatingBtn}
-              onPress={async () => {
-                const { acquerirDocumentVIP } = await import('../services/serviceDocument');
-                const res = await acquerirDocumentVIP(document.id);
-                if (res.success) {
-                  debloquerDocument(document.id);
-                  if (onUnlock) onUnlock(document.id);
-                  afficherToast(
-                    'Ce cours a été ajouté avec succès à votre dossier VIP !',
-                    'Accès VIP 👑',
-                    'succes'
-                  );
-                } else {
-                  afficherToast(res.message, 'Erreur ❌', 'erreur');
-                }
-              }}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="download-outline" size={16} color="#121212" style={{ marginRight: 4 }} />
-              <Text style={styles.vipFloatingBtnText}>Acquérir</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Paywall Natif superposé au bas de l'écran en cas d'aperçu verrouillé pour Non-VIP */}
+        {/* Panneau d'action intelligent superposé au bas de l'écran si le cours n'est pas encore acquis */}
         {estVerrouille && (
           <View style={styles.lockOverlayPanel}>
             <View style={styles.lockIconContainer}>
-              <Ionicons name="lock-closed" size={20} color={couleurs.accent} />
+              <Ionicons
+                name={estAbonneVIP && creditsAbonnementRestants > 0 ? "sparkles" : estAbonneVIP ? "alert-circle" : "lock-closed"}
+                size={20}
+                color={estAbonneVIP && creditsAbonnementRestants > 0 ? "#10B981" : estAbonneVIP ? "#F59E0B" : couleurs.accent}
+              />
             </View>
             <View style={styles.lockTextContainer}>
               <Text style={styles.lockTitle}>
-                {limiteApercuValeur === 0
-                  ? 'Document Verrouillé (Achat requis)'
-                  : limiteApercuType === 'page'
-                    ? `Aperçu Limité (${limiteApercuValeur} p.)`
-                    : (limiteApercuType?.startsWith('fluide') || limiteApercuType?.startsWith('neutre'))
-                      ? `Aperçu Gratuit (Page ${document.limiteApercuPages ?? 1})`
-                      : `Aperçu Limité à ${Number(limiteApercuValeur) % 1 === 0 ? Number(limiteApercuValeur) : Number(limiteApercuValeur).toFixed(1)}%`}
+                {estAbonneVIP && creditsAbonnementRestants > 0
+                  ? 'Inclus dans votre abonnement'
+                  : estAbonneVIP && creditsAbonnementRestants <= 0
+                    ? 'Quota mensuel de 10 cours atteint'
+                    : `Aperçu Limité (${limiteApercuPages} p.)`}
               </Text>
               <Text style={styles.lockSubtitle}>
-                Débloquez le cours complet de {nombrePagesReel} pages.
+                {estAbonneVIP && creditsAbonnementRestants > 0
+                  ? `${10 - creditsAbonnementRestants} sur 10 cours acquis · ${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} restant${creditsAbonnementRestants > 1 ? 's' : ''}`
+                  : estAbonneVIP && creditsAbonnementRestants <= 0
+                    ? 'Renouvelez votre abonnement ou achetez ce cours à vie.'
+                    : `Débloquez le cours complet de ${nombrePagesReel} pages.`}
               </Text>
             </View>
 
             <View style={styles.ctaContainer}>
-              <TouchableOpacity
-                style={styles.buyBtn}
-                onPress={ouvrirModaleAchatSecurisee}
-              >
-                <Ionicons name="cart" size={14} color={couleurs.blanc} />
-                <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 200} F)</Text>
-              </TouchableOpacity>
+              {estAbonneVIP && creditsAbonnementRestants > 0 ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.buyBtn, { backgroundColor: '#10B981' }]}
+                    onPress={gererAcquisitionAbonnement}
+                    disabled={acquisitionEnCours}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                    <Text style={styles.buyBtnText}>
+                      {acquisitionEnCours ? 'Acquisition...' : `Acquérir (${creditsAbonnementRestants}/10)`}
+                    </Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.vipBtn}
-                onPress={ouvrirModaleVipSecurisee}
-              >
-                <Ionicons name="gift" size={14} color={couleurs.primaire} />
-                <Text style={styles.vipBtnText}>Abonnement (1 000 F)</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.vipBtn, { borderColor: couleurs.primaire }]}
+                    onPress={ouvrirModaleAchatSecurisee}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="cart" size={14} color={couleurs.primaire} />
+                    <Text style={[styles.vipBtnText, { color: couleurs.primaire }]}>Acheter ({document.prix ?? 200} F)</Text>
+                  </TouchableOpacity>
+                </>
+              ) : estAbonneVIP && creditsAbonnementRestants <= 0 ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.buyBtn}
+                    onPress={ouvrirModaleAchatSecurisee}
+                  >
+                    <Ionicons name="cart" size={14} color={couleurs.blanc} />
+                    <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 200} F)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.vipBtn}
+                    onPress={ouvrirModaleVipSecurisee}
+                  >
+                    <Ionicons name="refresh" size={14} color={couleurs.primaire} />
+                    <Text style={styles.vipBtnText}>Renouveler (1 000 F)</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={styles.buyBtn}
+                    onPress={ouvrirModaleAchatSecurisee}
+                  >
+                    <Ionicons name="cart" size={14} color={couleurs.blanc} />
+                    <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 200} F)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.vipBtn}
+                    onPress={ouvrirModaleVipSecurisee}
+                  >
+                    <Ionicons name="gift" size={14} color={couleurs.primaire} />
+                    <Text style={styles.vipBtnText}>Abonnement (1 000 F)</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         )}

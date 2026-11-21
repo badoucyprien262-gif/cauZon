@@ -24,6 +24,9 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
   prix = 200,
   estSombre = false,
   scale = 1.0,
+  estAbonneVIP = false,
+  creditsAbonnementRestants = 0,
+  onAcquerir,
   onAcheter,
   onVip,
   onPageChange,
@@ -507,27 +510,68 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
           paywallWrapper.style.textAlign = 'center';
           paywallWrapper.style.boxSizing = 'border-box';
 
-          paywallWrapper.innerHTML = `
-            <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
-            <div style="color: #6B1124; font-size: 16px; font-weight: 800; margin-bottom: 6px;">
-              Aperçu gratuit terminé (${maxPages} sur ${totalPages} pages)
-            </div>
-            <div style="color: #64748B; font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
-              Débloquez l'intégralité du cours de <strong>${totalPages} pages</strong> pour poursuivre vos révisions.
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
-              <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 13px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(107,17,36,0.25);">
-                🛒 Débloquer le cours (${prix} FCFA)
-              </button>
-              <button id="cauzon-btn-vip-mobile" style="background-color: #D97706; color: #FFFFFF; border: none; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13.5px; cursor: pointer;">
-                👑 Abonnement (1 000 FCFA / 10 cours)
-              </button>
-            </div>
-          `;
+          if (estAbonneVIP && creditsAbonnementRestants > 0) {
+            paywallWrapper.innerHTML = `
+              <div style="font-size: 32px; margin-bottom: 8px;">✨</div>
+              <div style="color: #10B981; font-size: 16px; font-weight: 800; margin-bottom: 6px;">
+                Inclus dans votre abonnement
+              </div>
+              <div style="color: #64748B; font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+                Aperçu gratuit terminé (${maxPages} sur ${totalPages} pages).<br/>
+                Débloquez ce cours avec votre abonnement (${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} restant${creditsAbonnementRestants > 1 ? 's' : ''} sur 10).
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                <button id="cauzon-btn-acquerir-mobile" style="background-color: #10B981; color: #FFFFFF; border: none; padding: 13px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
+                  ✨ Acquérir (${creditsAbonnementRestants}/10 disponibles)
+                </button>
+                <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 11px; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer;">
+                  🛒 Ou acheter définitivement à vie (${prix} FCFA)
+                </button>
+              </div>
+            `;
+          } else if (estAbonneVIP && creditsAbonnementRestants <= 0) {
+            paywallWrapper.innerHTML = `
+              <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+              <div style="color: #F59E0B; font-size: 16px; font-weight: 800; margin-bottom: 6px;">
+                Quota mensuel atteint (10/10)
+              </div>
+              <div style="color: #64748B; font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+                Aperçu gratuit terminé (${maxPages} sur ${totalPages} pages). Vos 10 cours du mois sont débloqués. Renouvelez votre abonnement ou achetez ce cours à vie.
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 13px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(107,17,36,0.25);">
+                  🛒 Acheter définitivement à vie (${prix} FCFA)
+                </button>
+                <button id="cauzon-btn-vip-mobile" style="background-color: #D97706; color: #FFFFFF; border: none; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13.5px; cursor: pointer;">
+                  👑 Renouveler l'abonnement (1 000 FCFA / 10 cours)
+                </button>
+              </div>
+            `;
+          } else {
+            paywallWrapper.innerHTML = `
+              <div style="font-size: 32px; margin-bottom: 8px;">🔒</div>
+              <div style="color: #6B1124; font-size: 16px; font-weight: 800; margin-bottom: 6px;">
+                Aperçu gratuit terminé (${maxPages} sur ${totalPages} pages)
+              </div>
+              <div style="color: #64748B; font-size: 13px; line-height: 1.5; margin-bottom: 16px;">
+                Débloquez l'intégralité du cours de <strong>${totalPages} pages</strong> pour poursuivre vos révisions.
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
+                <button id="cauzon-btn-achat-mobile" style="background-color: #6B1124; color: #FFFFFF; border: none; padding: 13px; border-radius: 12px; font-weight: 800; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(107,17,36,0.25);">
+                  🛒 Débloquer le cours (${prix} FCFA)
+                </button>
+                <button id="cauzon-btn-vip-mobile" style="background-color: #D97706; color: #FFFFFF; border: none; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 13.5px; cursor: pointer;">
+                  👑 Abonnement (1 000 FCFA / 10 cours)
+                </button>
+              </div>
+            `;
+          }
 
           pagesLayer.appendChild(paywallWrapper);
+          const bAcquerir = paywallWrapper.querySelector('#cauzon-btn-acquerir-mobile') as HTMLButtonElement | null;
           const bAchat = paywallWrapper.querySelector('#cauzon-btn-achat-mobile') as HTMLButtonElement | null;
           const bVip = paywallWrapper.querySelector('#cauzon-btn-vip-mobile') as HTMLButtonElement | null;
+          if (bAcquerir && onAcquerir) bAcquerir.onclick = onAcquerir;
           if (bAchat && onAcheter) bAchat.onclick = onAcheter;
           if (bVip && onVip) bVip.onclick = onVip;
         }
@@ -611,7 +655,7 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
       }
       pagesLayerRef.current = null;
     };
-  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, tentativeKey, rasteriserPageMobile]);
+  }, [sourceCible, urlFichier, estVerrouille, limiteApercuPages, limiteApercuType, limiteApercuValeur, prix, estAbonneVIP, creditsAbonnementRestants, onAcquerir, tentativeKey, rasteriserPageMobile]);
 
   // Écouteur tactile natif haute précision pour Pinch-to-zoom (2 doigts) & Double-tap
   useEffect(() => {

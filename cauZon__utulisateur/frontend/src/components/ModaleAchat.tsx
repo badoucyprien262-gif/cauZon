@@ -67,6 +67,7 @@ export default function ModaleAchat({
     estConnecteGoogle,
     afficherToast,
     actualiserAbonnement,
+    creditsAbonnementRestants,
   } = useApp();
   const styles = getStyles(couleurs);
 
@@ -553,12 +554,18 @@ export default function ModaleAchat({
                 <View style={styles.vipCrownCircle}>
                   <Ionicons name="sparkles" size={24} color="#10B981" />
                 </View>
-                <Text style={styles.vipIncludedTitle}>Utiliser 1 crédit de votre abonnement</Text>
+                <Text style={styles.vipIncludedTitle}>
+                  {creditsAbonnementRestants > 0
+                    ? `Acquérir ce cours (${creditsAbonnementRestants}/10 disponibles)`
+                    : 'Quota d\'abonnement atteint (10/10)'}
+                </Text>
                 <Text style={styles.vipIncludedSub}>
-                  Vous disposez d'un abonnement actif (1 000 FCFA / 10 documents). Utilisez 1 crédit pour ajouter immédiatement ce cours à votre bibliothèque.
+                  {creditsAbonnementRestants > 0
+                    ? `Vous disposez d'un abonnement actif (1 000 FCFA / 10 documents). Il vous reste ${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} sur 10 pour ajouter des cours à votre bibliothèque.`
+                    : 'Vous avez utilisé vos 10 documents inclus ce mois-ci. Renouvelez votre abonnement pour débloquer 10 nouveaux cours ou achetez ce cours définitivement à vie (200 FCFA).'}
                 </Text>
                 <View style={styles.vipPriceRow}>
-                  <Text style={styles.vipPriceFree}>1 Crédit</Text>
+                  <Text style={styles.vipPriceFree}>{creditsAbonnementRestants > 0 ? '1 Crédit' : '0 Crédit'}</Text>
                   <Text style={styles.vipPriceOld}>{prixReel} FCFA</Text>
                 </View>
               </View>
@@ -568,15 +575,27 @@ export default function ModaleAchat({
                   <ActivityIndicator size="large" color={couleurs.primaire} />
                   <Text style={styles.loadingText}>Déblocage avec votre abonnement...</Text>
                 </View>
-              ) : (
+              ) : creditsAbonnementRestants > 0 ? (
                 <TouchableOpacity
-                  style={styles.vipAcquireBtn}
+                  style={[styles.vipAcquireBtn, { backgroundColor: '#10B981' }]}
                   onPress={executerAcquisitionVip}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="sparkles" size={20} color="#FAF6EB" style={{ marginRight: 8 }} />
-                  <Text style={styles.vipAcquireText}>Utiliser mon abonnement (1 crédit)</Text>
+                  <Text style={styles.vipAcquireText}>✨ Acquérir ({creditsAbonnementRestants}/10 restants)</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FAF6EB" style={{ marginLeft: 6 }} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.vipAcquireBtn}
+                  onPress={() => {
+                    setSelectedOption('vip');
+                    demarrerPaiementFeexPay();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="refresh" size={20} color="#FAF6EB" style={{ marginRight: 8 }} />
+                  <Text style={styles.vipAcquireText}>Renouveler l'abonnement (1 000 F / 10 cours)</Text>
                 </TouchableOpacity>
               )}
 

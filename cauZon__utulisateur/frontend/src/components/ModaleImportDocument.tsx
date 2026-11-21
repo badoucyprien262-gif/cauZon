@@ -83,17 +83,6 @@ export default function ModaleImportDocument({
 
   // 1️⃣ Étape A : Sélection du fichier PDF via DocumentPicker
   const executerSelectionFichier = async () => {
-    // 👑 Vérification stricte du statut VIP
-    if (!isVipActive) {
-      afficherToast(
-        "L'importation de documents personnels (PDF) est réservée aux abonnés VIP. Passez VIP pour débloquer le stockage illimité !",
-        "Pass VIP Requis 👑",
-        "erreur"
-      );
-      onClose();
-      return;
-    }
-
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf'],

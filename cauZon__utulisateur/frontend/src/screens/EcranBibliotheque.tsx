@@ -49,6 +49,8 @@ export default function EcranBibliotheque() {
     estVip,
     estAbonneVIP,
     aAccesVip,
+    limiteStockage,
+    aStockageEtendu,
     afficherToast,
     dateExpirationAbonnement,
     estEnLigne,
@@ -355,6 +357,13 @@ export default function EcranBibliotheque() {
   const docsPermanents = mesDocs.filter(d => !d.is_vip_consultation);
   const docsVip = mesDocs.filter(d => d.is_vip_consultation);
 
+  // Bascule automatique vers le dossier VIP si l'étudiant a acquis des cours VIP et n'a aucun document permanent
+  React.useEffect(() => {
+    if (dossierActif === 'permanent' && docsPermanents.length === 0 && docsVip.length > 0) {
+      setDossierActif('vip');
+    }
+  }, [docsPermanents.length, docsVip.length, dossierActif]);
+
   // Docs de la vue active
   const docsDeLaVue = dossierActif === 'permanent' ? docsPermanents : docsVip;
 
@@ -432,14 +441,15 @@ export default function EcranBibliotheque() {
       return;
     }
 
-    // 2. Vérification des droits VIP
-    if (!isVipActive) {
+    // 2. Vérification du quota de stockage utilisateur (base 21 documents / extension +21 docs à 1 500 FCFA)
+    const limiteEffective = typeof limiteStockage === 'number' && limiteStockage > 0 ? limiteStockage : (aStockageEtendu ? 42 : 21);
+    if (mesDocs.length >= limiteEffective) {
       afficherToast(
-        "L'importation de documents personnels (PDF) est réservée aux abonnés VIP. Passez VIP pour débloquer le stockage illimité !",
-        "Pass VIP Requis 👑",
-        "info"
+        `Quota de stockage atteint (${mesDocs.length}/${limiteEffective} documents). Étendez votre espace pour +21 documents supplémentaires (1 500 FCFA).`,
+        "Stockage Saturé 📦",
+        "erreur"
       );
-      handleOuvrirVip();
+      handleOuvrirStockage();
       return;
     }
 

@@ -101,6 +101,9 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   prix = 200,
   estSombre = false,
   scale = 1.0,
+  estAbonneVIP = false,
+  creditsAbonnementRestants = 0,
+  onAcquerir,
   onAcheter,
   onVip,
   onFermer,
@@ -643,49 +646,98 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
             🔒
           </div>
           <h2 style={{ margin: '0 0 10px 0', fontSize: '20px', fontWeight: 800, color: estSombre ? '#FFFFFF' : '#0F172A' }}>
-            Document Verrouillé
+            {estAbonneVIP && creditsAbonnementRestants > 0 ? 'Inclus dans votre abonnement' : 'Document Verrouillé'}
           </h2>
           <p style={{ margin: '0 0 24px 0', fontSize: '14px', lineHeight: '21px', color: estSombre ? '#94A3B8' : '#64748B' }}>
-            Ce cours complet nécessite une acquisition pour être consulté. Débloquez-le à l'unité ou profitez d'un accès illimité avec le Pass VIP.
+            {estAbonneVIP && creditsAbonnementRestants > 0
+              ? `Vous disposez d'un abonnement actif. Utilisez 1 crédit pour débloquer l'accès complet à ce cours (${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} restant${creditsAbonnementRestants > 1 ? 's' : ''} sur 10).`
+              : estAbonneVIP && creditsAbonnementRestants <= 0
+                ? 'Votre quota mensuel de 10 documents est atteint. Renouvelez votre abonnement ou achetez ce cours à vie.'
+                : 'Ce cours complet nécessite une acquisition pour être consulté. Débloquez-le à l\'unité (200 FCFA) ou souscrivez à l\'abonnement (1 000 FCFA / 10 documents).'}
           </p>
           <div style={{ display: 'flex', gap: '12px' }}>
-            {onAcheter && (
-              <button
-                onClick={onAcheter}
-                style={{
-                  flex: 1,
-                  padding: '13px',
-                  backgroundColor: '#7F011F',
-                  color: '#FFFFFF',
-                  borderRadius: '12px',
-                  border: 'none',
-                  fontWeight: 700,
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(127, 1, 31, 0.25)',
-                }}
-              >
-                🛒 Acheter ({prix} F)
-              </button>
-            )}
-            {onVip && (
-              <button
-                onClick={onVip}
-                style={{
-                  flex: 1,
-                  padding: '13px',
-                  backgroundColor: '#F59E0B',
-                  color: '#1E1B4B',
-                  borderRadius: '12px',
-                  border: 'none',
-                  fontWeight: 800,
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)',
-                }}
-              >
-                👑 Abonnement (1 000 F)
-              </button>
+            {estAbonneVIP && creditsAbonnementRestants > 0 ? (
+              <>
+                {onAcquerir && (
+                  <button
+                    onClick={onAcquerir}
+                    style={{
+                      flex: 1,
+                      padding: '13px',
+                      backgroundColor: '#10B981',
+                      color: '#FFFFFF',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontWeight: 800,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+                    }}
+                  >
+                    ✨ Acquérir ({creditsAbonnementRestants}/10 disponibles)
+                  </button>
+                )}
+                {onAcheter && (
+                  <button
+                    onClick={onAcheter}
+                    style={{
+                      flex: 1,
+                      padding: '13px',
+                      backgroundColor: '#7F011F',
+                      color: '#FFFFFF',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontWeight: 700,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(127, 1, 31, 0.25)',
+                    }}
+                  >
+                    🛒 Acheter à vie ({prix} F)
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {onAcheter && (
+                  <button
+                    onClick={onAcheter}
+                    style={{
+                      flex: 1,
+                      padding: '13px',
+                      backgroundColor: '#7F011F',
+                      color: '#FFFFFF',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontWeight: 700,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(127, 1, 31, 0.25)',
+                    }}
+                  >
+                    🛒 Acheter ({prix} F)
+                  </button>
+                )}
+                {onVip && (
+                  <button
+                    onClick={onVip}
+                    style={{
+                      flex: 1,
+                      padding: '13px',
+                      backgroundColor: '#F59E0B',
+                      color: '#1E1B4B',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontWeight: 800,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)',
+                    }}
+                  >
+                    👑 Abonnement (1 000 F)
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

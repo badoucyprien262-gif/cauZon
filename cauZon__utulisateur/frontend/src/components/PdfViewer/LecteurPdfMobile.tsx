@@ -21,6 +21,9 @@ export interface LecteurPdfMobileProps {
   prix?: number;
   estSombre?: boolean;
   scale?: number;
+  estAbonneVIP?: boolean;
+  creditsAbonnementRestants?: number;
+  onAcquerir?: () => void;
   onAcheter?: () => void;
   onVip?: () => void;
   onFermer?: () => void;
@@ -37,6 +40,9 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
   prix = 200,
   estSombre = false,
   scale = 1.0,
+  estAbonneVIP = false,
+  creditsAbonnementRestants = 0,
+  onAcquerir,
   onAcheter,
   onVip,
   onFermer,
@@ -205,24 +211,48 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
             </Text>
 
             <View style={styles.lockActions}>
-              {onAcheter && (
-                <TouchableOpacity
-                  style={[styles.boutonAchat, { backgroundColor: couleurs.primaire }]}
-                  onPress={onAcheter}
-                  activeOpacity={0.88}
-                >
-                  <Text style={styles.boutonAchatTexte}>🛒 Débloquer ({prix} FCFA)</Text>
-                </TouchableOpacity>
-              )}
-
-              {onVip && (
-                <TouchableOpacity
-                  style={[styles.boutonVip, { backgroundColor: couleurs.or }]}
-                  onPress={onVip}
-                  activeOpacity={0.88}
-                >
-                  <Text style={styles.boutonVipTexte}>👑 Abonnement (1 000 FCFA / 10 cours)</Text>
-                </TouchableOpacity>
+              {estAbonneVIP && creditsAbonnementRestants > 0 ? (
+                <>
+                  {onAcquerir && (
+                    <TouchableOpacity
+                      style={[styles.boutonAchat, { backgroundColor: '#10B981' }]}
+                      onPress={onAcquerir}
+                      activeOpacity={0.88}
+                    >
+                      <Text style={styles.boutonAchatTexte}>✨ Acquérir ({creditsAbonnementRestants}/10 disponibles)</Text>
+                    </TouchableOpacity>
+                  )}
+                  {onAcheter && (
+                    <TouchableOpacity
+                      style={[styles.boutonVip, { backgroundColor: couleurs.primaire }]}
+                      onPress={onAcheter}
+                      activeOpacity={0.88}
+                    >
+                      <Text style={styles.boutonVipTexte}>🛒 Acheter à vie ({prix} FCFA)</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <>
+                  {onAcheter && (
+                    <TouchableOpacity
+                      style={[styles.boutonAchat, { backgroundColor: couleurs.primaire }]}
+                      onPress={onAcheter}
+                      activeOpacity={0.88}
+                    >
+                      <Text style={styles.boutonAchatTexte}>🛒 Débloquer ({prix} FCFA)</Text>
+                    </TouchableOpacity>
+                  )}
+                  {onVip && (
+                    <TouchableOpacity
+                      style={[styles.boutonVip, { backgroundColor: couleurs.or }]}
+                      onPress={onVip}
+                      activeOpacity={0.88}
+                    >
+                      <Text style={styles.boutonVipTexte}>👑 Abonnement (1 000 FCFA / 10 cours)</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </View>
           </View>
