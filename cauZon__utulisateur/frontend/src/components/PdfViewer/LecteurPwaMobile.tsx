@@ -445,7 +445,7 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
 
         let maxPages = totalPages;
 
-        if (estVerrouille) {
+        if (estVerrouille && !estAbonneVIP) {
           const limitePagesEffectives = Number(limiteApercuPages) ||
             (limiteApercuType === 'page' ? Number(limiteApercuValeur) : 0) ||
             (limiteApercuType === 'pourcentage' ? Math.max(1, Math.round(totalPages * ((Number(limiteApercuValeur) || 30) / 100))) : 2);
@@ -495,8 +495,8 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
           wrapperRefs.current[pageNum] = wrapper;
         }
 
-        // 🛡️ Paywall de blocage après la dernière page gratuite autorisée
-        if (estVerrouille && maxPages < totalPages) {
+        // 🛡️ Paywall de blocage après la dernière page gratuite autorisée (uniquement si non-abonné)
+        if (estVerrouille && !estAbonneVIP && maxPages < totalPages) {
           const paywallWrapper = document.createElement('div');
           paywallWrapper.className = 'cauzon-paywall-block';
           paywallWrapper.style.display = 'block';

@@ -185,8 +185,8 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
     };
   }, [afficherNotification]);
 
-  // Total effectif de pages accessibles
-  const totalEffectifPages = estVerrouille ? pagesApercuAutorisees : (nombrePagesTotal || 1);
+  // Total effectif de pages accessibles (feuilletage complet garanti pour l'abonné actif)
+  const totalEffectifPages = (estVerrouille && !estAbonneVIP) ? pagesApercuAutorisees : (nombrePagesTotal || 1);
 
   // 2. RASTÉRISATION HAUTE DÉFINITION VECTORIELLE AU NIVEAU DE ZOOM EXACT
   const rasteriserPage = useCallback(async (pageNum: number, currentScale: number) => {
@@ -302,9 +302,9 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
         setNombrePagesTotal(total);
         onDocumentLoad?.(total);
 
-        // Calcul des pages autorisées en cas de verrouillage DRM
+        // Calcul des pages autorisées en cas de verrouillage DRM (feuilletage complet si abonné)
         let allowed = total;
-        if (estVerrouille) {
+        if (estVerrouille && !estAbonneVIP) {
           if (limiteApercuType === 'page') {
             const limiteP = Number(limiteApercuValeur) || Number(limiteApercuPages) || 1;
             allowed = Math.min(Math.max(1, limiteP), total);
@@ -1263,8 +1263,8 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
               );
             })}
 
-            {/* Bannière Paywall à la fin de l'extrait gratuit */}
-            {estVerrouille && pagesApercuAutorisees > 0 && (
+            {/* Bannière Paywall à la fin de l'extrait gratuit (masquée pour l'abonné avec feuilletage libre) */}
+            {estVerrouille && !estAbonneVIP && pagesApercuAutorisees > 0 && (
               <div
                 style={{
                   width: '100%',

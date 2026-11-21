@@ -207,8 +207,8 @@ function genererCahierDesChargesPdf() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...TEXT_DARK);
-  doc.text('Date de référence : 22 Novembre 2026   |   Statut : Étapes 1 à 4 validées + Correctif SQL 42P01 Autonome validé', marginX + 4, currentY + 12);
-  doc.text('Version : 3.14.0 (Correction SQL 42P01 abonnements_etudiants ; Migration 100% autonome IF NOT EXISTS ; DDL, RLS, Quotas & RPC)', marginX + 4, currentY + 17);
+  doc.text('Date de référence : 22 Novembre 2026   |   Statut : Étapes 1 à 4 validées + Feuilletage complet abonné & Correctif publication validés', marginX + 4, currentY + 12);
+  doc.text('Version : 3.15.1 (Compatibilité stricte vue classement_documents ; Typage UUID natif & Overload TEXT ; Auto-guérison VIP)', marginX + 4, currentY + 17);
 
   currentY += 30;
 
@@ -361,9 +361,15 @@ function genererCahierDesChargesPdf() {
   );
 
   drawStatusBox(
-    'Migration SQL Autonome (Résolution 42P01 abonnements_etudiants)',
+    'Publication Posteur Résiliente & Colonne created_at',
     'fait',
-    'Script 20261122_fix_deblocage_abonnement_et_quotas.sql 100% autonome : création IF NOT EXISTS abonnements_etudiants, posteurs_wallets, acquisitions, RLS et RPC atomique.'
+    'Insertion sécurisée sans dépendance stricte au cache schema PostgREST + script SQL ajoutant created_at/updated_at et author_id sur documents.'
+  );
+
+  drawStatusBox(
+    'Feuilletage Complet & Déblocage Réel Abonné (PWA & Mobile)',
+    'fait',
+    'Feuilletage 100% libre de tout le catalogue pour l\'abonné actif sans paywall bloquant. Bouton Acquérir fonctionnel avec auto-guérison sur profil VIP et quota 10 docs.'
   );
 
   drawStatusBox(

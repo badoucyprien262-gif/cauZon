@@ -117,26 +117,22 @@ export default function EcranLecteurDocument() {
   // 3. Document au titre du VIP : l'accès est subordonné au statut VIP actif (revérrouillé si expiré).
   // 4. Document non acheté : débloqué si le Pass VIP est actif, sinon verrouillé.
   const estAcheteDefinitivement = docsDebloquesIds.includes(document.id) || docsDebloquesIds.includes(docParams.id);
+  const docAcquisEnLigne = acquisitions?.find((a: any) => a.id === document.id || a.document_id === document.id);
 
-  let estDebloqueGlobalement = false;
-  if (estDocumentImporte || estAcheteDefinitivement) {
-    estDebloqueGlobalement = true;
-  } else if (estAuTitreVip) {
-    // Si acquis via abonnement mensuel (10 documents), débloqué tant que l'abonnement est actif
-    estDebloqueGlobalement = estAbonneVIP;
-  } else if (estHorsLigne) {
-    const docAcquis = acquisitions?.find((a: any) => a.id === document.id || a.document_id === document.id);
-    if (docAcquis) {
-      estDebloqueGlobalement = docAcquis.is_vip_consultation ? estAbonneVIP : true;
-    } else {
-      estDebloqueGlobalement = false;
-    }
-  } else {
-    // Dans le catalogue : cours non acquis = VERROUILLÉ (seules les pages gratuites sont visibles)
-    estDebloqueGlobalement = false;
-  }
+  // Document réellement acquis dans la bibliothèque (achat unitaire 200 F, import perso, ou déjà acquis sous abonnement)
+  const estDejaAcquis = Boolean(
+    estDocumentImporte ||
+    estAcheteDefinitivement ||
+    (estAuTitreVip && estAbonneVIP) ||
+    (docAcquisEnLigne && (!docAcquisEnLigne.is_vip_consultation || estAbonneVIP))
+  );
 
-  const estVerrouille = !estDocumentImporte && (document.prix > 0 && !estDebloqueGlobalement);
+  // Règle de feuilletage complet pour l'abonné actif :
+  // Tant que l'utilisateur a un abonnement actif (estAbonneVIP), TOUS les documents du catalogue
+  // sont 100% feuilletables/scrollables du début à la fin sans blocage ni bannière de fermeture post-page.
+  // Seul un utilisateur non abonné ET n'ayant pas acheté le document subit le verrouillage paywall de lecture.
+  const estVerrouille = !estDocumentImporte && (document.prix > 0 && !estDejaAcquis && !estAbonneVIP);
+  const afficherBanniereAcquisition = !estDejaAcquis;
 
   // ⚡ Détection synchrone ultra-rapide (< 1 ms) si la source est déjà en mémoire RAM (Cache L1)
   const idDocumentCourant = document.id || docParams.id || cloudPathNettoye || cheminBrut;
@@ -606,11 +602,7 @@ export default function EcranLecteurDocument() {
                 style={[
                   styles.floatingControlsContainer,
                   {
-                    bottom:
-                      estVerrouille ||
-                      (estAbonneVIP && !docsDebloquesIds.includes(document.id) && !estDocumentImporte)
-                        ? 80
-                        : 24,
+                    bottom: afficherBanniereAcquisition ? 80 : 24,
                   },
                 ]}
               >
@@ -674,7 +666,7 @@ export default function EcranLecteurDocument() {
         )}
 
         {/* Panneau d'action intelligent superposé au bas de l'écran si le cours n'est pas encore acquis */}
-        {estVerrouille && (
+        {afficherBanniereAcquisition && (
           <View style={styles.lockOverlayPanel}>
             <View style={styles.lockIconContainer}>
               <Ionicons
@@ -693,9 +685,9 @@ export default function EcranLecteurDocument() {
               </Text>
               <Text style={styles.lockSubtitle}>
                 {estAbonneVIP && creditsAbonnementRestants > 0
-                  ? `${10 - creditsAbonnementRestants} sur 10 cours acquis · ${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} restant${creditsAbonnementRestants > 1 ? 's' : ''}`
+                  ? `Feuilletage libre actif · ${creditsAbonnementRestants} crédit${creditsAbonnementRestants > 1 ? 's' : ''} restant${creditsAbonnementRestants > 1 ? 's' : ''} sur 10`
                   : estAbonneVIP && creditsAbonnementRestants <= 0
-                    ? 'Renouvelez votre abonnement ou achetez ce cours à vie.'
+                    ? 'Feuilletage libre actif · Achetez pour conserver ce cours à vie.'
                     : `Débloquez le cours complet de ${nombrePagesReel} pages.`}
               </Text>
             </View>

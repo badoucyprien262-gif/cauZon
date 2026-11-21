@@ -227,8 +227,13 @@ export async function publierDocumentPosteur(
     params.onProgress?.(20, 'Optimisation haute performance du PDF (pdf-lib)…');
     const { bytes, nombrePages, tailleMo } = await optimiserPdfPosteur(params.fileUri, params.titre);
 
-    // 5. Génération identifiants et chemins de stockage
-    const docId = `doc_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+    // 5. Génération identifiant UUID conforme et chemins de stockage
+    const docId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        });
     const cleanFileName = params.fileName
       .toLowerCase()
       .replace(/[^a-z0-9._-]/g, '_')
@@ -287,11 +292,32 @@ export async function publierDocumentPosteur(
       author_id: params.userId,
       author_pseudo: params.authorPseudo || 'Créateur',
       author_avatar_url: params.authorAvatarUrl || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
 
-    const { error: dbErr } = await supabase.from('documents').insert([nouveauDoc]);
+    let { error: dbErr } = await supabase.from('documents').insert([nouveauDoc]);
+
+    // Repli de tolérance : si le cache de schéma PostgREST signale une colonne absente (created_at, updated_at, pages_gratuites, etc.)
+    if (dbErr && (dbErr.message?.includes('schema cache') || dbErr.message?.includes('column') || dbErr.code === 'PGRST204')) {
+      console.warn('[DB Insert Document] Erreur de cache PostgREST détectée, tentative d\'insertion avec charge utile allégée…', dbErr.message);
+      const docAllégé: any = {
+        id: docId,
+        titre: params.titre.trim(),
+        categorie: params.categorie.trim() || 'Général',
+        description: params.description.trim(),
+        tags: params.tags ? params.tags.trim() : null,
+        prix: 200,
+        est_certifie: false,
+        est_verrouille: true,
+        nombre_pages: nombrePages,
+        taille_mo: tailleMo,
+        file_path: storagePath,
+        cover_url: finalCoverUrl || null,
+        status: 'published',
+        author_id: params.userId,
+      };
+      const retryResult = await supabase.from('documents').insert([docAllégé]);
+      dbErr = retryResult.error;
+    }
 
     if (dbErr) {
       console.error('[DB Insert Document Error]', dbErr);

@@ -54,13 +54,27 @@ export interface EspacePosteur {
 }
 
 export const chargerEspacePosteur = async (userId: string): Promise<EspacePosteur> => {
-  const [walletRes, docsRes, retraitsRes] = await Promise.all([
-    supabase.from('posteurs_wallets').select('*').eq('user_id', userId).maybeSingle(),
-    supabase
+  // Récupération des publications avec repli sécurisé au cas où la colonne created_at n'est pas encore créée
+  const recupererDocsPosteur = async () => {
+    const res = await supabase
       .from('documents')
       .select('id, titre, tags, taille_mo, status, cover_url, nombre_pages, created_at')
       .eq('author_id', userId)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false });
+    
+    if (res.error && (res.error.message?.includes('created_at') || res.error.message?.includes('schema cache'))) {
+      const fallbackRes = await supabase
+        .from('documents')
+        .select('id, titre, tags, taille_mo, status, cover_url, nombre_pages')
+        .eq('author_id', userId);
+      return fallbackRes.data || [];
+    }
+    return res.data || [];
+  };
+
+  const [walletRes, docsData, retraitsRes] = await Promise.all([
+    supabase.from('posteurs_wallets').select('*').eq('user_id', userId).maybeSingle(),
+    recupererDocsPosteur(),
     supabase
       .from('demandes_retrait_posteurs')
       .select('id, montant, operateur, statut, created_at')
@@ -70,7 +84,7 @@ export const chargerEspacePosteur = async (userId: string): Promise<EspacePosteu
   ]);
 
   const wallet = (walletRes.data as WalletPosteur | null) ?? null;
-  const publications = ((docsRes.data as PublicationPosteur[]) ?? []);
+  const publications = (docsData as PublicationPosteur[]) ?? [];
   const retraits = ((retraitsRes.data as DemandeRetrait[]) ?? []);
 
   // Espace réellement consommé : on retient le plus fiable des deux (wallet serveur / somme des PDF)

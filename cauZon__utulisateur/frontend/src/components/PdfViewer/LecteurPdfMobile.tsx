@@ -101,6 +101,7 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
 
   const pageEstVerrouillee = Boolean(
     estVerrouille &&
+    !estAbonneVIP &&
     limiteApercuPages > 0 &&
     currentPage > limiteApercuPages
   );

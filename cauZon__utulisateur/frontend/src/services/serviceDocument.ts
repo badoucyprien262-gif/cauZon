@@ -2587,14 +2587,66 @@ export const acquerirDocumentVIP = async (
         .order('created_at', { ascending: false })
         .limit(1);
 
-      if (errAbo || !abos || abos.length === 0) {
+      let abosList = abos || [];
+
+      // Auto-guérison immédiate : si l'utilisateur possède le Pass VIP actif dans profiles ou en cache
+      if (abosList.length === 0) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('has_vip_pass, vip_expiration_date')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        let estVipActif = Boolean(prof?.has_vip_pass);
+        let dateFinAbo = prof?.vip_expiration_date;
+
+        if (!estVipActif) {
+          try {
+            const rawVip = await AsyncStorage.getItem('cauzon_vip_status');
+            if (rawVip) {
+              const parsedVip = JSON.parse(rawVip);
+              if (parsedVip.has_vip_pass) {
+                estVipActif = true;
+                dateFinAbo = parsedVip.vip_expiration_date;
+              }
+            }
+          } catch (_) {}
+        }
+
+        if (estVipActif) {
+          const dateFinISO = dateFinAbo && new Date(dateFinAbo).getTime() > Date.now()
+            ? new Date(dateFinAbo).toISOString()
+            : new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+
+          const { data: creeAbo } = await supabase
+            .from('abonnements_etudiants')
+            .insert([{
+              user_id: user.id,
+              formule: 'mensuel_1000',
+              montant_paye: 1000,
+              date_debut: new Date().toISOString(),
+              date_fin: dateFinISO,
+              quota_documents_autorises: 10,
+              documents_debloques_ids: [],
+              statut: 'actif',
+            }])
+            .select()
+            .maybeSingle();
+
+          if (creeAbo) {
+            abosList = [creeAbo];
+          }
+        }
+      }
+
+      if (abosList.length === 0) {
         return {
           success: false,
           message: 'Aucun abonnement étudiant actif trouvé. Veuillez souscrire à la formule à 1 000 FCFA (10 documents).',
         };
       }
 
-      const abo = abos[0];
+      const abo = abosList[0];
       const debloques = Array.isArray(abo.documents_debloques_ids) ? abo.documents_debloques_ids : [];
       const quotaMax = abo.quota_documents_autorises || 10;
 
@@ -2615,9 +2667,15 @@ export const acquerirDocumentVIP = async (
         montant_paye: 0,
       };
 
-      const { error: errAcq } = await supabase
+      let { error: errAcq } = await supabase
         .from('acquisitions')
         .upsert([insertionData], { onConflict: 'document_id,user_id' });
+
+      if (errAcq) {
+        // Repli direct par insertion simple
+        const fallbackInsert = await supabase.from('acquisitions').insert([insertionData]);
+        errAcq = fallbackInsert.error;
+      }
 
       if (errAcq) {
         console.error('Erreur insertion acquisitions Supabase :', errAcq.message);
@@ -3131,7 +3189,7 @@ export const activerPassVIP = async (
       console.warn('Note RPC activation abonnement :', eRpc);
     }
 
-    // 2. Synchronisation de sécurité sur profiles
+    // 2. Synchronisation de sécurité sur profiles et abonnements_etudiants
     if (user?.id) {
       try {
         await supabase
@@ -3142,6 +3200,22 @@ export const activerPassVIP = async (
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);
+      } catch (_) {}
+
+      try {
+        await supabase
+          .from('abonnements_etudiants')
+          .insert([{
+            user_id: user.id,
+            formule: 'mensuel_1000',
+            montant_paye: 1000,
+            date_debut: new Date().toISOString(),
+            date_fin: dateExpISO,
+            quota_documents_autorises: 10,
+            documents_debloques_ids: [],
+            statut: 'actif',
+            reference_paiement_feexpay: reference || `FP_${Date.now()}`,
+          }]);
       } catch (_) {}
     }
 
