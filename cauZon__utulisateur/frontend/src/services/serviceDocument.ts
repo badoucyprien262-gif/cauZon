@@ -330,7 +330,7 @@ export const mapperDbDocVersDocument = (dbDoc: any): any => {
     categorie: dbDoc.categorie,
     estCertifie: dbDoc.est_certifie ?? false,
     estPretHorsLigne: dbDoc.est_pret_hors_ligne ?? false,
-    prix: dbDoc.prix ?? 100,
+    prix: dbDoc.prix ?? 200,
     estVerrouille: dbDoc.est_verrouille ?? true,
     nombrePages: dbDoc.total_pages || dbDoc.page_count || dbDoc.nombre_pages || dbDoc.pages || dbDoc.nombrePages || 1,
     tailleMo: dbDoc.taille_mo ?? 1.5,
@@ -343,6 +343,11 @@ export const mapperDbDocVersDocument = (dbDoc: any): any => {
     file_path: dbDoc.file_path ?? '',
     coverUrl: dbDoc.cover_url ?? '',
     statut: dbDoc.status === 'inactif' || dbDoc.status === 'archived' ? 'inactif' : 'actif',
+    author_id: dbDoc.author_id ?? null,
+    author_pseudo: dbDoc.author_pseudo || dbDoc.author_name || null,
+    author_avatar_url: dbDoc.author_avatar_url || null,
+    authorPseudo: dbDoc.author_pseudo || dbDoc.author_name || null,
+    authorAvatarUrl: dbDoc.author_avatar_url || null,
   };
 };
 
@@ -2518,27 +2523,38 @@ export const enregistrerConsultationVip = async (documentId: string): Promise<vo
 };
 
 /**
- * Acquiert un document pour un abonné VIP (0 FCFA) et l'assigne explicitement au dossier VIP.
- * Enregistre l'acquisition dans Supabase avec is_vip_consultation = true.
+ * Acquiert un document pour un étudiant abonné (1 crédit sur les 10 autorisés)
+ * - Appelle la fonction RPC debloquer_document_via_abonnement pour vérifier les règles :
+ *   1. Anti-auto-achat (user !== author_id)
+ *   2. Quota restant sur les 10 crédits
+ *   3. Enregistrement is_vip_consultation: true (re-verrouillable à l'échéance 30j)
+ *   4. Crédit de +50 FCFA au posteur
  */
 export const acquerirDocumentVIP = async (
   documentId: string
-): Promise<{ success: boolean; message: string }> => {
+): Promise<{ success: boolean; message: string; documentsRestants?: number }> => {
   try {
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();
 
-    const insertData: any = {
-      document_id: documentId,
-      device_id: deviceId,
-      is_welcome_offer: false,
-      is_vip_consultation: true,
-      montant_paye: 0,
-    };
-    if (user) insertData.user_id = user.id;
+    // 1. Appel RPC sécurisé côté serveur
+    try {
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('debloquer_document_via_abonnement', {
+        p_document_id: documentId,
+        p_device_id: deviceId,
+      });
 
-    // 1. 🔒 SÉCURITÉ : Les écritures directes dans `acquisitions` depuis le client mobile sont neutralisées.
-    // L'accès VIP est validé dynamiquement via le profil VIP et géré dans le cache local de l'utilisateur.
+      if (!rpcErr && rpcRes) {
+        if (!rpcRes.success) {
+          return {
+            success: false,
+            message: rpcRes.message || 'Impossible de débloquer ce cours avec votre abonnement.',
+          };
+        }
+      }
+    } catch (rpcCallErr) {
+      console.warn('Note RPC debloquer_document_via_abonnement (fallback local) :', rpcCallErr);
+    }
 
     // 2. Synchronisation immédiate du cache local de la bibliothèque
     try {
@@ -2563,15 +2579,15 @@ export const acquerirDocumentVIP = async (
         }
       }
     } catch (cacheErr) {
-      console.warn('Note synchro cache local VIP :', cacheErr);
+      console.warn('Note synchro cache local abonnement :', cacheErr);
     }
 
     return {
       success: true,
-      message: 'Cours ajouté avec succès à votre dossier VIP 👑 !',
+      message: 'Cours débloqué via votre abonnement étudiant et ajouté à votre bibliothèque !',
     };
   } catch (error: any) {
-    console.error("Erreur lors de l'acquisition VIP :", error.message);
+    console.error("Erreur lors de l'acquisition sous abonnement :", error.message);
     return { success: false, message: error.message || "Impossible d'acquérir ce document." };
   }
 };
@@ -2780,7 +2796,7 @@ export const enregistrerTransactionFinanciere = async ({
 /**
  * Enregistre un achat payé de document dans Supabase avec anti-double débit
  */
-export const enregistrerAchatDocument = async (documentId: string, montantPaye: number = 100): Promise<{ success: boolean; message: string }> => {
+export const enregistrerAchatDocument = async (documentId: string, montantPaye: number = 200): Promise<{ success: boolean; message: string }> => {
   try {
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();
@@ -2835,10 +2851,10 @@ export const enregistrerAchatDocument = async (documentId: string, montantPaye: 
 
         if (errInsert) {
           console.warn('Tentative upsert après rejet insert direct :', errInsert.message);
-          await supabase
+          const { error: errUpsert } = await supabase
             .from('acquisitions')
-            .upsert([insertionData], { onConflict: user?.id ? 'document_id,user_id' : 'document_id,device_id' })
-            .catch((e) => console.warn('Repli upsert acquisition échoué :', e));
+            .upsert([insertionData], { onConflict: user?.id ? 'document_id,user_id' : 'document_id,device_id' });
+          if (errUpsert) console.warn('Repli upsert acquisition échoué :', errUpsert.message);
         } else {
           console.log(`✅ [Acquisition] Achat permanent enregistré dans Supabase pour ${documentId}`);
         }
@@ -3041,24 +3057,26 @@ export const activerPassVIP = async (
 
 
 /**
- * Active l'extension de stockage CUMULATIVE (+75 docs par pack) et la persiste dans Supabase.
- * Chaque achat à 1000 FCFA incrémente la limite actuelle de +75 documents (75 -> 150 -> 225 -> 300...).
+ * Active l'extension de stockage CUMULATIVE (+21 docs par pack de 1500 FCFA) et la persiste dans Supabase.
+ * Chaque achat à 1500 FCFA incrémente la limite actuelle de +21 documents (21 -> 42 -> 63 -> 84...).
  */
 export const activerStockageEtendu = async (): Promise<{ success: boolean; message: string; nouveauPlafond: number }> => {
   try {
     const deviceId = await getDeviceId();
     const { data: { user } } = await supabase.auth.getUser();
 
-    let limiteActuelle = 75;
+    let limiteActuelle = 21;
 
     // Récupérer la limite existante depuis Supabase ou le cache
     if (user) {
       const { data: prof } = await supabase
         .from('profiles')
-        .select('storage_limit, has_extended_storage')
+        .select('quota_documents_lambda, storage_limit, has_extended_storage')
         .eq('id', user.id)
         .maybeSingle();
-      if (prof?.storage_limit && prof.storage_limit >= 75) {
+      if (prof?.quota_documents_lambda && prof.quota_documents_lambda >= 21) {
+        limiteActuelle = prof.quota_documents_lambda;
+      } else if (prof?.storage_limit && prof.storage_limit >= 21) {
         limiteActuelle = prof.storage_limit;
       }
     } else if (deviceId) {
@@ -3067,13 +3085,13 @@ export const activerStockageEtendu = async (): Promise<{ success: boolean; messa
         .select('storage_limit, has_extended_storage')
         .eq('device_id', deviceId)
         .maybeSingle();
-      if (appDev?.storage_limit && appDev.storage_limit >= 75) {
+      if (appDev?.storage_limit && appDev.storage_limit >= 21) {
         limiteActuelle = appDev.storage_limit;
       }
     }
 
-    // Calcul cumulatif (+75 documents par achat)
-    const nouveauPlafond = limiteActuelle + 75;
+    // Calcul cumulatif (+21 documents par achat à 1 500 FCFA)
+    const nouveauPlafond = limiteActuelle + 21;
 
     // 1. Persistance si utilisateur connecté
     if (user) {
@@ -3081,6 +3099,7 @@ export const activerStockageEtendu = async (): Promise<{ success: boolean; messa
         .from('profiles')
         .update({ 
           has_extended_storage: true,
+          quota_documents_lambda: nouveauPlafond,
           storage_limit: nouveauPlafond,
           updated_at: new Date().toISOString(),
         })

@@ -38,6 +38,7 @@ interface PurchaseModalProps {
   documentTitle: string;
   documentId: string;
   documentPrix?: number;
+  documentAuthorId?: string;
   forcerAchatPermanent?: boolean;
 }
 
@@ -48,6 +49,7 @@ export default function ModaleAchat({
   documentTitle,
   documentId,
   documentPrix,
+  documentAuthorId,
   forcerAchatPermanent = false,
 }: PurchaseModalProps) {
   const {
@@ -72,12 +74,17 @@ export default function ModaleAchat({
   const [motifGating, setMotifGating] = useState<MotifGating>('achat');
 
   // L'utilisateur est-il en mode consultation VIP gratuite ?
-  // Si forcerAchatPermanent est actif (ex: bouton "Transférer à vie (100 F)"),
-  // on FORCE le tunnel d'achat définitif à 100 FCFA même si le pass VIP est actif !
+  // Si forcerAchatPermanent est actif (ex: bouton "Transférer à vie (200 F)"),
+  // on FORCE le tunnel d'achat définitif à 200 FCFA même si le pass VIP est actif !
   const isVipMode = (estVip || estAbonneVIP) && !forcerAchatPermanent;
 
-  // Prix dynamique réel du document (fallback à 100 FCFA si non spécifié)
-  const prixReel = typeof documentPrix === 'number' && documentPrix > 0 ? documentPrix : 100;
+  // Prix dynamique réel du document (fallback à 200 FCFA si non spécifié)
+  const prixReel = typeof documentPrix === 'number' && documentPrix > 0 ? documentPrix : 200;
+
+  // Détection anti-auto-achat côté UI
+  const estAuteurDuDocument = Boolean(
+    utilisateur?.id && documentAuthorId && utilisateur.id === documentAuthorId
+  );
 
   const [identifiantAppareil, setIdentifiantAppareil] = useState<string>('Chargement...');
   const [chargementEnCours, setChargementEnCours] = useState<boolean>(false);
@@ -221,12 +228,12 @@ export default function ModaleAchat({
     });
     if (!eligible) return;
 
-    const amount = selectedOption === 'single' ? prixReel : 500;
+    const amount = selectedOption === 'single' ? prixReel : 1000;
     const desc = forcerAchatPermanent
       ? `Transfert définitif à vie (${prixReel} F): ${documentTitle}`
       : selectedOption === 'single'
       ? `Achat Cours (${prixReel} F): ${documentTitle}`
-      : 'Location Mensuelle Catalogue cauZon';
+      : 'Abonnement Mensuel 10 Documents cauZon';
     const newTransId = generateFeexPayTransactionId();
     setPayAmount(amount);
     setPayDescription(desc);
@@ -271,7 +278,7 @@ export default function ModaleAchat({
       setChargementEnCours(true);
 
       if (selectedOption === 'single') {
-        // Achat à l'acte / Transfert à vie (100 FCFA)
+        // Achat à l'acte / Transfert à vie (200 FCFA)
         const result = await paidUnlock(documentId, payAmount);
         setChargementEnCours(false);
 
@@ -373,7 +380,27 @@ export default function ModaleAchat({
             </TouchableOpacity>
           </View>
 
-          {showFeexPay ? (
+          {/* Anti-auto-achat Avertissement */}
+          {estAuteurDuDocument ? (
+            <View style={{
+              backgroundColor: couleurs.estSombre ? 'rgba(239,68,68,0.15)' : '#FEF2F2',
+              borderRadius: 16,
+              padding: 16,
+              borderWidth: 1.5,
+              borderColor: '#EF4444',
+              alignItems: 'center',
+              gap: 8,
+              marginVertical: 12,
+            }}>
+              <Ionicons name="shield-outline" size={32} color="#EF4444" />
+              <Text style={{ fontSize: 16, fontWeight: '800', color: '#EF4444', textAlign: 'center' }}>
+                Auto-achat Interdit (Anti-Fraude)
+              </Text>
+              <Text style={{ fontSize: 13, color: couleurs.texteSecondaire, textAlign: 'center', lineHeight: 18 }}>
+                Vous êtes l'auteur et propriétaire de ce document. Les règles de sécurité cauZon interdisent d'acquérir vos propres cours.
+              </Text>
+            </View>
+          ) : showFeexPay ? (
             /* Guichet FeexPay WebView (Mobile) ou Iframe Interactif (Web/PC) */
             <View style={styles.webviewWrapper}>
               {Platform.OS === 'web' ? (
@@ -522,12 +549,12 @@ export default function ModaleAchat({
                 <View style={styles.vipCrownCircle}>
                   <Ionicons name="sparkles" size={24} color="#10B981" />
                 </View>
-                <Text style={styles.vipIncludedTitle}>Inclus dans votre Pass VIP</Text>
+                <Text style={styles.vipIncludedTitle}>Utiliser 1 crédit de votre abonnement</Text>
                 <Text style={styles.vipIncludedSub}>
-                  En tant que membre VIP cauZon, ce cours est accessible gratuitement et sera automatiquement ajouté à votre espace VIP.
+                  Vous disposez d'un abonnement actif (1 000 FCFA / 10 documents). Utilisez 1 crédit pour ajouter immédiatement ce cours à votre bibliothèque.
                 </Text>
                 <View style={styles.vipPriceRow}>
-                  <Text style={styles.vipPriceFree}>0 FCFA</Text>
+                  <Text style={styles.vipPriceFree}>1 Crédit</Text>
                   <Text style={styles.vipPriceOld}>{prixReel} FCFA</Text>
                 </View>
               </View>
@@ -535,7 +562,7 @@ export default function ModaleAchat({
               {chargementEnCours ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={couleurs.primaire} />
-                  <Text style={styles.loadingText}>Attribution VIP en cours...</Text>
+                  <Text style={styles.loadingText}>Déblocage avec votre abonnement...</Text>
                 </View>
               ) : (
                 <TouchableOpacity
@@ -544,13 +571,27 @@ export default function ModaleAchat({
                   activeOpacity={0.85}
                 >
                   <Ionicons name="sparkles" size={20} color="#FAF6EB" style={{ marginRight: 8 }} />
-                  <Text style={styles.vipAcquireText}>Acquérir (VIP · 0 FCFA)</Text>
+                  <Text style={styles.vipAcquireText}>Utiliser mon abonnement (1 crédit)</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FAF6EB" style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
               )}
+
+              {/* Option alternative : acheter à vie à 200 F même si abonné */}
+              <TouchableOpacity
+                style={{
+                  marginTop: 12,
+                  paddingVertical: 10,
+                  alignItems: 'center',
+                }}
+                onPress={demarrerPaiementFeexPay}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: couleurs.primaire }}>
+                  Ou acheter définitivement à vie ({prixReel} FCFA)
+                </Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            /* VUE STANDARD NON-VIP OU TRANSFERT PERMANENT (100 FCFA) */
+            /* VUE STANDARD NON-VIP OU TRANSFERT PERMANENT (200 FCFA) */
             <View style={styles.optionsWrapper}>
               {/* Infos Fichier */}
               <View style={styles.docInfoBox}>
@@ -595,26 +636,26 @@ export default function ModaleAchat({
                     </Text>
                   </TouchableOpacity>
 
-                  {/* Option B: Location Mensuelle */}
-                  <TouchableOpacity
-                    style={[
-                      styles.optionCard,
-                      selectedOption === 'vip' && styles.optionCardActive,
-                      styles.optionCardVip,
-                    ]}
-                    onPress={() => setSelectedOption('vip')}
-                  >
-                    <View style={styles.optionHeader}>
-                      <View style={styles.vipTag}>
-                        <Text style={styles.vipTagText}>👑 CATALOGUE ENTIER</Text>
-                      </View>
-                      <Text style={[styles.optionPrice, { color: '#10B981' }]}>500 FCFA</Text>
-                    </View>
-                    <Text style={styles.optionTitleVip}>Formule Location (30 jours)</Text>
-                    <Text style={styles.optionDesc}>
-                      Accès illimité à tout le catalogue + Import & Stockage de 75 documents personnels.
-                    </Text>
-                  </TouchableOpacity>
+              {/* Option B: Abonnement Mensuel */}
+              <TouchableOpacity
+                style={[
+                  styles.optionCard,
+                  selectedOption === 'vip' && styles.optionCardActive,
+                  styles.optionCardVip,
+                ]}
+                onPress={() => setSelectedOption('vip')}
+              >
+                <View style={styles.optionHeader}>
+                  <View style={styles.vipTag}>
+                    <Text style={styles.vipTagText}>👑 10 DOCUMENTS / MOIS</Text>
+                  </View>
+                  <Text style={[styles.optionPrice, { color: '#10B981' }]}>1 000 FCFA</Text>
+                </View>
+                <Text style={styles.optionTitleVip}>Abonnement Étudiant (30 jours)</Text>
+                <Text style={styles.optionDesc}>
+                  Débloquez jusqu'à 10 documents dans votre bibliothèque. Accès suspendu à l'échéance si non renouvelé (les achats à 200 F restent acquis à vie).
+                </Text>
+              </TouchableOpacity>
                 </>
               )}
 
@@ -641,11 +682,11 @@ export default function ModaleAchat({
                     onPress={demarrerPaiementFeexPay}
                   >
                     <Ionicons name="card" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.payText}>
-                      {forcerAchatPermanent
-                        ? `Transférer pour ${prixReel} FCFA par FeexPay`
-                        : `Payer ${selectedOption === 'single' ? prixReel : '500'} FCFA par FeexPay`}
-                    </Text>
+                      <Text style={styles.payText}>
+                        {forcerAchatPermanent
+                          ? `Transférer pour ${prixReel} FCFA par FeexPay`
+                          : `Payer ${selectedOption === 'single' ? prixReel : '1 000'} FCFA par FeexPay`}
+                      </Text>
                   </TouchableOpacity>
                 </View>
               )}

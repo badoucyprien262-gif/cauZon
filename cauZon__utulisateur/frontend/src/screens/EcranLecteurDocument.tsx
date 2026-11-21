@@ -112,7 +112,7 @@ export default function EcranLecteurDocument() {
   );
 
   // Règle d'étanchéité stricte :
-  // 1. Achat définitif (100 FCFA ou offre bienvenue) ou document importé : TOUJOURS 100% débloqué à vie (abonné VIP ou non).
+  // 1. Achat définitif (200 FCFA ou offre bienvenue) ou document importé : TOUJOURS 100% débloqué à vie (abonné VIP ou non).
   // 2. Mode Hors-Ligne : Si présent dans la bibliothèque ou déjà débloqué, accès direct sans appel réseau.
   // 3. Document au titre du VIP : l'accès est subordonné au statut VIP actif (revérrouillé si expiré).
   // 4. Document non acheté : débloqué si le Pass VIP est actif, sinon verrouillé.
@@ -467,7 +467,7 @@ export default function EcranLecteurDocument() {
           )}
 
           {/* Bouton Rotation Paysage/Portrait : Uniquement sur Mobile (iOS/Android) */}
-          {Platform.OS !== 'web' && (
+          {(Platform.OS as string) !== 'web' && (
             <TouchableOpacity 
               style={[styles.rotateBtn, estPaysage && styles.rotateBtnPaysage]} 
               onPress={basculerOrientationManuelle}
@@ -689,7 +689,7 @@ export default function EcranLecteurDocument() {
                 onPress={ouvrirModaleAchatSecurisee}
               >
                 <Ionicons name="cart" size={14} color={couleurs.blanc} />
-                <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 100} F)</Text>
+                <Text style={styles.buyBtnText}>Acheter ({document.prix ?? 200} F)</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -697,7 +697,7 @@ export default function EcranLecteurDocument() {
                 onPress={ouvrirModaleVipSecurisee}
               >
                 <Ionicons name="gift" size={14} color={couleurs.primaire} />
-                <Text style={styles.vipBtnText}>Pass VIP (500 F)</Text>
+                <Text style={styles.vipBtnText}>Abonnement (1 000 F)</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -711,7 +711,8 @@ export default function EcranLecteurDocument() {
         onSuccess={handleUnlockSuccess}
         documentTitle={document.titre}
         documentId={document.id}
-        documentPrix={document.prix ?? 100}
+        documentPrix={document.prix ?? 200}
+        documentAuthorId={(document as any).author_id}
       />
 
 

@@ -6,6 +6,7 @@ import { Ionicons } from '../components/AppIcon';
 import NetInfo from '@react-native-community/netinfo';
 import EcranAccueil from '../screens/EcranAccueil';
 import EcranBibliotheque from '../screens/EcranBibliotheque';
+import EcranEspacePosteur from '../screens/EcranEspacePosteur';
 import EcranLecteurDocument from '../screens/EcranLecteurDocument';
 import PdfViewerScreen from '../screens/PdfViewerScreen';
 import EcranPolitiqueConfidentialite from '../screens/EcranPolitiqueConfidentialite';
@@ -15,6 +16,7 @@ import { fetchCatalogueDocuments } from '../services/serviceDocument';
 
 export type RootStackParamList = {
   MainTabs: undefined;
+  EspacePosteur: undefined;
   PolitiqueConfidentialite: undefined;
   DocumentViewer: {
     document: Document;
@@ -220,6 +222,7 @@ export default function NavigateurApp() {
       }}
     >
       <Stack.Screen name="MainTabs" component={NavigateurTabsPrincipales} />
+      <Stack.Screen name="EspacePosteur" component={EcranEspacePosteur} />
       <Stack.Screen name="PolitiqueConfidentialite" component={EcranPolitiqueConfidentialite} />
       <Stack.Screen name="DocumentViewer" component={EcranLecteurDocument} />
       <Stack.Screen name="PdfViewer" component={PdfViewerScreen} />

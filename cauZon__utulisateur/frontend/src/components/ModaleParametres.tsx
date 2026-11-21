@@ -917,7 +917,7 @@ export default function ModaleParametres({ visible, onClose }: SettingsModalProp
                 <View style={styles.settingRow}>
                   <View style={styles.settingLabelRow}>
                     <Ionicons name="ribbon" size={20} color={couleurs.primaire} />
-                    <Text style={styles.settingLabel}>Location du Catalogue (500F)</Text>
+                    <Text style={styles.settingLabel}>Abonnement Mensuel (1 000F / 10 docs)</Text>
                   </View>
                   {estVip ? (
                     <View style={styles.activeBadge}>

@@ -52,18 +52,26 @@ if (process.env.ADMIN_URL) {
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Autoriser requêtes sans en-tête origin (ex: curl/applications natives mobiles) ou domaines de confiance
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origine CORS non autorisée : ${origin}`));
+      // 1. Autoriser les requêtes sans en-tête origin (ex: curl/mobile natif)
+      if (!origin) {
+        return callback(null, true);
       }
+      // 2. Autoriser tous les hôtes de développement local (localhost, 127.0.0.1, réseau local sur n'importe quel port)
+      const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin);
+      if (isLocalhost || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      // 3. Origine non autorisée : refuser sans crash 500
+      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key', 'Accept', 'Origin', 'X-Requested-With'],
   })
 );
+
+// Répondre immédiatement aux requêtes preflight OPTIONS
+app.options('*', cors());
 
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));

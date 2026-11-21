@@ -104,7 +104,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
   const [estEligibleOffreBienvenue, setEstEligibleOffreBienvenue] = useState<boolean>(false);
   const [estVip, setEstVip] = useState<boolean>(false);
   const [aStockageEtendu, setAStockageEtendu] = useState<boolean>(false);
-  const [limiteStockage, setLimiteStockage] = useState<number>(75);
+  const [limiteStockage, setLimiteStockage] = useState<number>(21);
 
   // 🎨 Gestion pérenne du Thème (Clair / Sombre / Système)
   const systemColorScheme = useColorScheme();
@@ -886,7 +886,9 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // ── Stockage étendu ───────────────────────────────────
         const stockageEtendu: boolean = profil.has_extended_storage ?? false;
-        const limiteStock: number = profil.storage_limit && profil.storage_limit >= 75 ? profil.storage_limit : (stockageEtendu ? 150 : 75);
+        const limiteStock: number = profil.quota_documents_lambda && profil.quota_documents_lambda >= 21
+          ? profil.quota_documents_lambda
+          : (profil.storage_limit && profil.storage_limit >= 21 ? profil.storage_limit : (stockageEtendu ? 42 : 21));
         setAStockageEtendu(stockageEtendu);
         setLimiteStockage(limiteStock);
 
@@ -1057,7 +1059,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // 2. Mettre à jour l'état local immédiatement
     setAStockageEtendu(true);
-    setLimiteStockage(result.nouveauPlafond || (limiteStockage + 75));
+    setLimiteStockage(result.nouveauPlafond || (limiteStockage + 21));
 
     // 3. Re-synchroniser avec Supabase
     await chargerStatutVIP();
@@ -1102,7 +1104,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     setDateExpirationAbonnement(null);
     setVipExpireAt(null);
     setAStockageEtendu(false);
-    setLimiteStockage(75);
+    setLimiteStockage(21);
     setDocsDebloquesIds([]);
     setAcquisitions([]);
     setDocumentsImportes([]);
@@ -1168,7 +1170,7 @@ export const FournisseurApp: React.FC<{ children: React.ReactNode }> = ({ childr
     setDateExpirationAbonnement(null);
     setVipExpireAt(null);
     setAStockageEtendu(false);
-    setLimiteStockage(75);
+    setLimiteStockage(21);
 
     // 2. Exécute ensuite la purge du stockage local (AsyncStorage et localStorage.clear() pour les clés de session)
     const clesAPurger = [

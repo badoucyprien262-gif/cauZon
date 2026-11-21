@@ -697,6 +697,17 @@ export default function EcranAccueil() {
       {/* 1. Entête supérieur fixe (cauZon + profil) */}
       <View style={[styles.header, { zIndex: 30 }]}>
         <Text style={styles.appName}>cauZon</Text>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('EspacePosteur')}
+          style={styles.posteurBtn}
+          activeOpacity={0.8}
+          accessibilityLabel="Espace Posteur"
+        >
+          <Ionicons name="videocam" size={20} color={couleurs.accent} />
+          <View style={styles.posteurBadge}>
+            <Ionicons name="sparkles" size={9} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.profileBtn} activeOpacity={0.8}>
           <AvatarDynamique 
             taille={34} 
@@ -1309,7 +1320,7 @@ export default function EcranAccueil() {
         onSuccess={() => {}}
       />
 
-      {/* Modale d'achat à l'acte (100 FCFA) */}
+      {/* Modale d'achat à l'acte (200 FCFA) */}
       {documentPourAchat && (
         <ModaleAchat
           visible={modaleAchatVisible}
@@ -1323,7 +1334,8 @@ export default function EcranAccueil() {
           }}
           documentTitle={documentPourAchat.titre}
           documentId={documentPourAchat.id}
-          documentPrix={documentPourAchat.prix ?? 100}
+          documentPrix={documentPourAchat.prix ?? 200}
+          documentAuthorId={(documentPourAchat as any).author_id}
         />
       )}
       </View>
@@ -1347,6 +1359,32 @@ const getStyles = (couleurs: any) => StyleSheet.create({
     position: 'relative',
     borderBottomWidth: 1,
     borderBottomColor: couleurs.bordure,
+  },
+  posteurBtn: {
+    position: 'absolute',
+    left: 20,
+    top: Platform.OS === 'ios' ? 56 : (StatusBar.currentHeight ? StatusBar.currentHeight + 10 : 34),
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: couleurs.estSombre ? 'rgba(255, 255, 255, 0.08)' : 'rgba(245, 235, 208, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: couleurs.accent,
+  },
+  posteurBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: '#10B981',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: couleurs.fondEntete,
   },
   profileBtn: {
     position: 'absolute',

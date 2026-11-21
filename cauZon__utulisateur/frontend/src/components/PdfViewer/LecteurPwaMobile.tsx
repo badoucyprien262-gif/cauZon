@@ -21,7 +21,7 @@ export const LecteurPwaMobile: React.FC<LecteurPdfProps> = ({
   limiteApercuPages = 1,
   limiteApercuType = 'pourcentage',
   limiteApercuValeur = 30,
-  prix = 100,
+  prix = 200,
   estSombre = false,
   scale = 1.0,
   onAcheter,

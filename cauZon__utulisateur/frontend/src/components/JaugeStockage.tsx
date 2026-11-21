@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { Ionicons } from './AppIcon';
 import { useApp } from '../store/ContexteApp';
@@ -72,7 +72,7 @@ export default function JaugeStockage({ nombreDocuments, surClicAmeliorer }: Sto
           <>
             <Ionicons name="sparkles" size={16} color="#10B981" />
             <Text style={[styles.texteBoutonUpgrade, { color: couleurs.texte }]}>
-              Plafond : {limiteTotale} docs · Ajouter +75 docs (1000 F)
+              Plafond : {limiteTotale} docs · Ajouter +21 docs (1 500 F)
             </Text>
             <Ionicons name="add-circle" size={16} color="#10B981" />
           </>
@@ -80,7 +80,7 @@ export default function JaugeStockage({ nombreDocuments, surClicAmeliorer }: Sto
           <>
             <Ionicons name="rocket-outline" size={16} color="#FFFFFF" />
             <Text style={[styles.texteBoutonUpgrade, { color: '#FFFFFF' }]}>
-              Augmenter à {limiteTotale + 75} docs (1000 FCFA)
+              Augmenter à {limiteTotale + 21} docs (1 500 FCFA)
             </Text>
             <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
           </>

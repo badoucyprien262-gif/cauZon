@@ -67,7 +67,7 @@ export interface CustomerFeexPay {
 
 export interface FeexPayMetadata {
   userId?: string | null;
-  typeAchat?: 'single' | 'acte' | 'vip' | 'stockage';
+  typeAchat?: 'single' | 'acte' | 'vip' | 'stockage' | 'extension_lambda' | 'extension_posteur';
   documentId?: string | null;
   deviceId?: string | null;
 }

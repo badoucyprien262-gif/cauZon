@@ -34,7 +34,7 @@ export const LecteurPdfMobile: React.FC<LecteurPdfMobileProps> = ({
   urlFichier,
   estVerrouille = false,
   limiteApercuPages = 3,
-  prix = 100,
+  prix = 200,
   estSombre = false,
   scale = 1.0,
   onAcheter,

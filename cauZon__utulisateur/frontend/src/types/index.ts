@@ -23,6 +23,11 @@ export interface Document {
   cloud_path?: string;
   statut?: string;
   status?: string;
+  author_id?: string;
+  author_pseudo?: string;
+  author_avatar_url?: string;
+  authorPseudo?: string;
+  authorAvatarUrl?: string;
   is_vip_consultation?: boolean;
   estImporte?: boolean;
   dateAjout?: string;
@@ -47,6 +52,9 @@ export interface DocumentCourse {
   taille_mo: number;
   file_path: string;
   status: string;
+  author_id?: string;
+  author_pseudo?: string;
+  author_avatar_url?: string;
   is_vip_consultation?: boolean;
   est_importe?: boolean;
   date_ajout?: string;

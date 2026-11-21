@@ -4,7 +4,8 @@
   "description": "API serveur cauZon - Node.js / Express / Cloudflare R2",
   "main": "src/index.js",
   "scripts": {
-    "dev": "nodemon src/index.ts",
+    "dev": "nodemon --watch src --exec ts-node src/index.ts",
+    "serve": "ts-node src/index.ts",
     "build": "tsc -b",
     "start": "node dist/index.js"
   },

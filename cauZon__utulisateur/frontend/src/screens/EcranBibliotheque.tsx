@@ -204,7 +204,7 @@ export default function EcranBibliotheque() {
         categorie: dbDoc.categorie,
         estCertifie: dbDoc.est_certifie ?? false,
         estPretHorsLigne: dbDoc.est_pret_hors_ligne ?? true,
-        prix: dbDoc.prix ?? 100,
+        prix: dbDoc.prix ?? 200,
         estVerrouille: false,
         nombrePages: dbDoc.total_pages || dbDoc.page_count || dbDoc.nombre_pages || dbDoc.pages || dbDoc.nombrePages || 1,
         tailleMo: dbDoc.taille_mo ?? 1.5,
@@ -633,7 +633,7 @@ export default function EcranBibliotheque() {
             <Text style={[styles.infoBannerVipText, !isVipActive && { color: "#DC2626" }]}>
               {isVipActive 
                 ? `Location active jusqu'au ${dateExpirationAbonnement || 'prochaine échéance'}. Lecture illimitée.`
-                : "Période de location expirée. Achetez vos cours à 100 FCFA pour les transférer dans votre dossier permanent."}
+                : "Période de location expirée. Achetez vos cours à 200 FCFA pour les transférer dans votre dossier permanent."}
             </Text>
           </View>
         )}
@@ -713,7 +713,7 @@ export default function EcranBibliotheque() {
                 />
                 <Text style={styles.emptyText}>
                   {dossierActif === 'permanent'
-                    ? "Aucun cours permanent pour le moment.\nVos achats individuels à 100 FCFA apparaîtront ici à vie."
+                    ? "Aucun cours permanent pour le moment.\nVos achats individuels à 200 FCFA apparaîtront ici à vie."
                     : "Aucun cours consulté en mode Location.\nLes cours consultés pendant votre période de location s'affichent ici."}
                 </Text>
               </View>
@@ -816,7 +816,7 @@ export default function EcranBibliotheque() {
                           </Text>
                           {estVerrouilleVip ? (
                             <Text style={styles.lockedWarningText}>
-                              🔒 VIP expiré : Achetez à 100 F pour le transférer en permanent
+                              🔒 VIP expiré : Achetez à 200 F pour le transférer en permanent
                             </Text>
                           ) : doc.description ? (
                             <Text style={styles.docDescription} numberOfLines={2}>
@@ -845,7 +845,7 @@ export default function EcranBibliotheque() {
                                 onPress={() => handleOuvrirAchatPermanent(doc)}
                               >
                                 <Ionicons name="shield-checkmark" size={14} color="#15803D" style={{ marginRight: 4 }} />
-                                <Text style={styles.buyTransferBtnText}>Transférer à vie ({doc.prix ?? 100} F)</Text>
+                                <Text style={styles.buyTransferBtnText}>Transférer à vie ({doc.prix ?? 200} F)</Text>
                               </TouchableOpacity>
                             )}
 
@@ -864,7 +864,7 @@ export default function EcranBibliotheque() {
                               onPress={() => handleOuvrirAchatPermanent(doc)}
                             >
                               <Ionicons name="cart-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                              <Text style={styles.buyNowLockedBtnText}>Débloquer à vie ({doc.prix ?? 100} FCFA)</Text>
+                              <Text style={styles.buyNowLockedBtnText}>Débloquer à vie ({doc.prix ?? 200} FCFA)</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity 
@@ -904,7 +904,8 @@ export default function EcranBibliotheque() {
           }}
           documentId={documentPourAchat.id}
           documentTitle={documentPourAchat.titre}
-          documentPrix={documentPourAchat.prix ?? 100}
+          documentPrix={documentPourAchat.prix ?? 200}
+          documentAuthorId={(documentPourAchat as any).author_id}
           forcerAchatPermanent={forcerAchatPermanent}
         />
       )}

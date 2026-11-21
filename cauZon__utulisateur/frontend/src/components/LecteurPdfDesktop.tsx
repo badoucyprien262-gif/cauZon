@@ -98,7 +98,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
   limiteApercuPages = 1,
   limiteApercuType = 'pourcentage',
   limiteApercuValeur = 30,
-  prix = 100,
+  prix = 200,
   estSombre = false,
   scale = 1.0,
   onAcheter,
@@ -684,7 +684,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                   boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)',
                 }}
               >
-                👑 Pass VIP (500 F)
+                👑 Abonnement (1 000 F)
               </button>
             )}
           </div>
@@ -1300,7 +1300,7 @@ const LecteurPdfDesktopInternal: React.FC<LecteurPdfProps> = ({
                         boxShadow: '0 4px 14px rgba(245, 158, 11, 0.3)',
                       }}
                     >
-                      👑 Activer le Pass VIP (500 F)
+                      👑 Activer l'Abonnement (1 000 F)
                     </button>
                   )}
                 </div>

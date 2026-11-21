@@ -248,8 +248,8 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                     <iframe
                       srcDoc={generateFeexPayHtml(
                         {
-                          amount: 500,
-                          description: 'Location Mensuelle Catalogue cauZon',
+                          amount: 1000,
+                          description: 'Abonnement Mensuel 10 Documents cauZon',
                           transId: transId,
                           customer: buildCustomer(),
                           operator: operateurSelectionne,
@@ -276,8 +276,8 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                       source={{
                         html: generateFeexPayHtml(
                           {
-                            amount: 500,
-                            description: 'Location Mensuelle Catalogue cauZon',
+                            amount: 1000,
+                            description: 'Abonnement Mensuel 10 Documents cauZon',
                             transId: transId,
                             customer: buildCustomer(),
                             operator: operateurSelectionne,
@@ -318,7 +318,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                     { fontSize: 18, marginTop: 32, marginBottom: 12, textAlign: 'center' },
                   ]}
                 >
-                  Location du Catalogue (500 FCFA)
+                  Abonnement Étudiant (1 000 FCFA / mois)
                 </Text>
 
                 {/* Saisie / Confirmation Numéro Mobile */}
@@ -443,9 +443,9 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                   <View style={styles.crownBadge}>
                     <Ionicons name="sparkles" size={30} color="#10B981" />
                   </View>
-                  <Text style={styles.vipTitle}>Location du Catalogue</Text>
+                  <Text style={styles.vipTitle}>Abonnement Étudiant</Text>
                   <Text style={styles.vipSubtitle}>
-                    Accédez à l'intégralité des cours & débloquez l'import de documents personnels
+                    Débloquez 10 documents par mois dans votre bibliothèque et profitez de la lecture hors-ligne
                   </Text>
                 </View>
 
@@ -459,8 +459,8 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                   </View>
                   <View style={styles.priceRow}>
                     <Text style={styles.priceCurrency}>FCFA</Text>
-                    <Text style={styles.priceAmount}>500</Text>
-                    <Text style={styles.pricePeriod}>/ 30 jours</Text>
+                    <Text style={styles.priceAmount}>1 000</Text>
+                    <Text style={styles.pricePeriod}>/ 30 jours (10 cours)</Text>
                   </View>
                   <Text style={styles.priceSubtext}>Frais d'opérateur inclus · Zéro surcoût</Text>
                 </View>
@@ -488,7 +488,7 @@ export default function ModaleVip({ visible, onClose, onSuccess }: VipModalProps
                   </View>
                 ) : (
                   <TouchableOpacity style={styles.subscribeBtn} onPress={demarrerPaiementVIP}>
-                    <Text style={styles.subscribeText}>Louer le catalogue (500 FCFA / 30j)</Text>
+                    <Text style={styles.subscribeText}>S'abonner (1 000 FCFA / 10 cours)</Text>
                     <Ionicons
                       name="arrow-forward"
                       size={18}

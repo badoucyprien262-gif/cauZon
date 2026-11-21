@@ -187,7 +187,7 @@ export async function uploaderDocumentViaBackend(
 
     // Étape 3 : Téléversement direct du binaire vers Supabase Storage
     onProgress?.(55, '📤 Téléversement direct vers Supabase Storage…');
-    const blobToUpload = new Blob([compression.bytes], { type: 'application/pdf' });
+    const blobToUpload = new Blob([compression.bytes as any], { type: 'application/pdf' });
     const { error: uploadErr } = await supabase.storage
       .from(BUCKET_DOCS)
       .upload(storagePath, blobToUpload, {

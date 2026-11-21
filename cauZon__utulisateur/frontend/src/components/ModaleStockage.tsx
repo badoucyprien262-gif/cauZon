@@ -34,8 +34,8 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
   const { couleurs, telephoneFacturation, acheterExtensionStockage, nomUtilisateur, utilisateur, estConnecteGoogle, limiteStockage, afficherToast } = useApp();
   const styles = getStyles(couleurs);
 
-  const limiteActuelle = limiteStockage || 75;
-  const nouvelleLimite = limiteActuelle + 75;
+  const limiteActuelle = limiteStockage || 21;
+  const nouvelleLimite = limiteActuelle + 21;
 
   const [chargementEnCours, setChargementEnCours] = useState<boolean>(false);
   const [emailUtilisateur, setEmailUtilisateur] = useState<string>('');
@@ -233,14 +233,14 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
                 <iframe
                   srcDoc={generateFeexPayHtml(
                     {
-                      amount: 1000,
-                      description: 'Extension Stockage +75 Docs Personnels',
+                      amount: 1500,
+                      description: 'Extension Bibliothèque +21 Documents',
                       transId: transId,
                       customer: buildCustomer(),
                       operator: operateurSelectionne,
                       metadata: {
                         userId: utilisateur?.id || null,
-                        typeAchat: 'stockage',
+                        typeAchat: 'extension_lambda',
                         documentId: null,
                         deviceId: null,
                       },
@@ -261,14 +261,14 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
                   source={{
                     html: generateFeexPayHtml(
                       {
-                        amount: 1000,
-                        description: 'Extension Stockage +75 Docs Personnels',
+                        amount: 1500,
+                        description: 'Extension Bibliothèque +21 Documents',
                         transId: transId,
                         customer: buildCustomer(),
                         operator: operateurSelectionne,
                         metadata: {
                           userId: utilisateur?.id || null,
-                          typeAchat: 'stockage',
+                          typeAchat: 'extension_lambda',
                           documentId: null,
                           deviceId: null,
                         },
@@ -427,14 +427,14 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
               {/* Infos Offre */}
               <View style={styles.offerBox}>
                 <View style={styles.offerDetails}>
-                  <Text style={styles.offerTitle}>Pack Stockage Cloud (+75 Docs)</Text>
+                  <Text style={styles.offerTitle}>Extension Bibliothèque (+21 Docs)</Text>
                   <Text style={styles.offerDesc}>
-                    Passez de votre quota actuel ({limiteActuelle} docs) à {nouvelleLimite} documents personnels cloud.
+                    Passez de votre quota actuel ({limiteActuelle} docs) à {nouvelleLimite} documents hors-ligne.
                   </Text>
                 </View>
                 <View style={styles.priceContainer}>
-                  <Text style={styles.priceValue}>1000 FCFA</Text>
-                  <Text style={styles.pricePeriod}>+75 docs</Text>
+                  <Text style={styles.priceValue}>1 500 FCFA</Text>
+                  <Text style={styles.pricePeriod}>+21 docs</Text>
                 </View>
               </View>
 
@@ -466,7 +466,7 @@ export default function ModaleStockage({ visible, onClose, onSuccess }: StorageM
                     color="#FFFFFF"
                     style={{ marginRight: 6 }}
                   />
-                  <Text style={styles.payText}>Payer 1000 FCFA par FeexPay</Text>
+                  <Text style={styles.payText}>Payer 1 500 FCFA par FeexPay</Text>
                 </TouchableOpacity>
               )}
             </View>

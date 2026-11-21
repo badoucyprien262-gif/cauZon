@@ -41,6 +41,12 @@ export default function CarteDocument({
   // Vérifier si le cours est déjà dans la bibliothèque
   const estAcquis = docsDebloquesIds.includes(document.id);
 
+  // 🏷️ Détection de la provenance : Posteur / Créateur indépendant vs Plateforme cauZon
+  const authorId = document.author_id || (document as any).authorId;
+  const authorPseudo = document.authorPseudo || (document as any).author_pseudo || (document as any).authorName;
+  const authorAvatar = document.authorAvatarUrl || (document as any).author_avatar_url;
+  const estPublieParPosteur = Boolean(authorId || authorPseudo);
+
   // ⚡ Micro-interaction tactile 60 FPS (200ms, scale-98, courbe naturelle)
   const handlePressIn = () => {
     if (isReduced) return;
@@ -102,7 +108,7 @@ export default function CarteDocument({
         onPressOut={handlePressOut}
         onPress={onPress}
       >
-        {/* En-tête de la carte : Badges Catégorie + Certification */}
+        {/* En-tête de la carte : Badges Catégorie + Provenance (Posteur vs cauZon Certifié) */}
         <View style={styles.enteteCarte}>
           <View style={styles.badgeCategorie}>
             <View style={styles.dotCategorie} />
@@ -111,10 +117,27 @@ export default function CarteDocument({
             </Text>
           </View>
 
-          {document.estCertifie && (
+          {estPublieParPosteur ? (
+            <View style={styles.badgePosteurAuteur}>
+              {authorAvatar ? (
+                <Image source={{ uri: authorAvatar }} style={styles.avatarAuteurMini} resizeMode="cover" />
+              ) : (
+                <View style={[styles.avatarAuteurMini, styles.avatarAuteurVide]}>
+                  <Text style={styles.initialeAuteur}>
+                    {(authorPseudo || 'P').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={styles.texteNomAuteur} numberOfLines={1} ellipsizeMode="tail">
+                {authorPseudo || 'Créateur'}
+              </Text>
+            </View>
+          ) : (
             <View style={styles.badgeCertifie}>
               <Ionicons name="ribbon-outline" size={10} color="#10B981" />
-              <Text style={styles.texteBadgeCertifie}>Certifié</Text>
+              <Text style={styles.texteBadgeCertifie}>
+                {document.estCertifie ? 'cauZon · Certifié' : 'cauZon'}
+              </Text>
             </View>
           )}
         </View>
@@ -344,6 +367,43 @@ const getStyles = (couleurs: any, categorieColor: string) =>
       fontWeight: '800',
       color: '#10B981',
       flexShrink: 0,
+    },
+    badgePosteurAuteur: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 12,
+      backgroundColor: couleurs.estSombre
+        ? 'rgba(255, 255, 255, 0.08)'
+        : 'rgba(127, 1, 31, 0.06)',
+      borderWidth: 0.5,
+      borderColor: couleurs.estSombre ? 'rgba(255, 255, 255, 0.15)' : 'rgba(127, 1, 31, 0.15)',
+      gap: 4,
+      maxWidth: '48%',
+      flexShrink: 0,
+    },
+    avatarAuteurMini: {
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+    },
+    avatarAuteurVide: {
+      backgroundColor: couleurs.primaire,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    initialeAuteur: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      lineHeight: 10,
+    },
+    texteNomAuteur: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: couleurs.texte,
+      flexShrink: 1,
     },
     conteneurMiniature: {
       height: 84,
